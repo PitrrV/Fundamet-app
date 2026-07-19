@@ -136,6 +136,8 @@ async function processCurrency(currency) {
 }
 
 async function main() {
+  console.log(`Připojuji se na Supabase URL: "${SUPABASE_URL}" (délka service key: ${SUPABASE_SERVICE_KEY.length} znaků)`);
+
   const { data: currencies, error } = await supabase
     .from("currencies")
     .select("*")
@@ -143,6 +145,7 @@ async function main() {
 
   if (error) {
     console.error("Nepodařilo se načíst tabulku currencies:", error.message);
+    if (error.cause) console.error("Příčina:", error.cause);
     process.exit(1);
   }
 
