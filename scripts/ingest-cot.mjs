@@ -135,8 +135,30 @@ async function processCurrency(currency) {
   return { code: currency.code, ok: true };
 }
 
+async function healthCheck() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+      headers: { apikey: SUPABASE_SERVICE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_KEY}` },
+    });
+    console.log(`Health check: HTTP ${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      console.log("Tělo odpovědi:", await res.text());
+    }
+  } catch (err) {
+    console.error("Health check selhal:", err.message);
+    let cause = err.cause;
+    let depth = 0;
+    while (cause && depth < 5) {
+      console.error(`  příčina[${depth}]:`, cause.code ?? cause.message ?? cause);
+      cause = cause.cause;
+      depth++;
+    }
+  }
+}
+
 async function main() {
   console.log(`Připojuji se na Supabase URL: "${SUPABASE_URL}" (délka service key: ${SUPABASE_SERVICE_KEY.length} znaků)`);
+  await healthCheck();
 
   const { data: currencies, error } = await supabase
     .from("currencies")
