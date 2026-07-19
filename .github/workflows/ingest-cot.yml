@@ -1,0 +1,22 @@
+name: Ingest CFTC COT Data
+
+on:
+  schedule:
+    - cron: '0 6 * * 6'   # sobota 06:00 UTC — bezpečně po pátečním ~15:30 ET CFTC releasu
+    - cron: '0 14 * * 1'  # pondělí 14:00 UTC — pojistka pro svátky posunuté vydání
+  workflow_dispatch: {}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: node scripts/ingest-cot.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}

@@ -23,13 +23,16 @@ export interface MacroEvent {
   detail: EventDetail;
 }
 
+export type DataTier = "cot_only" | "partial" | "full";
+
 export interface CurrencyData {
   code: string;
   score: number; // -5..+5
   convictionLabel: string;
   summary: string; // may contain **bold** markers
   cotPositioning: string;
-  pricedIn: string;
-  longTermBias: string;
+  pricedIn: string | null; // null = zdroj zatím není napojen, nezobrazovat fabrikované číslo
+  longTermBias: string | null; // null = zdroj zatím není napojen
+  dataTier: DataTier;
   events: MacroEvent[];
 }

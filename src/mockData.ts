@@ -3,6 +3,7 @@ import type { CurrencyData } from "./types";
 export const CURRENCIES: CurrencyData[] = [
   {
     code: "USD",
+    dataTier: "full",
     score: -1.2,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:
@@ -55,6 +56,7 @@ export const CURRENCIES: CurrencyData[] = [
   },
   {
     code: "EUR",
+    dataTier: "full",
     score: 2.4,
     convictionLabel: "STŘEDNÍ CONVICTION",
     summary:
@@ -127,6 +129,7 @@ export const CURRENCIES: CurrencyData[] = [
   },
   {
     code: "GBP",
+    dataTier: "full",
     score: -3.1,
     convictionLabel: "VYSOKÁ CONVICTION",
     summary:
@@ -179,6 +182,7 @@ export const CURRENCIES: CurrencyData[] = [
   },
   {
     code: "CAD",
+    dataTier: "full",
     score: 0.3,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:
