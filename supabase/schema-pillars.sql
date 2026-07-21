@@ -17,7 +17,7 @@ alter table confluence_scores add column if not exists conviction_stars   intege
 alter table confluence_scores add column if not exists conviction_reasons jsonb;
 
 -- ── cb_policy_state: politika CB, real yield, zaceněnost — odvozeno z calendar_events ──────
-create table cb_policy_state (
+create table if not exists cb_policy_state (
   currency_code    text primary key references currencies(code),
   rate             numeric,          -- poslední známá politická sazba (z Interest Rate eventů)
   cpi              numeric,          -- poslední známá roční inflace (z Inflation eventů)
@@ -32,7 +32,7 @@ create table cb_policy_state (
 );
 
 -- ── market_regime: risk-on/off z VIX (FRED, bez klíče) — jeden řádek, přepisuje se ────────
-create table market_regime (
+create table if not exists market_regime (
   id               boolean primary key default true check (id),  -- vynutí přesně 1 řádek
   vix              numeric,
   vix_5d_change    numeric,
@@ -47,7 +47,23 @@ alter table narratives add column if not exists scenarios jsonb;
 alter table cb_policy_state enable row level security;
 alter table market_regime   enable row level security;
 
+drop policy if exists "public read cb_policy_state" on cb_policy_state;
+drop policy if exists "public read market_regime"   on market_regime;
 create policy "public read cb_policy_state" on cb_policy_state for select using (true);
 create policy "public read market_regime"   on market_regime   for select using (true);
 
 grant select on cb_policy_state, market_regime to anon, authenticated;
+
+-- ── OPRAVA: latest_confluence_scores a latest_narratives jsou VIEW přes `select *` ──────────
+-- Postgres zamyká seznam sloupců view v okamžiku vytvoření — nové sloupce přidané výše přes
+-- `alter table` se do už existujících view samy nepropíšou. CREATE OR REPLACE VIEW je bezpečné
+-- spustit opakovaně a se stejným dotazem jen "dotáhne" aktuální sadu sloupců podkladové tabulky.
+create or replace view latest_confluence_scores as
+  select distinct on (currency_code) *
+  from confluence_scores
+  order by currency_code, report_date desc;
+
+create or replace view latest_narratives as
+  select distinct on (currency_code) *
+  from narratives
+  order by currency_code, generated_at desc;

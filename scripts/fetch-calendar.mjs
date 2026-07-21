@@ -325,11 +325,16 @@ async function recomputeScores() {
     );
     if (cbErr) console.error(`[${currencyCode}] chyba upsertu cb_policy_state:`, cbErr.message);
 
-    const { data: latestCot } = await supabase
+    const { data: latestCot, error: cotSelectErr } = await supabase
       .from("latest_confluence_scores")
       .select("report_date, cot_score, retail_score, cot_percentile")
       .eq("currency_code", currencyCode)
       .limit(1);
+
+    if (cotSelectErr) {
+      console.error(`[${currencyCode}] chyba čtení latest_confluence_scores:`, cotSelectErr.message);
+      continue;
+    }
 
     const cotRow = latestCot?.[0];
     if (!cotRow) {
