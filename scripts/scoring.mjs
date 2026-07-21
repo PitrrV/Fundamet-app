@@ -72,6 +72,24 @@ export function computeCotScore(historyAsc) {
   };
 }
 
+/**
+ * Percentil pořadí posledního čistého pozicování v trailing okně — "jak crowded" je dnešní
+ * pozice vůči vlastní historii (ne z-skóre, ale prosté pořadí: 90. percentil = vyšší než 90 %
+ * pozorování za posledních ~3 roky). Používá se jako risk-filtr pro konvicience (viz
+ * scripts/fetch-calendar.mjs), ne jako směrový signál.
+ * @param {Array<{report_date: string, lev_money_net: number}>} historyAsc
+ */
+export function cotPercentile(historyAsc) {
+  const trailing = historyAsc.slice(Math.max(0, historyAsc.length - 1 - TRAILING_WEEKS), historyAsc.length);
+  if (trailing.length < 12) return null;
+
+  const latest = trailing[trailing.length - 1].lev_money_net;
+  const rest = trailing.slice(0, -1).map((r) => r.lev_money_net);
+  if (rest.length === 0) return null;
+
+  return Math.round((rest.filter((v) => v <= latest).length / rest.length) * 100);
+}
+
 export function cotPositioningLabel(zscore) {
   if (zscore > 2) return "Blízko extrému (long)";
   if (zscore < -2) return "Blízko extrému (short)";

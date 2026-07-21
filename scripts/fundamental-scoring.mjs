@@ -5,16 +5,24 @@
 // Pořadí je záměrné: "Labor -Unemployment" MUSÍ být před "Labor +Jobs", protože
 // "unemployment" obsahuje substring "employment" a naivní matching by jinak chytil
 // špatné pravidlo (opačné znaménko) pro každý unemployment report.
+// Přesně převzato z aktuálního engine.js (FX Analyzer) — dřívější verze tady vycházela ze
+// zkrácené specifikace (FF_CALENDAR_INTEGRATION_SPEC.md), která pár klíčových frází vynechala
+// (např. "deposit facility rate" — ForexFactory pojmenování ECB sazby by tak nikdy nespadlo
+// do kategorie "Interest Rates" a real yield/CB policy pilíř by pro EUR neměl žádná data).
 export const EVENT_RULES = [
-  { cat: "Interest Rates", keys: ["interest rate", "rate decision", "rate statement", "funds rate", "bank rate", "cash rate", "refi rate"], w: 3.5, dir: 1 },
-  { cat: "Inflation", keys: ["cpi", "consumer price index", "inflation rate", "core inflation", "hicp", "pce", "ppi", "producer price"], w: 3.0, dir: 1 },
-  { cat: "Labor -Unemployment", keys: ["unemployment rate", "unemployment claims", "jobless claims", "claimant count"], w: 3.0, dir: -1 },
-  { cat: "Labor +Jobs", keys: ["non-farm", "nonfarm", "payroll", "employment change", "adp", "wage", "earnings"], w: 3.0, dir: 1 },
+  { cat: "Interest Rates", keys: ["interest rate", "rate decision", "rate statement", "funds rate", "policy rate", "bank rate", "deposit facility rate", "refinancing rate", "cash rate", "overnight rate", "main refinancing"], w: 3.5, dir: 1 },
+  { cat: "Inflation", keys: ["cpi", "consumer price index", "inflation rate", "core inflation", "hicp", "pce", "personal consumption", "ppi", "producer price"], w: 3.0, dir: 1 },
+  // Pořadí záměrné: "Labor -Unemployment" MUSÍ být před "Labor +Jobs" — "unemployment"
+  // obsahuje jako substring "employment", takže by jinak vždy chytila +Jobs (dir:1) místo
+  // správné -Unemployment (dir:-1) a engine by KAŽDÝ pokles nezaměstnanosti (bullish)
+  // vykládal jako bearish miss a naopak.
+  { cat: "Labor -Unemployment", keys: ["unemployment rate", "unemployment claims", "unemployment change", "jobless claims", "initial claims", "continuing claims", "claimant count"], w: 3.0, dir: -1 },
+  { cat: "Labor +Jobs", keys: ["non-farm", "nonfarm", "payroll", "employment change", "employment", "adp", "average hourly earnings", "wage", "earnings"], w: 3.0, dir: 1 },
   { cat: "GDP", keys: ["gdp", "gross domestic product"], w: 2.2, dir: 1 },
-  { cat: "PMI", keys: ["manufacturing pmi", "services pmi", "composite pmi", "ism"], w: 1.8, dir: "pmi" },
+  { cat: "PMI", keys: ["manufacturing pmi", "services pmi", "service pmi", "composite pmi", "pmi", "purchasing managers", "ism manufacturing", "ism services"], w: 1.8, dir: "pmi" },
   { cat: "Retail Sales", keys: ["retail sales"], w: 1.7, dir: 1 },
   { cat: "External Balance", keys: ["trade balance", "current account"], w: 1.0, dir: 1 },
-  { cat: "Confidence", keys: ["consumer confidence", "business confidence", "zew", "ifo"], w: 1.0, dir: 1 },
+  { cat: "Confidence", keys: ["consumer confidence", "business confidence", "sentiment", "zew", "ifo"], w: 1.0, dir: 1 },
 ];
 
 const INDIRECT_MAP = {
@@ -28,7 +36,7 @@ const INDIRECT_FACTOR = 0.45;
 const FF_CONF_MONTHS = 15;
 const FF_FUND_DAMP = 0.4;
 
-function matchRule(title) {
+export function matchRule(title) {
   const lower = (title || "").toLowerCase();
   return EVENT_RULES.find((rule) => rule.keys.some((k) => lower.includes(k))) ?? null;
 }

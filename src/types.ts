@@ -34,18 +34,54 @@ export interface CalendarEvent {
   actual: string | null;
 }
 
+export interface PricedIn {
+  method: "yield_gap" | "decision_consensus";
+  label: string;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
+}
+
+export interface CbPolicy {
+  rate: number | null;
+  cpi: number | null;
+  policyLabel: string;
+  policyConfidence: "HIGH" | "MEDIUM" | "LOW";
+  realYieldAdj: number;
+  cbPolicyAdj: number;
+  pricedIn: PricedIn;
+}
+
+export interface RiskRegime {
+  vix: number;
+  vix5dChange: number;
+  regime: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
+}
+
+export interface Scenario {
+  event: string;
+  date: string;
+  ifBeat: string;
+  ifMiss: string;
+}
+
 export interface CurrencyData {
   code: string;
   score: number; // -5..+5
   convictionLabel: string;
   summary: string; // narrative z OpenAI (nebo starší COT-only text jako fallback); může obsahovat **bold**
   cotPositioning: string;
-  pricedIn: string | null; // null = zdroj zatím není napojen, nezobrazovat fabrikované číslo
-  longTermBias: string | null; // null = zdroj zatím není napojen
+  pricedIn: string | null; // "zaceněnost" poslední CB rozhodnutí — z cbPolicy.pricedIn.label
+  longTermBias: string | null; // z cbPolicy.policyLabel (CB politický cyklus)
   dataTier: DataTier;
   events: MacroEvent[];
   fundamentalScore: number | null; // null = fundamentální pilíř zatím nemá data pro tuhle měnu
   forwardFlag: string | null;
   convictionNote: string | null;
   calendarEvents: CalendarEvent[]; // nadcházející, reálná
+  cbPolicy: CbPolicy | null;
+  retailScore: number | null; // -5..+5, kontrariánské skóre z CFTC non-reportable pozic
+  cotPercentile: number | null; // 0-100, "jak crowded" je současné COT pozicování
+  convictionStars: number | null; // 0-5, kolik nezávislých signálů souhlasí se směrem overall_score
+  convictionReasons: string[];
+  riskRegime: RiskRegime | null;
+  scenarios: Scenario[]; // "když X, tak Y" predikce pro nejbližší klíčové eventy
 }

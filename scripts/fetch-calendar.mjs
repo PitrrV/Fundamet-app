@@ -6,6 +6,13 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { computeFundamentalScore } from "./fundamental-scoring.mjs";
+import { computeCbPolicyState } from "./cb-policy.mjs";
+import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
+
+// Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
+// scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
+// Fx-Analyzeru (fund .42/cot .45/sent .11/sea .02), s přerozdělenou sezónností (chybí pilíř).
+const BLEND_WEIGHTS = { fund: 0.43, cot: 0.46, retail: 0.11 };
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -207,6 +214,52 @@ async function mergeUpsert(events) {
   return count;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+// Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik z 5
+// nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded,
+// risk režim) ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore
+// z Fx-Analyzeru, přizpůsobeno na naši sadu signálů.
+function computeConviction(overallScore, { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotPercentile, riskAdj, regime, policyLabel }) {
+  if (overallScore === 0) return { stars: 0, reasons: [] };
+  const dir = overallScore > 0 ? 1 : -1;
+  const signAgrees = (v) => v !== 0 && Math.sign(v) === dir;
+
+  const reasons = [];
+  let stars = 0;
+
+  if (signAgrees(cbPolicyAdj)) {
+    stars++;
+    reasons.push(`CB politika: ${policyLabel}`);
+  }
+  if (signAgrees(realYieldAdj)) {
+    stars++;
+    reasons.push(`Real yield: ${realYieldAdj > 0 ? "+" : ""}${realYieldAdj} vůči průměru koše měn`);
+  }
+  if (Math.abs(fundamentalScoreAdj) >= 1 && signAgrees(fundamentalScoreAdj)) {
+    stars++;
+    reasons.push(`Fundament/kalendář: ${fundamentalScoreAdj > 0 ? "+" : ""}${fundamentalScoreAdj}`);
+  }
+  const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= 88) || (dir < 0 && cotPercentile <= 12));
+  if (!crowdedAgainst && Math.abs(overallScore) >= 1) {
+    stars++;
+    reasons.push(cotPercentile !== null ? `Pozicování: ${cotPercentile}. percentil, není crowded proti směru` : "Pozicování: bez dat o extrému");
+  }
+  if (signAgrees(riskAdj)) {
+    stars++;
+    reasons.push(`Risk režim: ${regime} podporuje směr`);
+  }
+
+  return { stars: Math.min(5, stars), reasons };
+}
+
+function convictionLabelFromStars(stars) {
+  const base = stars >= 4 ? "VYSOKÁ" : stars >= 2 ? "STŘEDNÍ" : "NÍZKÁ";
+  return `${base} CONVICTION (${stars}/5 NEZÁVISLÝCH SIGNÁLŮ SOUHLASÍ)`;
+}
+
 async function recomputeScores() {
   const { data: allEvents, error } = await supabase
     .from("calendar_events")
@@ -215,6 +268,19 @@ async function recomputeScores() {
   if (error) {
     console.error("Nepodařilo se načíst calendar_events pro scoring:", error.message);
     return;
+  }
+
+  console.log("Stahuji risk režim (VIX) a US 2Y výnos z FRED...");
+  const { regimeInfo, usd2yYield } = await computeMarketRegime();
+
+  if (regimeInfo) {
+    const { error: regimeErr } = await supabase
+      .from("market_regime")
+      .upsert({ id: true, vix: regimeInfo.vix, vix_5d_change: regimeInfo.vix5dChange, regime: regimeInfo.regime, updated_at: new Date().toISOString() }, { onConflict: "id" });
+    if (regimeErr) console.error("Chyba upsertu market_regime:", regimeErr.message);
+    else console.log(`Risk režim: ${regimeInfo.regime} (VIX ${regimeInfo.vix}, 5d ${regimeInfo.vix5dChange >= 0 ? "+" : ""}${regimeInfo.vix5dChange})`);
+  } else {
+    console.warn("FRED VIX fetch selhal — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
   }
 
   for (const currencyCode of SCORED_CURRENCIES) {
@@ -232,9 +298,36 @@ async function recomputeScores() {
       continue;
     }
 
+    const cbPolicy = computeCbPolicyState(currencyCode, SCORED_CURRENCIES, allEvents ?? []);
+
+    // USD má jediné ověřené live tržní "priced-in" data (FRED DGS2 2Y výnos) — kde je
+    // k dispozici, přepiš decision_consensus proxy kvalitnější yield_gap metodou.
+    if (currencyCode === "USD" && usd2yYield !== null && cbPolicy.rate !== null) {
+      const yieldGap = yieldGapPricedIn(usd2yYield, cbPolicy.rate);
+      if (yieldGap) cbPolicy.pricedIn = yieldGap;
+    }
+
+    const { error: cbErr } = await supabase.from("cb_policy_state").upsert(
+      {
+        currency_code: currencyCode,
+        rate: cbPolicy.rate,
+        cpi: cbPolicy.cpi,
+        policy_score: cbPolicy.policyScore,
+        policy_label: cbPolicy.policyLabel,
+        policy_confidence: cbPolicy.policyConfidence,
+        real_yield_adj: cbPolicy.realYieldAdj,
+        cb_policy_adj: cbPolicy.cbPolicyAdj,
+        priced_in: cbPolicy.pricedIn,
+        rate_history: cbPolicy.rateHistory,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "currency_code" }
+    );
+    if (cbErr) console.error(`[${currencyCode}] chyba upsertu cb_policy_state:`, cbErr.message);
+
     const { data: latestCot } = await supabase
       .from("latest_confluence_scores")
-      .select("report_date, cot_score")
+      .select("report_date, cot_score, retail_score, cot_percentile")
       .eq("currency_code", currencyCode)
       .limit(1);
 
@@ -244,10 +337,33 @@ async function recomputeScores() {
       continue;
     }
 
-    const blended = Math.round(((cotRow.cot_score + result.fundamentalScore) / 2) * 10) / 10;
+    const fundamentalScoreAdj = clamp(result.fundamentalScore + cbPolicy.realYieldAdj + cbPolicy.cbPolicyAdj, -5, 5);
+    const riskAdj = regimeInfo ? riskAdjForCurrency(currencyCode, regimeInfo.regime) : 0;
+    const retailScore = cotRow.retail_score ?? 0;
+
+    const overallRaw =
+      fundamentalScoreAdj * BLEND_WEIGHTS.fund + cotRow.cot_score * BLEND_WEIGHTS.cot + retailScore * BLEND_WEIGHTS.retail + riskAdj;
+    const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
+
+    const conviction = computeConviction(overallScore, {
+      cbPolicyAdj: cbPolicy.cbPolicyAdj,
+      realYieldAdj: cbPolicy.realYieldAdj,
+      fundamentalScoreAdj,
+      cotPercentile: cotRow.cot_percentile ?? null,
+      riskAdj,
+      regime: regimeInfo?.regime ?? "NEUTRAL",
+      policyLabel: cbPolicy.policyLabel,
+    });
+
     const { error: updErr } = await supabase
       .from("confluence_scores")
-      .update({ overall_score: blended, data_tier: "partial" })
+      .update({
+        overall_score: overallScore,
+        data_tier: "partial",
+        conviction_stars: conviction.stars,
+        conviction_reasons: conviction.reasons,
+        conviction_label: convictionLabelFromStars(conviction.stars),
+      })
       .eq("currency_code", currencyCode)
       .eq("report_date", cotRow.report_date);
 
@@ -255,7 +371,8 @@ async function recomputeScores() {
       console.error(`[${currencyCode}] chyba aktualizace overall_score:`, updErr.message);
     } else {
       console.log(
-        `[${currencyCode}] fundamental_score=${result.fundamentalScore} (confidence=${result.confidence}, historie=${result.historyMonths}m) -> overall_score=${blended}`
+        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} cot=${cotRow.cot_score} retail=${retailScore} risk=${riskAdj} ` +
+          `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
       );
     }
   }

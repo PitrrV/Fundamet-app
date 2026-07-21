@@ -3,7 +3,7 @@
 // Spouští se z .github/workflows/ingest-cot.yml (cron) nebo ručně: node scripts/ingest-cot.mjs
 
 import { createClient } from "@supabase/supabase-js";
-import { computeCotScore, cotPositioningLabel, convictionLabel, buildSummary } from "./scoring.mjs";
+import { computeCotScore, cotPercentile, cotPositioningLabel, convictionLabel, buildSummary } from "./scoring.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -52,8 +52,31 @@ function toRow(currencyCode, apiRow) {
     other_rept_long: num(apiRow.other_rept_positions_long),
     other_rept_short: num(apiRow.other_rept_positions_short),
     other_rept_spread: num(apiRow.other_rept_positions_spread),
+    // Non-reportable = malí spekulanti = retail traders. Stejný TFF report jako COT,
+    // žádné extra volání — jen jsme to pole dřív neukládali.
+    nonrept_long: num(apiRow.nonrept_positions_long_all),
+    nonrept_short: num(apiRow.nonrept_positions_short_all),
     raw: apiRow,
   };
+}
+
+// Kontrariánské skóre retail pozicování (vzor getSentimentScore z Fx-Analyzeru): retail dav
+// nakoupený nahoru = medvědí signál pro skóre, a naopak. Prahy jsou v procentech "long z
+// long+short", výstup -1..+1 přeškálovaný ×5 na naši -5..+5 škálu (stejnou jako cot_score).
+function retailScoreFromRow(row) {
+  if (row.nonrept_long === null || row.nonrept_short === null) return null;
+  const total = row.nonrept_long + row.nonrept_short;
+  if (total <= 0) return null;
+
+  const pctLong = (row.nonrept_long / total) * 100;
+  let raw;
+  if (pctLong >= 80) raw = -1;
+  else if (pctLong >= 70) raw = -0.5;
+  else if (pctLong <= 20) raw = 1;
+  else if (pctLong <= 30) raw = 0.5;
+  else raw = 0;
+
+  return { retailScore: Math.round(raw * 5 * 10) / 10, pctLong: Math.round(pctLong) };
 }
 
 async function processCurrency(currency) {
@@ -101,6 +124,10 @@ async function processCurrency(currency) {
     return { code: currency.code, ok: false };
   }
 
+  // rows[0] je nejnovější (CFTC API vrací DESC dle report_date).
+  const retail = retailScoreFromRow(rows[0]);
+  const percentile = cotPercentile(historyAsc);
+
   const positioningLabel = cotPositioningLabel(result.zscore);
   const scoreRow = {
     currency_code: currency.code,
@@ -110,7 +137,9 @@ async function processCurrency(currency) {
     cot_wow_change: result.wowChange,
     cot_4w_change: result.change4w,
     cot_score: result.cotScore,
-    overall_score: result.cotScore, // TODO: zprůměrovat s rate-expectations/makro/sentiment/sezónností, až budou dostupné
+    overall_score: result.cotScore, // přepočítá fetch-calendar.mjs (blend přes všechny pilíře)
+    retail_score: retail?.retailScore ?? null,
+    cot_percentile: percentile,
     data_tier: "cot_only",
     conviction_label: convictionLabel(result.cotScore),
     cot_positioning_label: positioningLabel,
@@ -131,7 +160,11 @@ async function processCurrency(currency) {
     return { code: currency.code, ok: false };
   }
 
-  console.log(`[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} zscore=${result.zscore}`);
+  console.log(
+    `[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} zscore=${result.zscore} ` +
+      `retail_score=${scoreRow.retail_score ?? "N/A"}${retail ? ` (${retail.pctLong}% long)` : ""} ` +
+      `cot_percentile=${percentile ?? "N/A"}`
+  );
   return { code: currency.code, ok: true };
 }
 

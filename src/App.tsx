@@ -17,6 +17,25 @@ function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
   }
 }
 
+function retailSentimentLabel(score: number | null): string {
+  if (score === null) return "Zatím nedostupné";
+  const formatted = `${score > 0 ? "+" : ""}${score.toFixed(1)}`;
+  if (score <= -2.5) return `${formatted} — dav nakoupen nahoru (kontrariánsky medvědí)`;
+  if (score >= 2.5) return `${formatted} — dav prodává (kontrariánsky býčí)`;
+  return `${formatted} — bez extrému`;
+}
+
+function riskRegimeLabel(regime: CurrencyData["riskRegime"]): string {
+  if (!regime) return "Zatím nedostupné";
+  const label = regime.regime === "RISK_ON" ? "RISK-ON" : regime.regime === "RISK_OFF" ? "RISK-OFF" : "NEUTRÁLNÍ";
+  return `${label} (VIX ${regime.vix.toFixed(1)}, 5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
+}
+
+function convictionStars(stars: number | null): string {
+  if (stars === null) return "";
+  return "★".repeat(stars) + "☆".repeat(Math.max(0, 5 - stars));
+}
+
 export default function App() {
   const [currencies, setCurrencies] = useState<CurrencyData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -89,10 +108,20 @@ export default function App() {
                 <div className={`text-xs tracking-wide mt-1 ${convictionColor(currency.convictionLabel)}`}>
                   {currency.convictionLabel}
                 </div>
+                {currency.convictionStars !== null && (
+                  <div className="text-gold text-sm mt-1 tracking-wider">{convictionStars(currency.convictionStars)}</div>
+                )}
                 {currency.convictionNote && (
                   <div className="text-xs text-muted mt-2 max-w-md mx-auto italic">
                     {currency.convictionNote}
                   </div>
+                )}
+                {currency.convictionReasons.length > 0 && (
+                  <ul className="text-xs text-muted mt-2 max-w-md mx-auto space-y-0.5 text-left mx-auto">
+                    {currency.convictionReasons.map((reason) => (
+                      <li key={reason}>· {reason}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
             </section>
@@ -101,10 +130,15 @@ export default function App() {
               <div className="text-xs tracking-wide text-muted mb-3">SHRNUTÍ PŘÍBĚHU</div>
               <RichText text={currency.summary} className="text-sm leading-relaxed text-slate-300" />
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t border-panelborder text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5 pt-5 border-t border-panelborder text-xs">
                 <div>
                   <div className="text-muted mb-1">COT POZICOVÁNÍ</div>
-                  <div className="text-emerald-400 font-mono">{currency.cotPositioning}</div>
+                  <div className="text-emerald-400 font-mono">
+                    {currency.cotPositioning}
+                    {currency.cotPercentile !== null && (
+                      <span className="text-muted"> · {currency.cotPercentile}. percentil</span>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <div className="text-muted mb-1">FUNDAMENTÁLNÍ SKÓRE</div>
@@ -115,16 +149,30 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-muted mb-1">ZACENĚNOST</div>
+                  <div className="text-muted mb-1">RETAIL SENTIMENT</div>
+                  <div className="font-mono text-muted italic">{retailSentimentLabel(currency.retailScore)}</div>
+                </div>
+                <div>
+                  <div className="text-muted mb-1">ZACENĚNOST (POSLEDNÍ ROZHODNUTÍ)</div>
                   <div className="font-mono text-muted italic">
                     {currency.pricedIn ?? "Zatím nedostupné"}
+                    {currency.cbPolicy && (
+                      <span className="text-[10px] text-muted/70 block mt-0.5">
+                        metoda: {currency.cbPolicy.pricedIn.method === "yield_gap" ? "2Y výnos vs. sazba (FRED)" : "konsensus rozhodnutí"} ·{" "}
+                        {currency.cbPolicy.pricedIn.confidenceLevel}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div>
-                  <div className="text-muted mb-1">DLOUHODOBÝ BIAS</div>
+                  <div className="text-muted mb-1">DLOUHODOBÝ BIAS (CB POLITIKA)</div>
                   <div className="font-mono text-muted italic">
                     {currency.longTermBias ?? "Zatím nedostupné"}
                   </div>
+                </div>
+                <div>
+                  <div className="text-muted mb-1">RISK REŽIM</div>
+                  <div className="font-mono text-muted italic">{riskRegimeLabel(currency.riskRegime)}</div>
                 </div>
               </div>
             </section>
@@ -133,6 +181,27 @@ export default function App() {
               <section className="bg-panel border-l-4 border-gold border-t border-r border-b border-panelborder rounded-lg p-5">
                 <div className="text-xs tracking-wide text-gold mb-2">NAVAZUJÍCÍ EVENTY — POZOR</div>
                 <div className="text-sm leading-relaxed text-slate-300">{currency.forwardFlag}</div>
+              </section>
+            )}
+
+            {currency.scenarios.length > 0 && (
+              <section className="bg-panel border border-panelborder rounded-xl p-6">
+                <div className="text-xs tracking-wide text-muted mb-4">MOŽNÉ SCÉNÁŘE</div>
+                <div className="space-y-4">
+                  {currency.scenarios.map((scenario) => (
+                    <div key={`${scenario.date}-${scenario.event}`} className="border-l-2 border-panelborder pl-4">
+                      <div className="text-sm text-slate-100 font-medium mb-1.5">
+                        {scenario.event} <span className="text-muted font-mono text-xs">({scenario.date})</span>
+                      </div>
+                      <div className="text-xs text-emerald-400/90 mb-1">
+                        <span className="text-muted">Pokud PŘEKONÁ odhad:</span> {scenario.ifBeat}
+                      </div>
+                      <div className="text-xs text-red-400/90">
+                        <span className="text-muted">Pokud ZAOSTANE:</span> {scenario.ifMiss}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </section>
             )}
 
@@ -177,11 +246,18 @@ export default function App() {
           </>
         )}
 
-        <footer className="text-center text-xs text-muted pt-6 pb-4">
-          COT pozicování (týdně, CFTC) a fundamentální skóre (ekonomický kalendář ForexFactory) jsou
-          reálná a průběžně aktualizovaná. Shrnutí příběhu a upozornění na navazující eventy skládá
-          jazykový model (OpenAI) na základě těchto dat — jde o syntézu veřejně dostupných informací,
-          ne o investiční doporučení. Zaceněnost trhu a sazbová očekávání zatím nejsou napojené.
+        <footer className="text-center text-xs text-muted pt-6 pb-4 space-y-1">
+          <p>
+            COT pozicování a retail sentiment (týdně, CFTC), fundamentální skóre a CB politika/real
+            yield (ekonomický kalendář ForexFactory) a risk režim (VIX, FRED) jsou reálná a průběžně
+            aktualizovaná data. "Zaceněnost" je u většiny měn odvozená z konsensu posledního
+            rozhodnutí (ne z reálné OIS/futures křivky) — metoda je vždy uvedená u čísla.
+          </p>
+          <p>
+            Shrnutí příběhu, upozornění na navazující eventy a scénářová predikce vznikají jazykovým
+            modelem (OpenAI) na základě těchto dat — jde o syntézu veřejně dostupných informací a
+            heuristických odhadů, ne o investiční doporučení.
+          </p>
         </footer>
       </main>
     </div>
