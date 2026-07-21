@@ -4,6 +4,10 @@ export const CURRENCIES: CurrencyData[] = [
   {
     code: "USD",
     dataTier: "full",
+    fundamentalScore: null,
+    forwardFlag: null,
+    convictionNote: null,
+    calendarEvents: [],
     score: -1.2,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:
@@ -57,6 +61,10 @@ export const CURRENCIES: CurrencyData[] = [
   {
     code: "EUR",
     dataTier: "full",
+    fundamentalScore: null,
+    forwardFlag: null,
+    convictionNote: null,
+    calendarEvents: [],
     score: 2.4,
     convictionLabel: "STŘEDNÍ CONVICTION",
     summary:
@@ -130,6 +138,10 @@ export const CURRENCIES: CurrencyData[] = [
   {
     code: "GBP",
     dataTier: "full",
+    fundamentalScore: null,
+    forwardFlag: null,
+    convictionNote: null,
+    calendarEvents: [],
     score: -3.1,
     convictionLabel: "VYSOKÁ CONVICTION",
     summary:
@@ -183,6 +195,10 @@ export const CURRENCIES: CurrencyData[] = [
   {
     code: "CAD",
     dataTier: "full",
+    fundamentalScore: null,
+    forwardFlag: null,
+    convictionNote: null,
+    calendarEvents: [],
     score: 0.3,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:
