@@ -48,82 +48,74 @@ function classifyImpact(ev) {
 
 // FF vkládá data jako `window.calendarComponentStates[1] = { days: [...] }` — vnější
 // objekt není validní JSON (klíče bez uvozovek), ale pole za "days:" JSON validní je.
-// Najdeme ho hledáním vyvážené hloubky hranatých závorek, s respektem ke stringům.
+// Prohledá CELÉ HTML pro všechny výskyty "days:" (ne jen po jednom konkrétním markeru —
+// stránka jich může mít víc a přesná pozice markeru se může časem posunout) a pro
+// každý najde vyváženou hranatou závorku (respektuje stringy), spojí všechny nalezené dny.
 function extractDaysArray(html) {
-  const stateIdx = html.indexOf("calendarComponentStates[1]");
-  if (stateIdx === -1) throw new Error('"calendarComponentStates[1]" nenalezeno v HTML');
-  const daysIdx = html.indexOf("days:", stateIdx);
-  if (daysIdx === -1) throw new Error('"days:" nenalezeno po calendarComponentStates[1]');
-  const arrStart = html.indexOf("[", daysIdx);
-  if (arrStart === -1) throw new Error("otevírací [ nenalezena pro days pole");
+  const allDays = [];
+  let i = 0;
+  while ((i = html.indexOf("days:", i)) !== -1) {
+    const arrStart = html.indexOf("[", i);
+    if (arrStart === -1) break;
 
-  let depth = 0;
-  let inString = false;
-  let stringChar = "";
-  let escaped = false;
-  let i = arrStart;
-  for (; i < html.length; i++) {
-    const ch = html[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === stringChar) inString = false;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inString = true;
-      stringChar = ch;
-      continue;
-    }
-    if (ch === "[") depth++;
-    else if (ch === "]") {
-      depth--;
-      if (depth === 0) {
-        i++;
-        break;
+    let depth = 0;
+    let inString = false;
+    let stringChar = "";
+    let escaped = false;
+    let end = -1;
+    for (let k = arrStart; k < html.length; k++) {
+      const ch = html[k];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\") escaped = true;
+        else if (ch === stringChar) inString = false;
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        inString = true;
+        stringChar = ch;
+        continue;
+      }
+      if (ch === "[") depth++;
+      else if (ch === "]") {
+        depth--;
+        if (depth === 0) {
+          end = k;
+          break;
+        }
       }
     }
+    if (end !== -1) {
+      try {
+        const arr = JSON.parse(html.slice(arrStart, end + 1));
+        if (Array.isArray(arr)) allDays.push(...arr);
+      } catch {
+        // ignoruj neplatný blok, zkus další výskyt "days:"
+      }
+      i = end + 1;
+    } else {
+      i += 5;
+    }
   }
-  return JSON.parse(html.slice(arrStart, i));
+  if (allDays.length === 0) throw new Error('žádné platné pole "days:" nenalezeno v HTML');
+  return allDays;
 }
 
+// Stejná minimální hlavičková sada jako v FX Analyzeru (ověřeno živě funkční) —
+// bez Sec-Fetch-*/Sec-Ch-Ua/cookie handshake, který jsme zkoušeli navíc a nepomohl.
+// 403 z prvních dvou pokusů byl pravděpodobně zásah do konkrétní (dočasně) blokované
+// IP z rotujícího poolu GitHub Actions runnerů, ne deterministický blok podle hlaviček.
 const BROWSER_HEADERS = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
   "Accept-Language": "en-US,en;q=0.9",
-  "Accept-Encoding": "gzip, deflate, br",
-  "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-  "Sec-Ch-Ua-Mobile": "?0",
-  "Sec-Ch-Ua-Platform": '"Windows"',
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Sec-Fetch-User": "?1",
-  "Upgrade-Insecure-Requests": "1",
+  Accept: "text/html,application/xhtml+xml",
 };
-
-let sessionCookie = null;
-
-async function establishSession() {
-  const res = await fetch("https://www.forexfactory.com/", { headers: BROWSER_HEADERS });
-  const setCookie = res.headers.get("set-cookie");
-  if (setCookie) {
-    sessionCookie = setCookie.split(",").map((c) => c.split(";")[0]).join("; ");
-  }
-  console.log(`Homepage handshake: HTTP ${res.status}${sessionCookie ? " (cookie získán)" : " (bez cookie)"}`);
-}
 
 async function fetchWeek(offsetDays) {
   const week = weekParam(offsetDays);
   const url = `https://www.forexfactory.com/calendar?week=${week}`;
-  const res = await fetch(url, {
-    headers: {
-      ...BROWSER_HEADERS,
-      Referer: "https://www.forexfactory.com/calendar",
-      ...(sessionCookie ? { Cookie: sessionCookie } : {}),
-    },
-  });
+  const res = await fetch(url, { headers: BROWSER_HEADERS });
   if (!res.ok) throw new Error(`HTTP ${res.status} pro week=${week}`);
   const html = await res.text();
   const days = extractDaysArray(html);
@@ -270,9 +262,6 @@ async function recomputeScores() {
 }
 
 async function main() {
-  console.log("Navazuji session s ForexFactory...");
-  await establishSession();
-
   console.log("Stahuji ForexFactory kalendář (9 týdnů)...");
   const allEvents = [];
   for (const offset of WEEK_OFFSETS_DAYS) {
