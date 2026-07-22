@@ -93,12 +93,32 @@ async function loadMarketRegime() {
 // výsledek, ne jen hypotézu — viz `outcome` v system promptu. `candidates` je filtrované
 // jen na PŘÍMÉ eventy tyhle měny (viz loadCurrencyContext), takže relevance faktor je vždy 1.
 function selectScenarioSeeds(candidates) {
-  return candidates
+  const weighted = candidates
     .map((ev) => ({ ...ev, _weight: getWeight(ev.title) }))
     .filter((ev) => ev._weight > 0)
-    .sort((a, b) => b._weight - a._weight)
-    .slice(0, MAX_SCENARIOS)
-    .map(({ _weight, ...ev }) => ev);
+    .sort((a, b) => b._weight - a._weight);
+
+  // Zaručený slot pro nejdůležitější JIŽ ZNÁMÝ výsledek — jinak by ho z výběru mohl
+  // vytlačit vyšší váhou ohodnocený budoucí event (typicky sazby), i když je ten
+  // výsledek čerstvý a stojí za komentář (viz outcome v system promptu).
+  const topResolved = weighted.find((ev) => ev.actual);
+
+  const seeds = [];
+  const seen = new Set();
+  const addSeed = (ev) => {
+    const key = `${ev.date}|${ev.title}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    seeds.push(ev);
+  };
+
+  if (topResolved) addSeed(topResolved);
+  for (const ev of weighted) {
+    if (seeds.length >= MAX_SCENARIOS) break;
+    addSeed(ev);
+  }
+
+  return seeds.map(({ _weight, ...ev }) => ev);
 }
 
 async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
