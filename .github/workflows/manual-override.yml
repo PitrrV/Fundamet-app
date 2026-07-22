@@ -1,0 +1,62 @@
+name: Ruční zadání výsledku eventu
+
+# Formulář pro zápis "actual" hodnoty eventu bez čekání na automatický scraper (běží co
+# ~15 min) nebo na denní narrative refresh. Spustit: záložka Actions -> "Ruční zadání
+# výsledku eventu" (v levém sloupci) -> tlačítko "Run workflow" -> vyplnit pole -> Run.
+#
+# Přesný název eventu a datum najdeš v appce v sekci "Nadcházejících 21 dní" nebo "Možné
+# scénáře" — musí sedět přesně (na velikosti písmen nezáleží).
+on:
+  workflow_dispatch:
+    inputs:
+      currency_code:
+        description: "Měna"
+        required: true
+        type: choice
+        options:
+          - EUR
+          - GBP
+          - JPY
+          - CHF
+          - CAD
+          - AUD
+          - NZD
+          - USD
+      event_title:
+        description: "Přesný název eventu (např. Claimant Count Change)"
+        required: true
+        type: string
+      event_day:
+        description: "Datum eventu ve formátu YYYY-MM-DD"
+        required: true
+        type: string
+      actual:
+        description: "Skutečná hodnota (např. 3.2% nebo 150K)"
+        required: true
+        type: string
+
+jobs:
+  override:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Zapsat ruční výsledek a přepočítat skóre
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CURRENCY_CODE: ${{ inputs.currency_code }}
+          EVENT_TITLE: ${{ inputs.event_title }}
+          EVENT_DAY: ${{ inputs.event_day }}
+          ACTUAL_VALUE: ${{ inputs.actual }}
+        run: node scripts/manual-override.mjs
+      - name: Přegenerovat narrative (VÝSLEDEK/scénáře)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+        run: node scripts/generate-narrative.mjs

@@ -260,7 +260,7 @@ function convictionLabelFromStars(stars) {
   return `${base} CONVICTION (${stars}/5 NEZÁVISLÝCH SIGNÁLŮ SOUHLASÍ)`;
 }
 
-async function recomputeScores() {
+export async function recomputeScores() {
   const { data: allEvents, error } = await supabase
     .from("calendar_events")
     .select("currency_code, event_title, event_day, actual, estimate, previous");
@@ -411,7 +411,12 @@ async function main() {
   await recomputeScores();
 }
 
-main().catch((err) => {
-  console.error("Neočekávaná chyba:", err);
-  process.exit(1);
-});
+// Spustit scraping jen když je soubor volaný přímo (`node scripts/fetch-calendar.mjs`),
+// ne když se z něj importuje `recomputeScores` (viz scripts/manual-override.mjs) — jinak
+// by import sám o sobě spustil celý 9týdenní scrape jako vedlejší efekt.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error("Neočekávaná chyba:", err);
+    process.exit(1);
+  });
+}
