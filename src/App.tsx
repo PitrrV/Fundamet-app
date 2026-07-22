@@ -199,6 +199,11 @@ export default function App() {
                       <div className="text-xs text-red-400/90">
                         <span className="text-muted">Pokud ZAOSTANE:</span> {scenario.ifMiss}
                       </div>
+                      {scenario.outcome && (
+                        <div className="text-xs text-slate-300 mt-2 pt-2 border-t border-panelborder/60">
+                          <span className="text-gold tracking-wide">VÝSLEDEK:</span> {scenario.outcome}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

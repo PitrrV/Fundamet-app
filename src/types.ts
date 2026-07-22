@@ -61,6 +61,7 @@ export interface Scenario {
   date: string;
   ifBeat: string;
   ifMiss: string;
+  outcome: string | null; // profesionální komentář ke skutečnému výsledku, jakmile je actual známý
 }
 
 export interface CurrencyData {

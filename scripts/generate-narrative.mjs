@@ -28,6 +28,7 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 const UPCOMING_DAYS = 21;
 const RECENT_DAYS = 90;
 const MAX_SCENARIOS = 3;
+const SCENARIO_LOOKBACK_DAYS = 5; // jak dlouho po zveřejnění actual event ještě zůstává ve scénářích (s komentářem k výsledku)
 
 const SYSTEM_PROMPT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
@@ -43,9 +44,11 @@ Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne
 
 Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo historických dat, nebo "zaceněnost" vychází jen z konsensu posledního rozhodnutí (ne z reálných tržních dat), řekni to — nepředstírej jistotu, kterou data nemají.
 
-Pro každý event v "scenarioSeeds" (max 3) napiš do "scenarios" DVĚ krátké věty: co se stane s měnou, POKUD data překonají odhad ("if_beat"), a co POKUD zaostanou ("if_miss") — zdůvodni to historickým trendem podobných eventů (historicalTrend v tom seedu) a aktuálním kontextem (pozicování, CB politika, risk režim), ne obecnou frází.
+Pro každý event v "scenarioSeeds" (max 3) napiš do "scenarios" VŽDY "if_beat" a "if_miss" — DVĚ krátké věty, co se stane s měnou, POKUD data překonají odhad, a co POKUD zaostanou — zdůvodni to historickým trendem podobných eventů (historicalTrend v tom seedu) a aktuálním kontextem (pozicování, CB politika, risk režim), ne obecnou frází. Tohle je referenční scénář a ZŮSTÁVÁ i poté, co je výsledek známý — nikdy ho nemaž ani nepřepisuj.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (pole max 3 položek {event, date, if_beat, if_miss}, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
+Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní (viz surpriseStrength kontext v datech), a co to podle tebe znamená DÁL — navazuje snad tenhle výsledek na to, co příběh (narrative) říká o pozicování/CB politice/risk režimu, potvrzuje ho, nebo mu odporuje? Piš to stejně jako zbytek příběhu — jako trader, co právě dostal číslo na obrazovku a rozhoduje se, co s tím. Pokud "actual" chybí (event ještě neproběhl), nastav "outcome" na null.
+
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (pole max 3 položek {event, date, if_beat, if_miss, outcome}, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -67,12 +70,14 @@ async function loadMarketRegime() {
   return data?.[0] ?? null;
 }
 
-// Vybere top-N nadcházejících eventů podle váhy — přesně ty, na které by se profesionální
-// trader díval jako na klíčové "co sledovat dál" (buildForecastV5 styl). `upcoming` už je
-// filtrované jen na PŘÍMÉ eventy tyhle měny (viz loadCurrencyContext), takže relevance
-// faktor je vždy 1 — netřeba ho tu znovu počítat.
-function selectScenarioSeeds(upcoming) {
-  return upcoming
+// Vybere top-N eventů podle váhy z kombinovaného okna (nedávno vyšlé + nadcházející) —
+// přesně ty, na které by se profesionální trader díval jako na klíčové "co sledovat dál"
+// (buildForecastV5 styl). Eventy, co ve svém okně `actual` UŽ mají, zůstávají ve scénářích
+// pár dní (SCENARIO_LOOKBACK_DAYS) po zveřejnění, aby appka mohla okomentovat i skutečný
+// výsledek, ne jen hypotézu — viz `outcome` v system promptu. `candidates` je filtrované
+// jen na PŘÍMÉ eventy tyhle měny (viz loadCurrencyContext), takže relevance faktor je vždy 1.
+function selectScenarioSeeds(candidates) {
+  return candidates
     .map((ev) => ({ ...ev, _weight: getWeight(ev.title) }))
     .filter((ev) => ev._weight > 0)
     .sort((a, b) => b._weight - a._weight)
@@ -132,7 +137,24 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
       previous: e.previous,
     }));
 
-  const scenarioSeeds = selectScenarioSeeds(upcoming);
+  // Vlastní (širší) okno pro scénáře: pár dní zpět (aby čerstvě vyšlé číslo ještě dostalo
+  // komentář k výsledku) až po upcomingCutoff dopředu — nezávislé na `upcoming`/`recent`
+  // oknech výše, které slouží jen jako obecný kontext pro zbytek příběhu.
+  const scenarioLookbackCutoff = new Date(Date.now() - SCENARIO_LOOKBACK_DAYS * 86400000).toISOString().slice(0, 10);
+  const scenarioCandidates = currencyEvents
+    .filter((e) => e.event_day >= scenarioLookbackCutoff && e.event_day <= upcomingCutoff)
+    .sort((a, b) => a.event_day.localeCompare(b.event_day))
+    .map((e) => ({
+      date: e.event_day,
+      title: e.event_title,
+      impact: e.impact,
+      estimate: e.estimate,
+      previous: e.previous,
+      actual: e.actual,
+      historicalTrend: getEventHistoryTrend(e.event_title, currencyCode, allCalendarEvents),
+    }));
+
+  const scenarioSeeds = selectScenarioSeeds(scenarioCandidates);
 
   const cot = cotRow
     ? {
@@ -204,8 +226,9 @@ async function generateForCurrency(currencyCode, context) {
                     date: { type: "string" },
                     if_beat: { type: "string" },
                     if_miss: { type: "string" },
+                    outcome: { type: ["string", "null"] },
                   },
-                  required: ["event", "date", "if_beat", "if_miss"],
+                  required: ["event", "date", "if_beat", "if_miss", "outcome"],
                   additionalProperties: false,
                 },
               },

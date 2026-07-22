@@ -8,6 +8,7 @@ interface ScenarioRow {
   date: string;
   if_beat: string;
   if_miss: string;
+  outcome: string | null;
 }
 
 interface LatestConfluenceScoreRow {
@@ -174,6 +175,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       date: s.date,
       ifBeat: s.if_beat,
       ifMiss: s.if_miss,
+      outcome: s.outcome,
     }));
 
     return {
