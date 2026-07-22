@@ -6,7 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { getEventHistoryTrend, getWeight } from "./fundamental-scoring.mjs";
+import { getEventHistoryTrend, getWeight, eventDirection } from "./fundamental-scoring.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -46,12 +46,28 @@ Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo his
 
 Pro každý event v "scenarioSeeds" (max 3) napiš do "scenarios" VŽDY "if_beat" a "if_miss" — DVĚ krátké věty, co se stane s měnou, POKUD data překonají odhad, a co POKUD zaostanou — zdůvodni to historickým trendem podobných eventů (historicalTrend v tom seedu) a aktuálním kontextem (pozicování, CB politika, risk režim), ne obecnou frází. Tohle je referenční scénář a ZŮSTÁVÁ i poté, co je výsledek známý — nikdy ho nemaž ani nepřepisuj.
 
-Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní (viz surpriseStrength kontext v datech), a co to podle tebe znamená DÁL — navazuje snad tenhle výsledek na to, co příběh (narrative) říká o pozicování/CB politice/risk režimu, potvrzuje ho, nebo mu odporuje? Piš to stejně jako zbytek příběhu — jako trader, co právě dostal číslo na obrazovku a rozhoduje se, co s tím. Pokud "actual" chybí (event ještě neproběhl), nastav "outcome" na null.
+Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní (viz surpriseStrength kontext v datech), a co to podle tebe znamená DÁL — navazuje snad tenhle výsledek na to, co příběh (narrative) říká o pozicování/CB politice/risk režimu, potvrzuje ho, nebo mu odporuje? Piš to stejně jako zbytek příběhu — jako trader, co právě dostal číslo na obrazovku a rozhoduje se, co s tím. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu. Tohle platí pro KAŽDÝ scénář v poli stejně důkladně, i třetí a poslední — nezkracuj kvalitu u pozdějších položek.
 
 Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (pole max 3 položek {event, date, if_beat, if_miss, outcome}, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Bezpečnostní síť proti tomu, co jsme viděli živě: model občas u pozdější položky v poli
+// "scenarios" zkratkuje a vrátí jen holé slovo ("beat"), ne vysvětlující větu — i přes
+// explicitní instrukci v system promptu. Prompt engineering to omezí, ale nezaručí; tenhle
+// deterministický fallback garantuje, že do UI se nikdy nedostane nic kratšího než pár slov.
+const MIN_OUTCOME_WORDS = 6;
+
+function isTooShortOutcome(text) {
+  return !text || text.trim().split(/\s+/).length < MIN_OUTCOME_WORDS;
+}
+
+function buildFallbackOutcome(seed) {
+  const dir = eventDirection({ event_title: seed.title, actual: seed.actual, estimate: seed.estimate });
+  const verdict = dir > 0 ? "překonalo odhad" : dir < 0 ? "zaostalo za odhadem" : "odpovídalo konsensu";
+  return `${seed.title} vyšlo na ${seed.actual} (odhad ${seed.estimate ?? "N/A"}, předchozí ${seed.previous ?? "N/A"}) — data ${verdict}.`;
 }
 
 async function loadBasketContext() {
@@ -258,7 +274,14 @@ async function generateForCurrency(currencyCode, context) {
   const normalizeNullable = (v) => (typeof v === "string" && v.trim().toLowerCase() === "null" ? null : v);
   result.forward_flag = normalizeNullable(result.forward_flag);
   if (Array.isArray(result.scenarios)) {
-    result.scenarios = result.scenarios.map((s) => ({ ...s, outcome: normalizeNullable(s.outcome) }));
+    result.scenarios = result.scenarios.map((s) => {
+      const outcome = normalizeNullable(s.outcome);
+      const seed = scenarioSeeds.find((sd) => sd.title === s.event && sd.date === s.date);
+      if (seed?.actual && isTooShortOutcome(outcome)) {
+        return { ...s, outcome: buildFallbackOutcome(seed) };
+      }
+      return { ...s, outcome };
+    });
   }
 
   const { error: insErr } = await supabase.from("narratives").insert({
