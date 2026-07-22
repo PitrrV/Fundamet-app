@@ -252,6 +252,15 @@ async function generateForCurrency(currencyCode, context) {
     return false;
   }
 
+  // Modely i ve "strict" json_schema módu občas vrátí doslovný string "null" místo
+  // opravdového JSON null pro nullable pole — bez týhle normalizace by se u nevyřešených
+  // eventů ve frontendu zobrazil text "null" místo prázdného VÝSLEDEK bloku.
+  const normalizeNullable = (v) => (typeof v === "string" && v.trim().toLowerCase() === "null" ? null : v);
+  result.forward_flag = normalizeNullable(result.forward_flag);
+  if (Array.isArray(result.scenarios)) {
+    result.scenarios = result.scenarios.map((s) => ({ ...s, outcome: normalizeNullable(s.outcome) }));
+  }
+
   const { error: insErr } = await supabase.from("narratives").insert({
     currency_code: currencyCode,
     narrative: result.narrative,
