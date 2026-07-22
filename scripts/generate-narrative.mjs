@@ -98,10 +98,14 @@ function selectScenarioSeeds(candidates) {
     .filter((ev) => ev._weight > 0)
     .sort((a, b) => b._weight - a._weight);
 
-  // Zaručený slot pro nejdůležitější JIŽ ZNÁMÝ výsledek — jinak by ho z výběru mohl
-  // vytlačit vyšší váhou ohodnocený budoucí event (typicky sazby), i když je ten
-  // výsledek čerstvý a stojí za komentář (viz outcome v system promptu).
-  const topResolved = weighted.find((ev) => ev.actual);
+  // Zaručený slot pro NEJČERSTVĚJŠÍ již známý výsledek (ne nutně nejvýše váhou
+  // ohodnocený v celém okně) — jinak by ho z výběru mohl vytlačit jak vyšší váhou
+  // ohodnocený budoucí event (typicky sazby), tak starší stejně važený resolvnutý
+  // event (např. včerejší Claimant Count by jinak přebil dnešní CPI jen díky pořadí
+  // ve stabilním řazení). Mezi eventy ze stejného dne rozhoduje váha.
+  const topResolved = weighted
+    .filter((ev) => ev.actual)
+    .sort((a, b) => b.date.localeCompare(a.date) || b._weight - a._weight)[0];
 
   const seeds = [];
   const seen = new Set();
