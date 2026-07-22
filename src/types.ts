@@ -26,6 +26,7 @@ export interface MacroEvent {
 export type DataTier = "cot_only" | "partial" | "full";
 
 export interface CalendarEvent {
+  id: number;
   date: string; // YYYY-MM-DD
   title: string;
   impact: "Low" | "Medium" | "High";

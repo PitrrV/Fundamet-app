@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { CurrencyTabs } from "./components/CurrencyTabs";
 import { Gauge } from "./components/Gauge";
 import { RichText } from "./components/RichText";
+import { AdminLogin } from "./components/AdminLogin";
+import { EditActualField } from "./components/EditActualField";
 import { convictionColor } from "./utils";
 import { fetchCurrencies } from "./lib/fetchCurrencies";
+import { supabase } from "./lib/supabaseClient";
+import { ADMIN_EMAIL, signOut } from "./lib/auth";
 import type { CurrencyData } from "./types";
 
 function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
@@ -40,6 +45,7 @@ export default function App() {
   const [currencies, setCurrencies] = useState<CurrencyData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currencyCode, setCurrencyCode] = useState<string | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
     fetchCurrencies()
@@ -49,6 +55,29 @@ export default function App() {
       })
       .catch((err: Error) => setLoadError(err.message));
   }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const isAdmin = session?.user?.email === ADMIN_EMAIL;
+
+  function handleActualSaved(currencyCode: string, eventId: number, newActual: string | null) {
+    setCurrencies((prev) =>
+      prev?.map((c) =>
+        c.code !== currencyCode
+          ? c
+          : {
+              ...c,
+              calendarEvents: c.calendarEvents.map((e) => (e.id === eventId ? { ...e, actual: newActual } : e)),
+            }
+      ) ?? null
+    );
+  }
 
   const currency = useMemo(
     () => currencies?.find((c) => c.code === currencyCode) ?? null,
@@ -62,8 +91,32 @@ export default function App() {
           <h1 className="font-serif text-2xl tracking-wide">
             KON<span className="text-gold">FLUENCE</span>
           </h1>
-          <div className="text-[11px] tracking-wide text-muted">
-            INFORMAČNÍ NÁSTROJ · NENÍ INVESTIČNÍ DOPORUČENÍ
+          <div className="flex items-center gap-4">
+            <div className="text-[11px] tracking-wide text-muted">
+              INFORMAČNÍ NÁSTROJ · NENÍ INVESTIČNÍ DOPORUČENÍ
+            </div>
+            {session ? (
+              isAdmin ? (
+                <div className="flex items-center gap-2 text-[11px] text-muted">
+                  <span className="text-gold">admin</span>
+                  <button
+                    onClick={() => signOut()}
+                    className="border border-panelborder rounded px-2 py-1 hover:bg-panelborder/40"
+                  >
+                    Odhlásit se
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => signOut()}
+                  className="text-[11px] text-muted border border-panelborder rounded px-2 py-1 hover:bg-panelborder/40"
+                >
+                  Odhlásit se
+                </button>
+              )
+            ) : (
+              <AdminLogin />
+            )}
           </div>
         </div>
       </header>
@@ -239,8 +292,15 @@ export default function App() {
                         <div className="text-slate-200">
                           {event.estimate ?? "–"} / {event.previous ?? "–"}
                         </div>
-                        {event.actual && (
+                        {event.actual && !isAdmin && (
                           <div className="text-gold mt-1">Actual: {event.actual}</div>
+                        )}
+                        {isAdmin && (
+                          <EditActualField
+                            eventId={event.id}
+                            currentActual={event.actual}
+                            onSaved={(newActual) => handleActualSaved(currency.code, event.id, newActual)}
+                          />
                         )}
                       </div>
                     </div>

@@ -39,6 +39,7 @@ interface LatestNarrativeRow {
 }
 
 interface CalendarEventRow {
+  id: number;
   currency_code: string;
   event_day: string;
   event_title: string;
@@ -116,7 +117,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       withTimeout(
         supabase
           .from("calendar_events")
-          .select("currency_code, event_day, event_title, impact, estimate, previous, actual")
+          .select("id, currency_code, event_day, event_title, impact, estimate, previous, actual")
           .gte("event_day", today)
           .lte("event_day", upcomingCutoff)
           .order("event_day", { ascending: true }),
@@ -149,6 +150,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     const narrative = narrativeByCode.get(row.currency_code)?.[0] ?? null;
     const cbPolicyRow = cbPolicyByCode.get(row.currency_code)?.[0] ?? null;
     const calendarEvents: CalendarEvent[] = (calendarByCode.get(row.currency_code) ?? []).map((e) => ({
+      id: e.id,
       date: e.event_day,
       title: e.event_title,
       impact: e.impact,
