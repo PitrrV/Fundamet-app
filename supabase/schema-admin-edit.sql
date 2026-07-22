@@ -15,5 +15,5 @@ drop policy if exists "admin can update actual" on calendar_events;
 create policy "admin can update actual" on calendar_events
   for update
   to authenticated
-  using (auth.jwt() ->> 'email' = 'p.vospalek@gmail.com')
-  with check (auth.jwt() ->> 'email' = 'p.vospalek@gmail.com');
+  using (lower(auth.jwt() ->> 'email') = 'p.vospalek@gmail.com')
+  with check (lower(auth.jwt() ->> 'email') = 'p.vospalek@gmail.com');

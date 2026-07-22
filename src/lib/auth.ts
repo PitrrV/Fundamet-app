@@ -6,7 +6,7 @@ export const ADMIN_EMAIL = "p.vospalek@gmail.com";
 
 export async function sendMagicLink(email: string): Promise<void> {
   const { error } = await supabase.auth.signInWithOtp({
-    email,
+    email: email.trim().toLowerCase(),
     options: { emailRedirectTo: window.location.origin + window.location.pathname },
   });
   if (error) throw error;

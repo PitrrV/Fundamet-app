@@ -64,7 +64,7 @@ export default function App() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const isAdmin = session?.user?.email === ADMIN_EMAIL;
+  const isAdmin = session?.user?.email?.toLowerCase() === ADMIN_EMAIL;
 
   function handleActualSaved(currencyCode: string, eventId: number, newActual: string | null) {
     setCurrencies((prev) =>
