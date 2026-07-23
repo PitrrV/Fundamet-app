@@ -5,7 +5,7 @@
 // historie je tak od začátku konzistentní napříč zařízeními, ne per-prohlížeč.
 
 import { createClient } from "@supabase/supabase-js";
-import { computeFundamentalScore } from "./fundamental-scoring.mjs";
+import { computeFundamentalScore, matchRule } from "./fundamental-scoring.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
@@ -180,6 +180,11 @@ function dedupePreferComplete(events) {
 
 async function mergeUpsert(events) {
   let count = 0;
+  // Jestli během tohohle běhu přibyl actual u eventu, na kterém appce záleží (má váhu v
+  // EVENT_RULES) — pokud ano, stojí za to hned po přepočtu spustit generate-narrative.yml,
+  // ne čekat na jeho jednou-denní cron (viz triggerNarrativeRegeneration níže).
+  let materialActualArrived = false;
+
   for (const ev of events) {
     const { data: existingRows, error: selErr } = await supabase
       .from("calendar_events")
@@ -195,6 +200,11 @@ async function mergeUpsert(events) {
     }
 
     const existing = existingRows?.[0];
+
+    if (!existing?.actual && ev.actual && (matchRule(ev.event_title)?.w ?? 0) > 0) {
+      materialActualArrived = true;
+    }
+
     const merged = {
       ...ev,
       // nikdy neztratit dřív zachycený actual/estimate/previous kvůli neúplnému re-scrapu
@@ -214,7 +224,40 @@ async function mergeUpsert(events) {
     }
     count++;
   }
-  return count;
+  return { count, materialActualArrived };
+}
+
+// Spustí generate-narrative.yml přes GitHub API místo čekání na jeho denní cron — potřebuje
+// actions:write oprávnění GITHUB_TOKEN (nastaveno ve fetch-calendar.yml) a běží jen uvnitř
+// GitHub Actions (GITHUB_TOKEN/GITHUB_REPOSITORY/GITHUB_REF_NAME appka nastavuje automaticky).
+async function triggerNarrativeRegeneration(reason) {
+  const token = process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPOSITORY;
+  const ref = process.env.GITHUB_REF_NAME;
+
+  if (!token || !repo || !ref) {
+    console.warn("Přeskakuji okamžitý trigger generate-narrative.yml — chybí GITHUB_TOKEN/GITHUB_REPOSITORY/GITHUB_REF_NAME.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/generate-narrative.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref }),
+    });
+    if (res.ok) {
+      console.log(`Spuštěn okamžitý přepočet narrativu (${reason}).`);
+    } else {
+      console.error(`Nepodařilo se spustit generate-narrative.yml: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error("Chyba při triggerování generate-narrative.yml:", err.message);
+  }
 }
 
 function clamp(value, min, max) {
@@ -442,10 +485,14 @@ async function main() {
     process.exit(1);
   }
 
-  const count = await mergeUpsert(deduped);
+  const { count, materialActualArrived } = await mergeUpsert(deduped);
   console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
 
   await recomputeScores();
+
+  if (materialActualArrived) {
+    await triggerNarrativeRegeneration("nový actual u důležitého eventu");
+  }
 }
 
 // Spustit scraping jen když je soubor volaný přímo (`node scripts/fetch-calendar.mjs`),
