@@ -8,6 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import { computeFundamentalScore } from "./fundamental-scoring.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
+import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 
 // Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
 // scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
@@ -379,6 +380,24 @@ export async function recomputeScores() {
         `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} cot=${cotRow.cot_score} retail=${retailScore} risk=${riskAdj} ` +
           `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
       );
+
+      // Gen2 Thesis Engine, Fáze 1 — běží "ve stínu" vedle stávajícího scoringu (currency_thesis/
+      // thesis_ledger se plní, ale frontend je zatím nečte). Nesmí shodit zbytek přepočtu, kdyby
+      // selhal — proto vlastní try/catch, ne propagace chyby výš.
+      try {
+        await runThesisEngineForCurrency(currencyCode, {
+          overallScore,
+          convictionStars: conviction.stars,
+          fundamentalScoreAdj,
+          cotScore: cotRow.cot_score,
+          cbPolicyAdj: cbPolicy.cbPolicyAdj,
+          realYieldAdj: cbPolicy.realYieldAdj,
+          riskAdj,
+          retailScore,
+        });
+      } catch (thesisErr) {
+        console.error(`[${currencyCode}] thesis-engine selhal (nekriticky, scoring pokračuje):`, thesisErr.message);
+      }
     }
   }
 }
