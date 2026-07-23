@@ -41,6 +41,26 @@ function convictionStars(stars: number | null): string {
   return "★".repeat(stars) + "☆".repeat(Math.max(0, 5 - stars));
 }
 
+function thesisDirectionLabel(direction: string): string {
+  return direction === "bullish" ? "Bullish" : direction === "bearish" ? "Bearish" : "Neutrální";
+}
+
+function thesisDirectionColor(direction: string): string {
+  if (direction === "bullish") return "text-emerald-400";
+  if (direction === "bearish") return "text-red-400";
+  return "text-muted";
+}
+
+function thesisStatusBadge(status: "active" | "watching" | "invalidated"): { label: string; classes: string } {
+  if (status === "watching") {
+    return { label: "SLEDUJE SE — driver invalidován", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+  }
+  if (status === "invalidated") {
+    return { label: "ZRUŠENO", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
+  }
+  return { label: "AKTIVNÍ", classes: "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" };
+}
+
 export default function App() {
   const [currencies, setCurrencies] = useState<CurrencyData[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -178,6 +198,54 @@ export default function App() {
                 )}
               </div>
             </section>
+
+            {currency.thesis && (
+              <section className="bg-panel border border-panelborder rounded-xl p-6">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-xs tracking-wide text-muted">MAKRO TEZE</div>
+                  <span
+                    className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${
+                      thesisStatusBadge(currency.thesis.status).classes
+                    }`}
+                  >
+                    {thesisStatusBadge(currency.thesis.status).label}
+                  </span>
+                </div>
+                <div className={`text-xl font-serif ${thesisDirectionColor(currency.thesis.direction)}`}>
+                  {thesisDirectionLabel(currency.thesis.direction)}
+                </div>
+                <div className="text-gold text-sm mt-1 tracking-wider">
+                  {convictionStars(Math.round(currency.thesis.conviction))}
+                </div>
+                <div className="text-xs text-muted mt-1">
+                  otevřeno {new Date(currency.thesis.openedAt).toLocaleDateString("cs-CZ")} · potvrzeno {currency.thesis.confirmStreak}×
+                  {currency.thesis.challengeStreak > 0 && `, zpochybněno ${currency.thesis.challengeStreak}×`}
+                </div>
+                {currency.thesis.thesisSummary && (
+                  <div className="text-sm text-slate-300 mt-3">{currency.thesis.thesisSummary}</div>
+                )}
+                {currency.thesis.drivers.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {currency.thesis.drivers.map((driver) => (
+                      <span
+                        key={driver.driverKey}
+                        className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border ${
+                          driver.status === "weakening"
+                            ? "border-amber-500/40 text-amber-300 bg-amber-500/5"
+                            : "border-emerald-500/40 text-emerald-300 bg-emerald-500/5"
+                        }`}
+                      >
+                        {driver.label}
+                        <span className="font-mono text-muted">
+                          {driver.value > 0 ? "+" : ""}
+                          {driver.value.toFixed(2)}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             <section className="bg-panel border border-panelborder rounded-xl p-6">
               <div className="text-xs tracking-wide text-muted mb-3">SHRNUTÍ PŘÍBĚHU</div>

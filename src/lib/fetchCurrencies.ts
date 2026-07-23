@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { CalendarEvent, CbPolicy, CurrencyData, DataTier, PricedIn, RiskRegime, Scenario } from "../types";
+import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataTier, PricedIn, RiskRegime, Scenario, ThesisDriver } from "../types";
 
 // Tvar, jak scénáře skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -67,6 +67,27 @@ interface MarketRegimeRow {
   regime: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
 }
 
+// Tvar, jak drivers ukládá scripts/thesis-engine.mjs (snake_case driver_key) — mapuje se na
+// camelCase ThesisDriver až ve výstupu fetchCurrencies().
+interface ThesisDriverRow {
+  driver_key: string;
+  label: string;
+  value: number;
+  status: "strong" | "weakening";
+}
+
+interface LatestCurrencyThesisRow {
+  currency_code: string;
+  direction: "bullish" | "bearish" | "neutral";
+  conviction: number;
+  drivers: ThesisDriverRow[] | null;
+  thesis_summary: string | null;
+  status: "active" | "watching" | "invalidated";
+  confirm_streak: number;
+  challenge_streak: number;
+  opened_at: string;
+}
+
 const FETCH_TIMEOUT_MS = 10_000;
 const UPCOMING_DAYS = 21;
 
@@ -93,7 +114,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const today = new Date().toISOString().slice(0, 10);
   const upcomingCutoff = new Date(Date.now() + UPCOMING_DAYS * 86400000).toISOString().slice(0, 10);
 
-  const [cotResult, fundamentalResult, narrativeResult, calendarResult, cbPolicyResult, marketRegimeResult] =
+  const [cotResult, fundamentalResult, narrativeResult, calendarResult, cbPolicyResult, marketRegimeResult, thesisResult] =
     await Promise.all([
       withTimeout(
         supabase
@@ -130,6 +151,12 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         FETCH_TIMEOUT_MS
       ),
       withTimeout(supabase.from("market_regime").select("vix, vix_5d_change, regime").limit(1), FETCH_TIMEOUT_MS),
+      withTimeout(
+        supabase
+          .from("latest_currency_thesis")
+          .select("currency_code, direction, conviction, drivers, thesis_summary, status, confirm_streak, challenge_streak, opened_at"),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -144,6 +171,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const riskRegime: RiskRegime | null = marketRegime
     ? { vix: marketRegime.vix, vix5dChange: marketRegime.vix_5d_change, regime: marketRegime.regime }
     : null;
+  const thesisByCode = groupByCurrency((thesisResult.data ?? []) as LatestCurrencyThesisRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -180,6 +208,22 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       outcome: s.outcome,
     }));
 
+    const thesisRow = thesisByCode.get(row.currency_code)?.[0] ?? null;
+    const thesis: CurrencyThesis | null = thesisRow
+      ? {
+          direction: thesisRow.direction,
+          conviction: thesisRow.conviction,
+          drivers: (thesisRow.drivers ?? []).map(
+            (d): ThesisDriver => ({ driverKey: d.driver_key, label: d.label, value: d.value, status: d.status })
+          ),
+          thesisSummary: thesisRow.thesis_summary,
+          status: thesisRow.status,
+          confirmStreak: thesisRow.confirm_streak,
+          challengeStreak: thesisRow.challenge_streak,
+          openedAt: thesisRow.opened_at,
+        }
+      : null;
+
     return {
       code: row.currency_code,
       score: row.overall_score,
@@ -201,6 +245,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       convictionReasons: row.conviction_reasons ?? [],
       riskRegime,
       scenarios,
+      thesis,
     };
   });
 }

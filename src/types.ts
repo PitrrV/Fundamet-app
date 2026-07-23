@@ -65,6 +65,24 @@ export interface Scenario {
   outcome: string | null; // profesionální komentář ke skutečnému výsledku, jakmile je actual známý
 }
 
+export interface ThesisDriver {
+  driverKey: string;
+  label: string;
+  value: number;
+  status: "strong" | "weakening";
+}
+
+export interface CurrencyThesis {
+  direction: "bullish" | "bearish" | "neutral";
+  conviction: number; // 0..5
+  drivers: ThesisDriver[];
+  thesisSummary: string | null;
+  status: "active" | "watching" | "invalidated";
+  confirmStreak: number;
+  challengeStreak: number;
+  openedAt: string;
+}
+
 export interface CurrencyData {
   code: string;
   score: number; // -5..+5
@@ -86,4 +104,5 @@ export interface CurrencyData {
   convictionReasons: string[];
   riskRegime: RiskRegime | null;
   scenarios: Scenario[]; // "když X, tak Y" predikce pro nejbližší klíčové eventy
+  thesis: CurrencyThesis | null; // Gen2 Thesis Engine — teze s pamětí napříč dny, null dokud appka žádnou neotevřela
 }
