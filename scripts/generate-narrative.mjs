@@ -228,7 +228,7 @@ async function generateNarrativeAudio(currencyCode, text) {
   try {
     const speech = await openai.audio.speech.create({
       model: "tts-1",
-      voice: "alloy",
+      voice: "onyx",
       input: text,
       response_format: "mp3",
     });
