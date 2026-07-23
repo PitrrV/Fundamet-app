@@ -156,14 +156,14 @@ async function insertLedgerEntries(thesisId, entries) {
   if (error) console.error(`Chyba zápisu thesis_ledger (thesis_id=${thesisId}):`, error.message);
 }
 
-async function openNewThesis(currencyCode, direction, pillarValues, supersedesId = null) {
+async function openNewThesis(currencyCode, direction, pillarValues, convictionStars, supersedesId = null) {
   const drivers = computeInitialDrivers(direction, pillarValues);
   const { data, error } = await supabase
     .from("currency_thesis")
     .insert({
       currency_code: currencyCode,
       direction,
-      conviction: pillarValues.convictionStars ?? 0,
+      conviction: convictionStars ?? 0,
       drivers,
       thesis_summary: buildThesisSummary(currencyCode, direction, drivers),
       status: "active",
@@ -240,7 +240,7 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
 
   if (!thesis) {
     if (direction === "neutral") return; // nic pojmenovaného, o čem otevírat tezi
-    const newId = await openNewThesis(currencyCode, direction, pillarValues);
+    const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars);
     if (newId) console.log(`[${currencyCode}] thesis-engine: otevřena nová ${direction} teze (id=${newId}).`);
     return;
   }
@@ -249,7 +249,7 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
   // drivery by tu byla zavádějící (viz Gen2 "strukturální event vždy vynucuje review").
   if (direction !== "neutral" && thesis.direction !== "neutral" && direction !== thesis.direction) {
     await closeThesis(thesis.id, `Celkový směr se otočil z ${thesis.direction} na ${direction} — teze zrušena.`);
-    const newId = await openNewThesis(currencyCode, direction, pillarValues, thesis.id);
+    const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars, thesis.id);
     if (newId) console.log(`[${currencyCode}] thesis-engine: obrat směru, nová ${direction} teze (id=${newId}) nahrazuje id=${thesis.id}.`);
     return;
   }
