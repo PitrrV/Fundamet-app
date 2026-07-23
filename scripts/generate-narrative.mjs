@@ -154,7 +154,10 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
   const currencyEvents = allCalendarEvents.filter((e) => e.currency_code === currencyCode);
 
   const upcoming = currencyEvents
-    .filter((e) => e.event_day >= today && e.event_day <= upcomingCutoff)
+    // !e.actual je klíčové — bez něj by dnešní JIŽ VYŠLÝ event (event_day === today) zůstal
+    // mezi "nadcházejícími" jen s odhadem/předchozí hodnotou a model by ho psal jako budoucí,
+    // i když skutečný výsledek už dávno existuje (viz `recent` níže, kam patří).
+    .filter((e) => e.event_day >= today && e.event_day <= upcomingCutoff && !e.actual)
     .sort((a, b) => a.event_day.localeCompare(b.event_day))
     .map((e) => ({
       date: e.event_day,
@@ -166,7 +169,8 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
     }));
 
   const recent = currencyEvents
-    .filter((e) => e.event_day < today && e.event_day >= recentCutoff && e.actual)
+    // <= today (ne jen < today) — dnešní už vyšlý event patří sem, ne do "upcoming" (viz výš).
+    .filter((e) => e.event_day <= today && e.event_day >= recentCutoff && e.actual)
     .sort((a, b) => b.event_day.localeCompare(a.event_day))
     .map((e) => ({
       date: e.event_day,
