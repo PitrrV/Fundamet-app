@@ -51,6 +51,12 @@ function thesisDirectionColor(direction: string): string {
   return "text-muted";
 }
 
+function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
+  if (level === "HIGH") return "border-emerald-500/50 text-emerald-300 bg-emerald-500/10";
+  if (level === "MEDIUM") return "border-amber-500/50 text-amber-300 bg-amber-500/10";
+  return "border-red-500/50 text-red-300 bg-red-500/10";
+}
+
 function thesisStatusBadge(status: "active" | "watching" | "invalidated"): { label: string; classes: string } {
   if (status === "watching") {
     return { label: "SLEDUJE SE — driver invalidován", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
@@ -169,8 +175,24 @@ export default function App() {
             />
 
             <section className="bg-panel border border-panelborder rounded-xl p-8">
-              <div className="text-xs tracking-wide text-muted mb-4">
-                CONFLUENCE SKÓRE — {currency.code}
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-xs tracking-wide text-muted">
+                  CONFLUENCE SKÓRE — {currency.code}
+                </div>
+                {currency.dataQuality && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-[10px] tracking-wide px-2 py-0.5 rounded border ${dataQualityBadgeClasses(
+                      currency.dataQuality.level
+                    )}`}
+                    title={
+                      currency.dataQuality.missingCategories.length > 0
+                        ? `Chybí: ${currency.dataQuality.missingCategories.join(", ")}`
+                        : "Žádná chybějící core data"
+                    }
+                  >
+                    KVALITA DAT: {currency.dataQuality.level} · pokrytí {currency.dataQuality.coveragePct}%
+                  </span>
+                )}
               </div>
               <Gauge score={currency.score} />
               <div className="text-center mt-2">

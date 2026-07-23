@@ -9,6 +9,8 @@ import { computeFundamentalScore } from "./fundamental-scoring.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
+import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
+import { runDataQualityForCurrency } from "./data-quality.mjs";
 
 // Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
 // scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
@@ -264,7 +266,7 @@ function convictionLabelFromStars(stars) {
 export async function recomputeScores() {
   const { data: allEvents, error } = await supabase
     .from("calendar_events")
-    .select("currency_code, event_title, event_day, actual, estimate, previous");
+    .select("id, currency_code, event_title, event_day, actual, estimate, previous");
 
   if (error) {
     console.error("Nepodařilo se načíst calendar_events pro scoring:", error.message);
@@ -397,6 +399,22 @@ export async function recomputeScores() {
         });
       } catch (thesisErr) {
         console.error(`[${currencyCode}] thesis-engine selhal (nekriticky, scoring pokračuje):`, thesisErr.message);
+      }
+
+      // Gen2 Market Expectations Engine — snapshot nadcházejících klíčových eventů + vyhodnocení
+      // reakce u eventů, co mezitím dostaly actual. Stejný princip: vlastní try/catch, nesmí
+      // shodit zbytek přepočtu.
+      try {
+        await runMarketExpectationsForCurrency(currencyCode, allEvents ?? [], cotRow.cot_percentile ?? null);
+      } catch (meeErr) {
+        console.error(`[${currencyCode}] market-expectations selhal (nekriticky, scoring pokračuje):`, meeErr.message);
+      }
+
+      // Gen3.5 Confidence & Data Quality Engine, Fáze 1 — jen Data Quality + Coverage.
+      try {
+        await runDataQualityForCurrency(currencyCode, allEvents ?? [], cotRow.report_date ?? null);
+      } catch (cdqeErr) {
+        console.error(`[${currencyCode}] data-quality selhal (nekriticky, scoring pokračuje):`, cdqeErr.message);
       }
     }
   }

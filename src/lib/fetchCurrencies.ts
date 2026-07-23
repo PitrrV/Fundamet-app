@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataTier, PricedIn, RiskRegime, Scenario, ThesisDriver } from "../types";
+import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, PricedIn, RiskRegime, Scenario, ThesisDriver } from "../types";
 
 // Tvar, jak scénáře skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -76,6 +76,17 @@ interface ThesisDriverRow {
   status: "strong" | "weakening";
 }
 
+interface DataQualityScoreRow {
+  currency_code: string;
+  score: number;
+}
+
+interface DataCoverageRow {
+  currency_code: string;
+  coverage_pct: number;
+  missing: string[] | null;
+}
+
 interface LatestCurrencyThesisRow {
   currency_code: string;
   direction: "bullish" | "bearish" | "neutral";
@@ -114,8 +125,17 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const today = new Date().toISOString().slice(0, 10);
   const upcomingCutoff = new Date(Date.now() + UPCOMING_DAYS * 86400000).toISOString().slice(0, 10);
 
-  const [cotResult, fundamentalResult, narrativeResult, calendarResult, cbPolicyResult, marketRegimeResult, thesisResult] =
-    await Promise.all([
+  const [
+    cotResult,
+    fundamentalResult,
+    narrativeResult,
+    calendarResult,
+    cbPolicyResult,
+    marketRegimeResult,
+    thesisResult,
+    dataQualityResult,
+    dataCoverageResult,
+  ] = await Promise.all([
       withTimeout(
         supabase
           .from("latest_confluence_scores")
@@ -157,6 +177,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           .select("currency_code, direction, conviction, drivers, thesis_summary, status, confirm_streak, challenge_streak, opened_at"),
         FETCH_TIMEOUT_MS
       ),
+      withTimeout(supabase.from("data_quality_score").select("currency_code, score"), FETCH_TIMEOUT_MS),
+      withTimeout(supabase.from("data_coverage").select("currency_code, coverage_pct, missing"), FETCH_TIMEOUT_MS),
     ]);
 
   if (cotResult.error) {
@@ -172,6 +194,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     ? { vix: marketRegime.vix, vix5dChange: marketRegime.vix_5d_change, regime: marketRegime.regime }
     : null;
   const thesisByCode = groupByCurrency((thesisResult.data ?? []) as LatestCurrencyThesisRow[]);
+  const dataQualityByCode = groupByCurrency((dataQualityResult.data ?? []) as DataQualityScoreRow[]);
+  const dataCoverageByCode = groupByCurrency((dataCoverageResult.data ?? []) as DataCoverageRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -224,6 +248,18 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         }
       : null;
 
+    const dataQualityRow = dataQualityByCode.get(row.currency_code)?.[0] ?? null;
+    const dataCoverageRow = dataCoverageByCode.get(row.currency_code)?.[0] ?? null;
+    const dataQuality: DataQuality | null =
+      dataQualityRow && dataCoverageRow
+        ? {
+            score: dataQualityRow.score,
+            level: dataQualityRow.score >= 80 ? "HIGH" : dataQualityRow.score >= 50 ? "MEDIUM" : "LOW",
+            coveragePct: dataCoverageRow.coverage_pct,
+            missingCategories: dataCoverageRow.missing ?? [],
+          }
+        : null;
+
     return {
       code: row.currency_code,
       score: row.overall_score,
@@ -246,6 +282,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       riskRegime,
       scenarios,
       thesis,
+      dataQuality,
     };
   });
 }

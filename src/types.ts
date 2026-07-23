@@ -72,6 +72,13 @@ export interface ThesisDriver {
   status: "strong" | "weakening";
 }
 
+export interface DataQuality {
+  score: number; // 0-100
+  level: "HIGH" | "MEDIUM" | "LOW";
+  coveragePct: number;
+  missingCategories: string[];
+}
+
 export interface CurrencyThesis {
   direction: "bullish" | "bearish" | "neutral";
   conviction: number; // 0..5
@@ -105,4 +112,5 @@ export interface CurrencyData {
   riskRegime: RiskRegime | null;
   scenarios: Scenario[]; // "když X, tak Y" predikce pro nejbližší klíčové eventy
   thesis: CurrencyThesis | null; // Gen2 Thesis Engine — teze s pamětí napříč dny, null dokud appka žádnou neotevřela
+  dataQuality: DataQuality | null; // Gen3.5 CDQE Fáze 1 — kvalita/pokrytí vstupních dat, ne kvalita samotné teze
 }
