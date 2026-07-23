@@ -5,6 +5,7 @@ import { Gauge } from "./components/Gauge";
 import { RichText } from "./components/RichText";
 import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
+import { NarrativeAudioButton } from "./components/NarrativeAudioButton";
 import { convictionColor } from "./utils";
 import { fetchCurrencies } from "./lib/fetchCurrencies";
 import { supabase } from "./lib/supabaseClient";
@@ -270,7 +271,10 @@ export default function App() {
             )}
 
             <section className="bg-panel border border-panelborder rounded-xl p-6">
-              <div className="text-xs tracking-wide text-muted mb-3">SHRNUTÍ PŘÍBĚHU</div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="text-xs tracking-wide text-muted">SHRNUTÍ PŘÍBĚHU</div>
+                <NarrativeAudioButton audioUrl={currency.summaryAudioUrl} />
+              </div>
               <RichText text={currency.summary} className="text-sm leading-relaxed text-slate-300" />
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5 pt-5 border-t border-panelborder text-xs">

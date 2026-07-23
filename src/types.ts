@@ -95,6 +95,7 @@ export interface CurrencyData {
   score: number; // -5..+5
   convictionLabel: string;
   summary: string; // narrative z OpenAI (nebo starší COT-only text jako fallback); může obsahovat **bold**
+  summaryAudioUrl: string | null; // TTS namluvení summary (OpenAI tts-1), null dokud se nevygeneruje
   cotPositioning: string;
   pricedIn: string | null; // "zaceněnost" poslední CB rozhodnutí — z cbPolicy.pricedIn.label
   longTermBias: string | null; // z cbPolicy.policyLabel (CB politický cyklus)

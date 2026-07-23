@@ -220,6 +220,37 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
   return { cot, fundamental, cbPolicy, retailSentiment, riskRegime: marketRegime, basketContext: otherCurrencies, upcoming, recent, scenarioSeeds };
 }
 
+// Předčítání shrnutí příběhu (tlačítko se zvukovou ikonou u SHRNUTÍ PŘÍBĚHU ve frontendu).
+// Fixní cesta per měna (ne per generování) — nová verze audia přepíše starou, žádné
+// hromadění osiřelých souborů ve storage. Nekritické: selhání TTS/uploadu nikdy nesmí
+// zablokovat uložení textového narrativu, který je hlavní věc.
+async function generateNarrativeAudio(currencyCode, text) {
+  try {
+    const speech = await openai.audio.speech.create({
+      model: "tts-1",
+      voice: "alloy",
+      input: text,
+      response_format: "mp3",
+    });
+    const buffer = Buffer.from(await speech.arrayBuffer());
+    const path = `${currencyCode.toLowerCase()}.mp3`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from("narrative-audio")
+      .upload(path, buffer, { contentType: "audio/mpeg", upsert: true });
+    if (uploadErr) {
+      console.error(`[${currencyCode}] chyba nahrání audia do storage:`, uploadErr.message);
+      return null;
+    }
+
+    const { data } = supabase.storage.from("narrative-audio").getPublicUrl(path);
+    return data?.publicUrl ? `${data.publicUrl}?v=${Date.now()}` : null;
+  } catch (err) {
+    console.error(`[${currencyCode}] TTS generování selhalo (nekriticky, text narrative pokračuje):`, err.message);
+    return null;
+  }
+}
+
 async function generateForCurrency(currencyCode, context) {
   const { cot, fundamental, cbPolicy, retailSentiment, riskRegime, basketContext, upcoming, recent, scenarioSeeds } = context;
 
@@ -312,6 +343,8 @@ async function generateForCurrency(currencyCode, context) {
     });
   }
 
+  const audioUrl = await generateNarrativeAudio(currencyCode, result.narrative);
+
   const { error: insErr } = await supabase.from("narratives").insert({
     currency_code: currencyCode,
     narrative: result.narrative,
@@ -319,6 +352,7 @@ async function generateForCurrency(currencyCode, context) {
     conviction_note: result.conviction_note,
     scenarios: result.scenarios ?? [],
     model: OPENAI_MODEL,
+    audio_url: audioUrl,
   });
 
   if (insErr) {
@@ -326,7 +360,9 @@ async function generateForCurrency(currencyCode, context) {
     return false;
   }
 
-  console.log(`[${currencyCode}] OK — narrative vygenerován (${result.narrative.length} znaků, ${result.scenarios?.length ?? 0} scénářů).`);
+  console.log(
+    `[${currencyCode}] OK — narrative vygenerován (${result.narrative.length} znaků, ${result.scenarios?.length ?? 0} scénářů, audio: ${audioUrl ? "ano" : "ne"}).`
+  );
   return true;
 }
 
