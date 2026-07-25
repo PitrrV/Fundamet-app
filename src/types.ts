@@ -90,6 +90,25 @@ export interface CurrencyThesis {
   openedAt: string;
 }
 
+export interface LedgerEntry {
+  driverKey: string | null;
+  classification: "confirms" | "challenges" | "invalidates_driver" | "opened" | "closed";
+  reasoning: string;
+  occurredAt: string;
+}
+
+export interface TopOpportunity {
+  strongestCurrency: string | null;
+  strongestScore: number | null;
+  strongestConviction: number | null;
+  weakestCurrency: string | null;
+  weakestScore: number | null;
+  weakestConviction: number | null;
+  rationale: string | null;
+  insufficientData: boolean;
+  computedAt: string;
+}
+
 export interface CurrencyData {
   code: string;
   score: number; // -5..+5
@@ -114,4 +133,5 @@ export interface CurrencyData {
   scenarios: Scenario[]; // "když X, tak Y" predikce pro nejbližší klíčové eventy
   thesis: CurrencyThesis | null; // Gen2 Thesis Engine — teze s pamětí napříč dny, null dokud appka žádnou neotevřela
   dataQuality: DataQuality | null; // Gen3.5 CDQE Fáze 1 — kvalita/pokrytí vstupních dat, ne kvalita samotné teze
+  ledgerFeed: LedgerEntry[]; // "Co se změnilo?" — historie potvrzení/zpochybnění teze (thesis_ledger)
 }

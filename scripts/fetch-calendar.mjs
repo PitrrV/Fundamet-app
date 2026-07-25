@@ -11,6 +11,7 @@ import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./mar
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
 import { runDataQualityForCurrency } from "./data-quality.mjs";
+import { computeTopOpportunity } from "./top-opportunity.mjs";
 
 // Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
 // scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
@@ -460,6 +461,14 @@ export async function recomputeScores() {
         console.error(`[${currencyCode}] data-quality selhal (nekriticky, scoring pokračuje):`, cdqeErr.message);
       }
     }
+  }
+
+  // "Top Fundamentální příležitosti týdne" — potřebuje přehled VŠECH měn najednou, proto se
+  // volá jednou tady, ne uvnitř smyčky per měna.
+  try {
+    await computeTopOpportunity();
+  } catch (topErr) {
+    console.error("top-opportunity selhal (nekriticky):", topErr.message);
   }
 }
 

@@ -7,10 +7,10 @@ import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
 import { NarrativeAudioButton } from "./components/NarrativeAudioButton";
 import { convictionColor } from "./utils";
-import { fetchCurrencies } from "./lib/fetchCurrencies";
+import { fetchCurrencies, fetchTopOpportunity } from "./lib/fetchCurrencies";
 import { supabase } from "./lib/supabaseClient";
 import { ADMIN_EMAIL, signOut } from "./lib/auth";
-import type { CurrencyData } from "./types";
+import type { CurrencyData, LedgerEntry, TopOpportunity } from "./types";
 
 function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
   switch (impact) {
@@ -58,6 +58,23 @@ function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
   return "border-red-500/50 text-red-300 bg-red-500/10";
 }
 
+function ledgerEntryMeta(entry: LedgerEntry): { label: string; classes: string } {
+  switch (entry.classification) {
+    case "opened":
+      return { label: "NOVÁ TEZE", classes: "border-gold/50 text-gold bg-gold/10" };
+    case "confirms":
+      return { label: "TEZE POSÍLENA", classes: "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" };
+    case "challenges":
+      return { label: "TEZE OSLABENA", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+    case "invalidates_driver":
+      return { label: "DRIVER INVALIDOVÁN", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+    case "closed":
+      return { label: "TEZE UZAVŘENA", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
+    default:
+      return { label: entry.classification, classes: "border-panelborder text-muted" };
+  }
+}
+
 function thesisStatusBadge(status: "active" | "watching" | "invalidated"): { label: string; classes: string } {
   if (status === "watching") {
     return { label: "SLEDUJE SE — driver invalidován", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
@@ -73,6 +90,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currencyCode, setCurrencyCode] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [topOpportunity, setTopOpportunity] = useState<TopOpportunity | null>(null);
 
   useEffect(() => {
     fetchCurrencies()
@@ -81,6 +99,9 @@ export default function App() {
         setCurrencyCode((prev) => prev ?? data.find((c) => c.code === "EUR")?.code ?? data[0]?.code ?? null);
       })
       .catch((err: Error) => setLoadError(err.message));
+    fetchTopOpportunity()
+      .then(setTopOpportunity)
+      .catch(() => setTopOpportunity(null));
   }, []);
 
   useEffect(() => {
@@ -164,6 +185,37 @@ export default function App() {
         {currencies && currencies.length === 0 && (
           <section className="bg-panel border border-panelborder rounded-xl p-8 text-center text-muted text-sm">
             Zatím nejsou k dispozici žádná data — ingest job ještě neproběhl.
+          </section>
+        )}
+
+        {topOpportunity && (
+          <section className="bg-panel border border-gold/30 rounded-xl p-6">
+            <div className="text-xs tracking-wide text-gold mb-3">TOP FUNDAMENTÁLNÍ PŘÍLEŽITOST TÝDNE</div>
+            {topOpportunity.insufficientData ? (
+              <div className="text-sm text-muted italic">
+                Momentálně žádná dvojice měn nesplňuje prahy pro konvikci a kvalitu dat — appka radši
+                nic nenavrhuje, než by navrhla pár postavený na slabých datech.
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-center gap-3 text-lg font-serif">
+                  <span className="text-emerald-400">{topOpportunity.strongestCurrency}</span>
+                  <span className="text-muted text-sm">nejsilnější bias</span>
+                  <span className="text-muted">·</span>
+                  <span className="text-red-400">{topOpportunity.weakestCurrency}</span>
+                  <span className="text-muted text-sm">nejslabší bias</span>
+                </div>
+                {topOpportunity.rationale && (
+                  <div className="text-xs text-slate-300 mt-3 max-w-xl mx-auto text-center">
+                    {topOpportunity.rationale}
+                  </div>
+                )}
+                <div className="text-[11px] text-muted italic text-center mt-3 pt-3 border-t border-panelborder">
+                  Jen inspirace k dalšímu zkoumání, ne signál ke vstupu — timing, risk management a
+                  technickou konfluenci řeší Fx Analyzer, ne tahle appka.
+                </div>
+              </>
+            )}
           </section>
         )}
 
@@ -267,6 +319,33 @@ export default function App() {
                     ))}
                   </div>
                 )}
+              </section>
+            )}
+
+            {currency.ledgerFeed.length > 0 && (
+              <section className="bg-panel border border-panelborder rounded-xl p-6">
+                <div className="text-xs tracking-wide text-muted mb-4">CO SE ZMĚNILO?</div>
+                <div className="space-y-3">
+                  {currency.ledgerFeed.map((entry, i) => {
+                    const meta = ledgerEntryMeta(entry);
+                    return (
+                      <div key={`${entry.occurredAt}-${i}`} className="border-l-2 border-panelborder pl-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span
+                            className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${meta.classes}`}
+                          >
+                            {meta.label}
+                          </span>
+                          <span className="text-[11px] text-muted font-mono">
+                            {new Date(entry.occurredAt).toLocaleDateString("cs-CZ")}
+                          </span>
+                          {entry.driverKey && <span className="text-[11px] text-muted">· {entry.driverKey}</span>}
+                        </div>
+                        <div className="text-xs text-slate-300">{entry.reasoning}</div>
+                      </div>
+                    );
+                  })}
+                </div>
               </section>
             )}
 
@@ -416,6 +495,12 @@ export default function App() {
             Shrnutí příběhu, upozornění na navazující eventy a scénářová predikce vznikají jazykovým
             modelem (OpenAI) na základě těchto dat — jde o syntézu veřejně dostupných informací a
             heuristických odhadů, ne o investiční doporučení.
+          </p>
+          <p className="pt-2 border-t border-panelborder/60">
+            Konfluence vysvětluje PROČ — makro kontext, fundamentální bias a jak se v čase mění. Neřeší
+            timing vstupu, risk management ani technickou konfluenci na grafu — o to, jestli je
+            konkrétní obchod podpořený daty a potvrzený napříč zdroji, se stará samostatný nástroj Fx
+            Analyzer.
           </p>
         </footer>
       </main>

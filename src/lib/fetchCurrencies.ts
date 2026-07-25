@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, PricedIn, RiskRegime, Scenario, ThesisDriver } from "../types";
+import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
 
 // Tvar, jak scénáře skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -100,6 +100,29 @@ interface LatestCurrencyThesisRow {
   opened_at: string;
 }
 
+// "Co se změnilo?" — view thesis_ledger_feed (znovupoužívá thesis_ledger z Gen2 Thesis Enginu).
+interface LedgerFeedRow {
+  currency_code: string;
+  driver_key: string | null;
+  classification: "confirms" | "challenges" | "invalidates_driver" | "opened" | "closed";
+  reasoning: string;
+  occurred_at: string;
+}
+
+const LEDGER_FEED_LIMIT_PER_CURRENCY = 10;
+
+interface WeeklyTopOpportunityRow {
+  strongest_currency: string | null;
+  strongest_score: number | null;
+  strongest_conviction: number | null;
+  weakest_currency: string | null;
+  weakest_score: number | null;
+  weakest_conviction: number | null;
+  rationale: string | null;
+  insufficient_data: boolean;
+  computed_at: string;
+}
+
 const FETCH_TIMEOUT_MS = 10_000;
 const UPCOMING_DAYS = 21;
 
@@ -136,6 +159,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     thesisResult,
     dataQualityResult,
     dataCoverageResult,
+    ledgerFeedResult,
   ] = await Promise.all([
       withTimeout(
         supabase
@@ -180,6 +204,14 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       ),
       withTimeout(supabase.from("data_quality_score").select("currency_code, score"), FETCH_TIMEOUT_MS),
       withTimeout(supabase.from("data_coverage").select("currency_code, coverage_pct, missing"), FETCH_TIMEOUT_MS),
+      withTimeout(
+        supabase
+          .from("thesis_ledger_feed")
+          .select("currency_code, driver_key, classification, reasoning, occurred_at")
+          .order("occurred_at", { ascending: false })
+          .limit(200),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -197,6 +229,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const thesisByCode = groupByCurrency((thesisResult.data ?? []) as LatestCurrencyThesisRow[]);
   const dataQualityByCode = groupByCurrency((dataQualityResult.data ?? []) as DataQualityScoreRow[]);
   const dataCoverageByCode = groupByCurrency((dataCoverageResult.data ?? []) as DataCoverageRow[]);
+  const ledgerFeedByCode = groupByCurrency((ledgerFeedResult.data ?? []) as LedgerFeedRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -261,6 +294,15 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           }
         : null;
 
+    const ledgerFeed: LedgerEntry[] = (ledgerFeedByCode.get(row.currency_code) ?? [])
+      .slice(0, LEDGER_FEED_LIMIT_PER_CURRENCY)
+      .map((l) => ({
+        driverKey: l.driver_key,
+        classification: l.classification,
+        reasoning: l.reasoning,
+        occurredAt: l.occurred_at,
+      }));
+
     return {
       code: row.currency_code,
       score: row.overall_score,
@@ -285,6 +327,40 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       scenarios,
       thesis,
       dataQuality,
+      ledgerFeed,
     };
   });
+}
+
+// "Top Fundamentální příležitosti týdne" — jeden řádek napříč všemi měnami (weekly_top_opportunity
+// je singleton, viz top-opportunity.mjs), proto samostatná funkce mimo per-měna fetchCurrencies().
+export async function fetchTopOpportunity(): Promise<TopOpportunity | null> {
+  const result = await withTimeout(
+    supabase
+      .from("weekly_top_opportunity")
+      .select(
+        "strongest_currency, strongest_score, strongest_conviction, weakest_currency, weakest_score, weakest_conviction, rationale, insufficient_data, computed_at"
+      )
+      .limit(1),
+    FETCH_TIMEOUT_MS
+  );
+
+  if (result.error) {
+    throw new Error(`Nepodařilo se načíst top příležitost týdne: ${result.error.message}`);
+  }
+
+  const row = ((result.data ?? []) as WeeklyTopOpportunityRow[])[0] ?? null;
+  if (!row) return null;
+
+  return {
+    strongestCurrency: row.strongest_currency,
+    strongestScore: row.strongest_score,
+    strongestConviction: row.strongest_conviction,
+    weakestCurrency: row.weakest_currency,
+    weakestScore: row.weakest_score,
+    weakestConviction: row.weakest_conviction,
+    rationale: row.rationale,
+    insufficientData: row.insufficient_data,
+    computedAt: row.computed_at,
+  };
 }
