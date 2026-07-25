@@ -58,6 +58,28 @@ function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
   return "border-red-500/50 text-red-300 bg-red-500/10";
 }
 
+function topOpportunityTierMeta(tier: "strong" | "soft" | "flat" | null): { label: string; note: string; classes: string } {
+  if (tier === "strong") {
+    return {
+      label: "SILNÝ PŘÍBĚH",
+      note: "Obě strany podpořené více nezávislými signály, kvalita dat není nízká.",
+      classes: "border-gold/50 text-gold bg-gold/10",
+    };
+  }
+  if (tier === "soft") {
+    return {
+      label: "NEJVÝRAZNĚJŠÍ DOSTUPNÝ ROZDÍL",
+      note: "Konvikce nebo kvalita dat zatím nejsou na plné úrovni — ber jako slabší podnět k prozkoumání.",
+      classes: "border-amber-500/50 text-amber-300 bg-amber-500/10",
+    };
+  }
+  return {
+    label: "TRH BEZ JASNÉHO PŘÍBĚHU",
+    note: "Rozestup mezi nejsilnější a nejslabší měnou je teď malý — tenhle týden nikdo jasně nevyčnívá.",
+    classes: "border-panelborder text-muted",
+  };
+}
+
 function ledgerEntryMeta(entry: LedgerEntry): { label: string; classes: string } {
   switch (entry.classification) {
     case "opened":
@@ -193,17 +215,29 @@ export default function App() {
             <div className="text-xs tracking-wide text-gold mb-3">TOP FUNDAMENTÁLNÍ PŘÍLEŽITOST TÝDNE</div>
             {topOpportunity.insufficientData ? (
               <div className="text-sm text-muted italic">
-                Momentálně žádná dvojice měn nesplňuje prahy pro konvikci a kvalitu dat — appka radši
-                nic nenavrhuje, než by navrhla pár postavený na slabých datech.
+                Appka zatím nemá spočítané skóre aspoň u dvou měn — jakmile naběhne první přepočet,
+                objeví se tu srovnání.
               </div>
             ) : (
               <>
+                <div className="flex justify-center mb-3">
+                  <span
+                    className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${
+                      topOpportunityTierMeta(topOpportunity.confidenceTier).classes
+                    }`}
+                  >
+                    {topOpportunityTierMeta(topOpportunity.confidenceTier).label}
+                  </span>
+                </div>
                 <div className="flex items-center justify-center gap-3 text-lg font-serif">
                   <span className="text-emerald-400">{topOpportunity.strongestCurrency}</span>
                   <span className="text-muted text-sm">nejsilnější bias</span>
                   <span className="text-muted">·</span>
                   <span className="text-red-400">{topOpportunity.weakestCurrency}</span>
                   <span className="text-muted text-sm">nejslabší bias</span>
+                </div>
+                <div className="text-[11px] text-muted italic text-center mt-2">
+                  {topOpportunityTierMeta(topOpportunity.confidenceTier).note}
                 </div>
                 {topOpportunity.rationale && (
                   <div className="text-xs text-slate-300 mt-3 max-w-xl mx-auto text-center">

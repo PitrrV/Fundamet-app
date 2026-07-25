@@ -119,6 +119,7 @@ interface WeeklyTopOpportunityRow {
   weakest_score: number | null;
   weakest_conviction: number | null;
   rationale: string | null;
+  confidence_tier: "strong" | "soft" | "flat" | null;
   insufficient_data: boolean;
   computed_at: string;
 }
@@ -339,7 +340,7 @@ export async function fetchTopOpportunity(): Promise<TopOpportunity | null> {
     supabase
       .from("weekly_top_opportunity")
       .select(
-        "strongest_currency, strongest_score, strongest_conviction, weakest_currency, weakest_score, weakest_conviction, rationale, insufficient_data, computed_at"
+        "strongest_currency, strongest_score, strongest_conviction, weakest_currency, weakest_score, weakest_conviction, rationale, confidence_tier, insufficient_data, computed_at"
       )
       .limit(1),
     FETCH_TIMEOUT_MS
@@ -360,6 +361,7 @@ export async function fetchTopOpportunity(): Promise<TopOpportunity | null> {
     weakestScore: row.weakest_score,
     weakestConviction: row.weakest_conviction,
     rationale: row.rationale,
+    confidenceTier: row.confidence_tier,
     insufficientData: row.insufficient_data,
     computedAt: row.computed_at,
   };

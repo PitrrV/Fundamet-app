@@ -105,6 +105,7 @@ export interface TopOpportunity {
   weakestScore: number | null;
   weakestConviction: number | null;
   rationale: string | null;
+  confidenceTier: "strong" | "soft" | "flat" | null; // null jen v edge-case <2 měn se skóre
   insufficientData: boolean;
   computedAt: string;
 }
