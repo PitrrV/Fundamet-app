@@ -53,24 +53,50 @@ function agendaWeight(title) {
   return getWeight(title) * damp;
 }
 
-const SYSTEM_PROMPT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
+// Model dostává anglické názvy polí (convictionStars, pricedIn) a bez tohohle glosáře si k nim
+// vymýšlel české ekvivalenty — v jednom běhu "Konviktce", "konvicí" i "konviktivnost" pro tentýž
+// pojem napříč měnami. Sdílené oběma kroky, protože jde o vadu jazyka, ne o vadu délky odpovědi.
+const GLOSSARY = `ZÁVAZNÁ TERMINOLOGIE — appka tyhle výrazy používá v UI, drž se jich doslova a nevymýšlej vlastní tvary:
+- conviction / convictionStars → "konvikce" (NIKDY "konviktce", "konvicita", "konviktivnost", "konvice", "konvicience")
+- pricedIn → "zaceněnost"
+- positioning → "pozicování"
+- leveraged funds → "velcí spekulanti"
+- retail sentiment → "retail sentiment" nebo "pozicování drobných spekulantů"
+- beat / miss → "překonal odhad" / "zaostal za odhadem"
+- driver → "driver" (běžně se v češtině v tomhle oboru nepřekládá)
+
+Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná.`;
+
+const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy).
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD.
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci.
-- Konvicience jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
+- Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
-- Nadcházející naplánované eventy s historickým trendem podobných eventů (upcomingEvents) a nedávné eventy s již známým výsledkem (recentEvents).
-- Předvybrané eventy pro makro agendu (scenarioSeeds) — napříč kategoriemi (sazby, inflace/PCE, nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod).
-
-Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
 
 Důležité ohraničení role: tvůj úkol je vysvětlit PROČ — makro kontext, důvody, souvislosti mezi pilíři. NIKDY nepiš přímé obchodní doporučení ("kup", "prodej", "vstup", "vystup", konkrétní cenové úrovně, stop-loss/take-profit) — appka neřeší timing, risk management ani technickou konfluenci na grafu, to je úloha samostatného nástroje (Fx Analyzer). Piš jako institucionální analytik, co vysvětluje kontext šéfovi, ne jako signál generátor.
 
 Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo historických dat, nebo "zaceněnost" vychází jen z konsensu posledního rozhodnutí (ne z reálných tržních dat), řekni to — nepředstírej jistotu, kterou data nemají.
 
-Pole "scenarios" je MAKRO AGENDA, ne ekonomický kalendář. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
+Čísla ber VÝHRADNĚ z dat, která jsi dostal, a hlídej si směr: když je hodnota nižší než předchozí, je to POKLES, ne růst. Nikdy si číslo nedomýšlej — radši ho vynech a popiš trend slovy.
+
+${GLOSSARY}`;
+
+const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
+
+Dostaneš navíc kontext zbytku koše měn (basketContext) — FX je vždy relativní, piš o měně i VE VZTAHU k ostatním, ne v izolaci — a nadcházející (upcomingEvents) i nedávno vyšlé eventy (recentEvents).
+
+Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
+
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká).`;
+
+const AGENDA_PROMPT = `${SHARED_CONTEXT}
+
+Dostaneš navíc HOTOVÉ shrnutí příběhu ("narrative"), které appka právě zveřejnila, a předvybrané eventy (scenarioSeeds) napříč kategoriemi (sazby, inflace/PCE, nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod). Tvým úkolem je napsat MAKRO AGENDU, která na to shrnutí přímo navazuje — stejný příběh, stejné pojmy, stejná teze. Čtenář právě dočetl "narrative"; agenda mu má říct, co s tím příběhem může pohnout, ne začínat znovu od nuly.
+
+Agenda NENÍ ekonomický kalendář. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
 
 Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
 - "tier": "klíčový" = může sám o sobě překlopit nebo výrazně potvrdit tezi; "druhořadý" = posune konvikci, ale sám tezi nezmění; "kontext" = tezí hne jen při extrémním překvapení. TVRDÉ PRAVIDLO: nejvýš DVĚ položky v celé agendě smí být "klíčový" — když váháš mezi klíčový a druhořadý, je to druhořadý. Co je plně zaceněné nebo co tezí realisticky pohnout nemůže, patří do "kontext" bez ohledu na to, jak sledovaný ten indikátor obecně je. "kontext" není známka selhání — poctivé zařazení je přesně to, co čtenáři šetří čas.
@@ -80,15 +106,11 @@ Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
 - "reaction": "silná" = trh na to reálně zareaguje; "omezená" = z velké části už v ceně nebo nízká informační hodnota; "asymetrická" = jedna strana překvapení hne trhem výrazně víc než druhá.
 - "reaction_note": jedna věta PROČ — opři se o zaceněnost (cbPolicy.pricedIn), pozicování (cot/retailSentiment, cotPercentile — přeplněný obchod zvětšuje reakci na překvapení proti pozici) a risk režim. U "asymetrická" VŽDY řekni, KTERÁ strana překvapení váží víc a proč.
 
-Agenda musí číst jako pokračování "narrative" — stejný příběh, stejné pojmy, stejná teze. Ne osm nezávislých odstavců slepených pod sebou.
-
-Čísla ber VÝHRADNĚ z dat, která jsi dostal (estimate/previous/actual u daného seedu), a hlídej si směr: když je hodnota nižší než předchozí, je to POKLES, ne růst. Nikdy si číslo nedomýšlej — radši ho vynech a popiš trend slovy, než abys uvedl smyšlený údaj. Piš spisovnou, gramaticky správnou češtinou; tohle čte profesionál a nesrozumitelná nebo zkomolená věta je horší než žádná.
-
 Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní, a co to znamená DÁL — potvrdil ten výsledek tezi, nebo jí odporuje? Piš to jako trader, co právě dostal číslo na obrazovku. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu.
 
 KAŽDOU položku agendy zpracuj stejně důkladně — i sedmou a osmou. Nezkracuj kvalitu u pozdějších položek; radši piš u všech krátce a hutně než u prvních rozvláčně a u posledních jednoslovně.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (agenda, pole max 8 položek, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
+Odpověz strukturovaným JSON: "scenarios" (agenda, pole max 8 položek — jedna položka na každý event ve scenarioSeeds, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -313,13 +335,9 @@ async function generateNarrativeAudio(currencyCode, text) {
   }
 }
 
-async function generateForCurrency(currencyCode, context) {
-  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, upcoming, recent, scenarioSeeds } = context;
-
-  if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
-    console.log(`[${currencyCode}] žádná data — přeskočeno.`);
-    return false;
-  }
+// Krok 1 — shrnutí příběhu. Krátká odpověď, dostane široký kontext (koš měn, oba proudy eventů).
+async function generateNarrativePart(currencyCode, context) {
+  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, upcoming, recent } = context;
 
   const payload = {
     currency: currencyCode,
@@ -332,124 +350,187 @@ async function generateForCurrency(currencyCode, context) {
     basketContext,
     upcomingEvents: upcoming,
     recentEvents: recent,
+  };
+
+  const completion = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      { role: "system", content: NARRATIVE_PROMPT },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "fx_narrative",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            narrative: { type: "string" },
+            forward_flag: { type: ["string", "null"] },
+            conviction_note: { type: "string" },
+          },
+          required: ["narrative", "forward_flag", "conviction_note"],
+          additionalProperties: false,
+        },
+      },
+    },
+  });
+
+  return JSON.parse(completion.choices[0].message.content);
+}
+
+// Krok 2 — makro agenda. Samostatné volání ze dvou důvodů: (1) v jedné odpovědi s narrativem se
+// kvalita u pozdějších položek viditelně rozpadala (živě ověřeno: patvary typu "zamrcháním"),
+// (2) takhle agenda dostane HOTOVÝ text shrnutí a může na něj skutečně navazovat — dokud se
+// generovalo obojí naráz, agenda shrnutí vůbec neviděla. Užší payload než krok 1 (bez koše měn
+// a bez obou proudů eventů), takže rozdělení nezdvojnásobí vstupní tokeny.
+async function generateAgendaPart(currencyCode, context, narrative) {
+  const { cot, cbPolicy, thesis, retailSentiment, riskRegime, scenarioSeeds } = context;
+
+  if (scenarioSeeds.length === 0) return [];
+
+  const payload = {
+    currency: currencyCode,
+    narrative,
+    cot,
+    cbPolicy,
+    thesis,
+    retailSentiment,
+    riskRegime,
     scenarioSeeds,
   };
 
-  let completion;
-  try {
-    completion = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: JSON.stringify(payload) },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "fx_narrative",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              narrative: { type: "string" },
-              forward_flag: { type: ["string", "null"] },
-              conviction_note: { type: "string" },
-              scenarios: {
-                type: "array",
-                maxItems: MAX_AGENDA_ITEMS,
-                items: {
-                  type: "object",
-                  properties: {
-                    event: { type: "string" },
-                    date: { type: "string" },
-                    tier: { type: "string", enum: ["klíčový", "druhořadý", "kontext"] },
-                    why_it_matters: { type: "string" },
-                    market_expectation: { type: "string" },
-                    thesis_test: { type: "string" },
-                    reaction: { type: "string", enum: ["silná", "omezená", "asymetrická"] },
-                    reaction_note: { type: "string" },
-                    outcome: { type: ["string", "null"] },
-                  },
-                  required: [
-                    "event",
-                    "date",
-                    "tier",
-                    "why_it_matters",
-                    "market_expectation",
-                    "thesis_test",
-                    "reaction",
-                    "reaction_note",
-                    "outcome",
-                  ],
-                  additionalProperties: false,
+  const completion = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [
+      { role: "system", content: AGENDA_PROMPT },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "fx_agenda",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: {
+            scenarios: {
+              type: "array",
+              maxItems: MAX_AGENDA_ITEMS,
+              items: {
+                type: "object",
+                properties: {
+                  event: { type: "string" },
+                  date: { type: "string" },
+                  tier: { type: "string", enum: ["klíčový", "druhořadý", "kontext"] },
+                  why_it_matters: { type: "string" },
+                  market_expectation: { type: "string" },
+                  thesis_test: { type: "string" },
+                  reaction: { type: "string", enum: ["silná", "omezená", "asymetrická"] },
+                  reaction_note: { type: "string" },
+                  outcome: { type: ["string", "null"] },
                 },
+                required: [
+                  "event",
+                  "date",
+                  "tier",
+                  "why_it_matters",
+                  "market_expectation",
+                  "thesis_test",
+                  "reaction",
+                  "reaction_note",
+                  "outcome",
+                ],
+                additionalProperties: false,
               },
             },
-            required: ["narrative", "forward_flag", "conviction_note", "scenarios"],
-            additionalProperties: false,
           },
+          required: ["scenarios"],
+          additionalProperties: false,
         },
       },
-    });
-  } catch (err) {
-    console.error(`[${currencyCode}] OpenAI volání selhalo:`, err.message);
+    },
+  });
+
+  return JSON.parse(completion.choices[0].message.content).scenarios ?? [];
+}
+
+// Modely i ve "strict" json_schema módu občas vrátí doslovný string "null" místo opravdového
+// JSON null — bez týhle normalizace by se u nevyřešených eventů ve frontendu zobrazil text "null".
+const normalizeNullable = (v) => (typeof v === "string" && v.trim().toLowerCase() === "null" ? null : v);
+
+function normalizeAgenda(currencyCode, scenarios, scenarioSeeds) {
+  let items = scenarios.map((s) => {
+    const outcome = normalizeNullable(s.outcome);
+    const seed = scenarioSeeds.find((sd) => sd.title === s.event && sd.date === s.date);
+    return {
+      ...s,
+      // Enumy řídí barvy a řazení v UI — nesmí do nich prosáknout nic mimo množinu, i kdyby
+      // model json_schema enum obešel (viděli jsme ho obcházet i "strict" pravidla dřív).
+      tier: VALID_TIERS.has(s.tier) ? s.tier : "kontext",
+      reaction: VALID_REACTIONS.has(s.reaction) ? s.reaction : "omezená",
+      outcome: seed?.actual && isTooShortOutcome(outcome) ? buildFallbackOutcome(seed) : outcome,
+    };
+  });
+
+  // Strop na "klíčový" vynucený i kódem, ne jen promptem: v prvním živém běhu model označil
+  // 4 ze 7 položek za klíčové, čímž hierarchie ztratila smysl (když je klíčové skoro všechno,
+  // není klíčové nic). Přebytek degraduje na "druhořadý", přednost mají eventy s vyšší váhou.
+  const keyItems = items.filter((s) => s.tier === "klíčový");
+  if (keyItems.length > MAX_KEY_ITEMS) {
+    const keep = new Set(
+      keyItems
+        .slice()
+        .sort((a, b) => agendaWeight(b.event) - agendaWeight(a.event))
+        .slice(0, MAX_KEY_ITEMS)
+        .map((s) => `${s.date}|${s.event}`)
+    );
+    items = items.map((s) =>
+      s.tier === "klíčový" && !keep.has(`${s.date}|${s.event}`) ? { ...s, tier: "druhořadý" } : s
+    );
+    console.log(`[${currencyCode}] agenda: ${keyItems.length} klíčových → degradováno na ${MAX_KEY_ITEMS}.`);
+  }
+
+  return items;
+}
+
+async function generateForCurrency(currencyCode, context) {
+  const { cot, fundamental, upcoming, recent, scenarioSeeds } = context;
+
+  if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
+    console.log(`[${currencyCode}] žádná data — přeskočeno.`);
     return false;
   }
 
-  let result;
+  let narrativePart;
   try {
-    result = JSON.parse(completion.choices[0].message.content);
+    narrativePart = await generateNarrativePart(currencyCode, context);
   } catch (err) {
-    console.error(`[${currencyCode}] Nepodařilo se parsovat odpověď OpenAI:`, err.message);
+    console.error(`[${currencyCode}] generování shrnutí selhalo:`, err.message);
     return false;
   }
 
-  // Modely i ve "strict" json_schema módu občas vrátí doslovný string "null" místo
-  // opravdového JSON null pro nullable pole — bez týhle normalizace by se u nevyřešených
-  // eventů ve frontendu zobrazil text "null" místo prázdného VÝSLEDEK bloku.
-  const normalizeNullable = (v) => (typeof v === "string" && v.trim().toLowerCase() === "null" ? null : v);
-  result.forward_flag = normalizeNullable(result.forward_flag);
-  if (Array.isArray(result.scenarios)) {
-    result.scenarios = result.scenarios.map((s) => {
-      const outcome = normalizeNullable(s.outcome);
-      const seed = scenarioSeeds.find((sd) => sd.title === s.event && sd.date === s.date);
-      return {
-        ...s,
-        // Enumy řídí barvy a řazení v UI — nesmí do nich prosáknout nic mimo množinu, i kdyby
-        // model json_schema enum obešel (viděli jsme ho obcházet i "strict" pravidla dřív).
-        tier: VALID_TIERS.has(s.tier) ? s.tier : "kontext",
-        reaction: VALID_REACTIONS.has(s.reaction) ? s.reaction : "omezená",
-        outcome: seed?.actual && isTooShortOutcome(outcome) ? buildFallbackOutcome(seed) : outcome,
-      };
-    });
+  const narrative = narrativePart.narrative;
 
-    // Strop na "klíčový" vynucený i kódem, ne jen promptem: v prvním živém běhu model označil
-    // 4 ze 7 položek za klíčové, čímž hierarchie ztratila smysl (když je klíčové skoro všechno,
-    // není klíčové nic). Přebytek degraduje na "druhořadý", přednost mají eventy s vyšší váhou.
-    const keyItems = result.scenarios.filter((s) => s.tier === "klíčový");
-    if (keyItems.length > MAX_KEY_ITEMS) {
-      const keep = new Set(
-        keyItems
-          .slice()
-          .sort((a, b) => agendaWeight(b.event) - agendaWeight(a.event))
-          .slice(0, MAX_KEY_ITEMS)
-          .map((s) => `${s.date}|${s.event}`)
-      );
-      result.scenarios = result.scenarios.map((s) =>
-        s.tier === "klíčový" && !keep.has(`${s.date}|${s.event}`) ? { ...s, tier: "druhořadý" } : s
-      );
-      console.log(`[${currencyCode}] agenda: ${keyItems.length} klíčových → degradováno na ${MAX_KEY_ITEMS}.`);
-    }
+  // Agenda je nekritická: když spadne její volání, shrnutí se stejně uloží. Prázdná agenda je
+  // pořád lepší než zahozený příběh, který se povedl.
+  let agenda = [];
+  try {
+    const rawAgenda = await generateAgendaPart(currencyCode, context, narrative);
+    agenda = normalizeAgenda(currencyCode, rawAgenda, scenarioSeeds);
+  } catch (err) {
+    console.error(`[${currencyCode}] generování agendy selhalo (shrnutí se uloží i tak):`, err.message);
   }
 
-  const audioUrl = await generateNarrativeAudio(currencyCode, result.narrative);
+  const audioUrl = await generateNarrativeAudio(currencyCode, narrative);
 
   const { error: insErr } = await supabase.from("narratives").insert({
     currency_code: currencyCode,
-    narrative: result.narrative,
-    forward_flag: result.forward_flag,
-    conviction_note: result.conviction_note,
-    scenarios: result.scenarios ?? [],
+    narrative,
+    forward_flag: normalizeNullable(narrativePart.forward_flag),
+    conviction_note: narrativePart.conviction_note,
+    scenarios: agenda,
     model: OPENAI_MODEL,
     audio_url: audioUrl,
   });
@@ -460,7 +541,7 @@ async function generateForCurrency(currencyCode, context) {
   }
 
   console.log(
-    `[${currencyCode}] OK — narrative vygenerován (${result.narrative.length} znaků, ${result.scenarios?.length ?? 0} položek agendy, audio: ${audioUrl ? "ano" : "ne"}).`
+    `[${currencyCode}] OK — ${narrative.length} znaků shrnutí, ${agenda.length} položek agendy, audio: ${audioUrl ? "ano" : "ne"}.`
   );
   return true;
 }
