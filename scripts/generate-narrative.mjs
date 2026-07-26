@@ -4,6 +4,7 @@
 // důležité eventy. Tohle je jediný krok v pipeline, který skutečně "rozumí" datům, ne jen
 // počítá vzorec — proto LLM, ne deterministický kód.
 
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
 import { getEventHistoryTrend, getWeight, eventDirection, matchRule } from "./fundamental-scoring.mjs";
@@ -12,6 +13,14 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+const truthy = (v) => /^(1|true|yes|on)$/i.test((v ?? "").trim());
+
+// Jednorázové vynucení z workflow_dispatch — přegeneruje všechno bez ohledu na otisk vstupů.
+const FORCE_REGENERATE = truthy(process.env.FORCE_REGENERATE);
+// Trvalý vypínač celé detekce změn (repo variable). Návrat k původnímu chování "generuj vždy
+// všechno" bez revertu kódu — kdyby se přeskakování chovalo nečekaně.
+const DISABLE_INPUT_HASH = truthy(process.env.DISABLE_INPUT_HASH);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Chybí SUPABASE_URL nebo SUPABASE_SERVICE_KEY v prostředí.");
@@ -247,6 +256,83 @@ function selectScenarioSeeds(candidates) {
   return seeds
     .map(({ _weight, _cat, ...ev }) => ev)
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── Detekce změny vstupů ────────────────────────────────────────────────────────────────
+// Otisk je rozpadlý po sekcích, ne jeden slepený hash — díky tomu z porovnání vypadne rovnou
+// DŮVOD regenerace ("změna: teze, kalendář") místo pouhého "něco se změnilo".
+const SECTION_LABELS = {
+  scores: "skóre/pozicování",
+  thesis: "teze",
+  cbPolicy: "CB politika",
+  riskRegime: "risk režim",
+  basket: "koš měn (překlopení směru)",
+  seeds: "kalendář/výsledky",
+};
+
+function sectionHash(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
+}
+
+// Zaokrouhlení na 1 desetinné místo — skóre se počítají ve floatech a bez tohohle by otisk
+// měnil i numerický šum na 15. desetinném místě, který se nikde nezobrazuje.
+function round1(n) {
+  return typeof n === "number" ? Math.round(n * 10) / 10 : null;
+}
+
+function buildInputFingerprint(context) {
+  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, scenarioSeeds } = context;
+
+  return {
+    scores: sectionHash({
+      cot: round1(cot?.cotScore),
+      overall: round1(cot?.overallScore),
+      fundamental: round1(fundamental?.fundamental_score),
+      stars: cot?.convictionStars ?? null,
+      positioning: cot?.positioningLabel ?? null,
+      percentile: cot?.cotPercentile ?? null,
+      retail: round1(retailSentiment?.score),
+    }),
+    thesis: sectionHash({
+      direction: thesis?.direction ?? null,
+      conviction: thesis?.conviction ?? null,
+      status: thesis?.status ?? null,
+      drivers: (thesis?.drivers ?? []).map((d) => [d.driver_key, round1(d.value), d.status]),
+    }),
+    cbPolicy: sectionHash({
+      rate: cbPolicy?.rate ?? null,
+      cpi: cbPolicy?.cpi ?? null,
+      label: cbPolicy?.policy_label ?? null,
+      realYield: cbPolicy?.real_yield_adj ?? null,
+      policyAdj: cbPolicy?.cb_policy_adj ?? null,
+      pricedIn: cbPolicy?.priced_in?.label ?? null,
+    }),
+    // Jen REŽIM, ne surový VIX. VIX se hýbe každých 15 minut a jeho zahrnutí by otisk
+    // zneplatňovalo prakticky pořád, aniž by se příběh reálně změnil.
+    riskRegime: sectionHash(riskRegime?.regime ?? null),
+    // Jen ZNAMÉNKO skóre ostatních měn, ne hodnota. Relativní rámování v příběhu se mění, až
+    // když některá měna překlopí směr. Kdyby se hashovaly hodnoty, jakýkoli pohyb kterékoli
+    // měny by přegeneroval všech osm a optimalizace by ztratila smysl.
+    basket: sectionHash(
+      Object.entries(basketContext ?? {})
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([code, v]) => [code, Math.sign(v?.overallScore ?? 0)])
+    ),
+    // Nové výsledky, změněné konsensy i posun okna agendy. Tohle je sekce, která zajišťuje,
+    // že se po zveřejnění dat doplní komentář k výsledku (outcome).
+    seeds: sectionHash(
+      (scenarioSeeds ?? []).map((s) => [s.date, s.title, s.estimate ?? null, s.previous ?? null, s.actual ?? null])
+    ),
+  };
+}
+
+// Vrací seznam změněných sekcí. Chybějící/neplatný předchozí otisk = generovat (bezpečná
+// strana): radši jednou navíc než tiše nechat zastaralý text.
+function changedSections(previous, next) {
+  if (!previous || typeof previous !== "object" || Array.isArray(previous)) {
+    return ["poprvé (uložený otisk chybí)"];
+  }
+  return Object.keys(next).filter((key) => previous[key] !== next[key]);
 }
 
 async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
@@ -549,7 +635,7 @@ function normalizeAgenda(currencyCode, scenarios, scenarioSeeds) {
   return items;
 }
 
-async function generateForCurrency(currencyCode, context) {
+async function generateForCurrency(currencyCode, context, inputFingerprint) {
   const { cot, fundamental, upcoming, recent, scenarioSeeds } = context;
 
   if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
@@ -587,6 +673,7 @@ async function generateForCurrency(currencyCode, context) {
     scenarios: agenda,
     model: OPENAI_MODEL,
     audio_url: audioUrl,
+    input_fingerprint: inputFingerprint ?? null,
   });
 
   if (insErr) {
@@ -620,14 +707,54 @@ async function main() {
   const basketContext = await loadBasketContext();
   const marketRegime = await loadMarketRegime();
 
+  // Otisky vstupů z posledních narrativů — jeden dotaz pro všechny měny.
+  // Kdyby dotaz selhal (typicky ještě neproběhla migrace schema-input-fingerprint.sql),
+  // mapa zůstane prázdná → všechny měny se vyhodnotí jako "otisk chybí" → vygeneruje se
+  // všechno. Selhání detekce tedy nikdy nevede k tichému přeskočení, jen ke staré ceně.
+  const fingerprintByCode = new Map();
+  if (!DISABLE_INPUT_HASH) {
+    const { data, error: fpErr } = await supabase
+      .from("latest_narratives")
+      .select("currency_code, input_fingerprint");
+    if (fpErr) {
+      console.warn(`Nepodařilo se načíst otisky vstupů (${fpErr.message}) — pro jistotu generuji všechny měny.`);
+    } else {
+      for (const row of data ?? []) fingerprintByCode.set(row.currency_code, row.input_fingerprint);
+    }
+  }
+
+  if (DISABLE_INPUT_HASH) console.log("DISABLE_INPUT_HASH=1 → detekce změn vypnutá, generuji všechny měny.");
+  else if (FORCE_REGENERATE) console.log("FORCE_REGENERATE=1 → vynucené přegenerování všech měn.");
+
   let ok = 0;
+  let skipped = 0;
   for (const { code } of currencies ?? []) {
     const context = await loadCurrencyContext(code, allCalendarEvents ?? [], basketContext, marketRegime);
-    const success = await generateForCurrency(code, context);
+    const fingerprint = buildInputFingerprint(context);
+    const changed = changedSections(fingerprintByCode.get(code), fingerprint);
+
+    if (changed.length === 0 && !FORCE_REGENERATE && !DISABLE_INPUT_HASH) {
+      // Žádný zápis do DB — uložený narrativ (včetně textu, agendy i audia) zůstává platný
+      // a frontend ho dál čte z latest_narratives beze změny.
+      console.log(`[${code}] beze změny vstupů → přeskočeno, platí uložený narrativ.`);
+      skipped++;
+      continue;
+    }
+
+    const reason = DISABLE_INPUT_HASH
+      ? "detekce změn vypnutá"
+      : FORCE_REGENERATE
+        ? "vynuceno přepínačem"
+        : `změna: ${changed.map((k) => SECTION_LABELS[k] ?? k).join(", ")}`;
+    console.log(`[${code}] generuji — ${reason}.`);
+
+    const success = await generateForCurrency(code, context, fingerprint);
     if (success) ok++;
   }
 
-  console.log(`\nHotovo: ${ok}/${currencies?.length ?? 0} měn úspěšně zpracováno.`);
+  console.log(
+    `\nHotovo: ${ok} vygenerováno, ${skipped} přeskočeno beze změny (z ${currencies?.length ?? 0} měn).`
+  );
 }
 
 main().catch((err) => {
