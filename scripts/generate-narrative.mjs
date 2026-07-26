@@ -76,6 +76,28 @@ function beatImplication(title, thesisDirection) {
   } současnou ${thesisDirection} tezi`;
 }
 
+// U JIŽ VYŠLÝCH eventů nestačí dát modelu směrové pravidlo — v živém běhu selhal už na samotném
+// porovnání dvou čísel: "187K překonalo odhad" (odhad byl 211K, tedy actual byl NIŽŠÍ) a z toho
+// odvodil opačný závěr. Verdikt proto počítáme celý kódem přes eventDirection(), který zná
+// i obrácené kategorie, a model ho jen převypráví.
+function resolvedVerdict(ev, thesisDirection) {
+  if (!ev.actual || !ev.estimate) return null;
+
+  const dir = eventDirection({ event_title: ev.title, actual: ev.actual, estimate: ev.estimate });
+  const head = `actual ${ev.actual} vs odhad ${ev.estimate}`;
+  if (dir === 0) return `${head} → V SOULADU s konsensem`;
+
+  const bias = dir > 0 ? "býčí" : "medvědí";
+  if (thesisDirection !== "bullish" && thesisDirection !== "bearish") {
+    return `${head} → ${bias} pro tuhle měnu`;
+  }
+
+  const supports = (dir > 0) === (thesisDirection === "bullish");
+  return `${head} → ${bias} pro tuhle měnu → ${
+    supports ? "POTVRZUJE" : "ZPOCHYBŇUJE"
+  } současnou ${thesisDirection} tezi`;
+}
+
 // Model dostává anglické názvy polí (convictionStars, pricedIn) a bez tohohle glosáře si k nim
 // vymýšlel české ekvivalenty — v jednom běhu "Konviktce", "konvicí" i "konviktivnost" pro tentýž
 // pojem napříč měnami. Sdílené oběma kroky, protože jde o vadu jazyka, ne o vadu délky odpovědi.
@@ -121,7 +143,9 @@ Dostaneš navíc HOTOVÉ shrnutí příběhu ("narrative"), které appka právě
 
 Agenda NENÍ ekonomický kalendář. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně".
 
-KRITICKÉ — směr překvapení: každý seed má pole "beatImplication", které appka spočítala DETERMINISTICKY z kategorie eventu a směru otevřené teze. Je to FAKT, ne návrh k posouzení. Nikdy nenapiš opak. Když tam stojí, že vyšší hodnota tezi ZPOCHYBŇUJE, nesmíš tvrdit, že ji potvrzuje — a naopak. Dej si pozor hlavně u nezaměstnanosti a žádostí o podporu, kde VYŠŠÍ číslo je pro měnu HORŠÍ, takže "lepší data" tam znamenají NIŽŠÍ číslo. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
+KRITICKÉ — směr překvapení. Appka ti dvě věci spočítala DETERMINISTICKY a ty je NESMÍŠ popřít ani přeformulovat do opaku. Jsou to fakta, ne návrhy k posouzení:
+- "beatImplication" — co znamená vyšší hodnota než odhad (u nezaměstnanosti a žádostí o podporu je VYŠŠÍ číslo pro měnu HORŠÍ, takže "lepší data" tam znamenají NIŽŠÍ číslo).
+- "resolvedVerdict" — u eventů, které už vyšly: hotové porovnání actual vs odhad včetně toho, jestli výsledek tezi potvrzuje, nebo zpochybňuje. Sám čísla NEPOROVNÁVEJ a nedomýšlej, jestli něco "překonalo odhad" — přečti si verdikt a jen ho vysvětli vlastními slovy. Když verdikt říká ZPOCHYBŇUJE, nesmí "outcome" tvrdit, že výsledek tezi potvrdil. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
 
 Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
 - "tier": "klíčový" = může sám o sobě překlopit nebo výrazně potvrdit tezi; "druhořadý" = posune konvikci, ale sám tezi nezmění; "kontext" = tezí hne jen při extrémním překvapení. TVRDÉ PRAVIDLO: nejvýš DVĚ položky v celé agendě smí být "klíčový" — když váháš mezi klíčový a druhořadý, je to druhořadý. Co je plně zaceněné nebo co tezí realisticky pohnout nemůže, patří do "kontext" bez ohledu na to, jak sledovaný ten indikátor obecně je. "kontext" není známka selhání — poctivé zařazení je přesně to, co čtenáři šetří čas.
@@ -306,6 +330,10 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
       actual: e.actual,
       historicalTrend: getEventHistoryTrend(e.event_title, currencyCode, allCalendarEvents),
       beatImplication: beatImplication(e.event_title, thesis?.direction),
+      resolvedVerdict: resolvedVerdict(
+        { title: e.event_title, actual: e.actual, estimate: e.estimate },
+        thesis?.direction
+      ),
     }));
 
   const scenarioSeeds = selectScenarioSeeds(scenarioCandidates);
