@@ -32,12 +32,26 @@ const RECENT_DAYS = 90;
 // slot navíc. Se starým limitem 3 a čistě váhovým výběrem se PMI/maloobchod/HDP do agendy
 // prakticky nikdy nedostaly, protože je vždy vytlačily sazby (w 3.5) a inflace/práce (w 3.0).
 const MAX_AGENDA_ITEMS = 8;
+const MAX_KEY_ITEMS = 2; // strop na tier "klíčový" — viz degradace po parsování odpovědi
 const SCENARIO_LOOKBACK_DAYS = 5; // jak dlouho po zveřejnění actual event ještě zůstává v agendě (s komentářem k výsledku)
 
-// Enumy, které smí model použít. Normalizujeme deterministicky (viz normalizeAgendaItem) —
+// Enumy, které smí model použít. Normalizujeme deterministicky (viz zpracování odpovědi níž) —
 // UI se musí spolehnout na to, že tam nikdy nepřistane nečekaná hodnota.
 const VALID_TIERS = new Set(["klíčový", "druhořadý", "kontext"]);
 const VALID_REACTIONS = new Set(["silná", "omezená", "asymetrická"]);
+
+// Sub-národní printy uvnitř eurozóny spadají do stejných kategorií EVENT_RULES jako
+// celoeurozónové agregáty, ale tezí o EUR hýbou míň. Bez tohohle útlumu obsadil kategorii
+// "GDP" francouzský Flash GDP a eurozónový agregát se do agendy vůbec nedostal (ověřeno
+// živě). Útlum, ne vyřazení — německé CPI je pořád předstihový ukazatel pro eurozónu.
+const SUBNATIONAL_PREFIXES = ["french", "german", "spanish", "italian"];
+const SUBNATIONAL_DAMP = 0.6;
+
+function agendaWeight(title) {
+  const lower = (title || "").toLowerCase();
+  const damp = SUBNATIONAL_PREFIXES.some((p) => lower.startsWith(p)) ? SUBNATIONAL_DAMP : 1;
+  return getWeight(title) * damp;
+}
 
 const SYSTEM_PROMPT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
@@ -59,14 +73,16 @@ Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo his
 Pole "scenarios" je MAKRO AGENDA, ne ekonomický kalendář. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
 
 Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
-- "tier": "klíčový" = může sám o sobě překlopit nebo výrazně potvrdit tezi; "druhořadý" = posune konvikci, ale sám tezi nezmění; "kontext" = sleduje se, tezí hne jen při extrémním překvapení. Rozděl to POCTIVĚ — typicky 1-2 klíčové na měnu, ne všechno je klíčové. Když je něco už rozhodnuté nebo plně zaceněné, patří to do "kontext", i kdyby to byl jinak vysoce sledovaný indikátor.
-- "why_it_matters": proč tenhle konkrétní print teď rozhoduje — napoj to na konkrétní driver teze (thesis.drivers) nebo na to, co tvrdí "narrative". Např. "teze stojí na tom, že trh podceňuje odolnost trhu práce — tenhle print je první přímý test toho předpokladu".
+- "tier": "klíčový" = může sám o sobě překlopit nebo výrazně potvrdit tezi; "druhořadý" = posune konvikci, ale sám tezi nezmění; "kontext" = tezí hne jen při extrémním překvapení. TVRDÉ PRAVIDLO: nejvýš DVĚ položky v celé agendě smí být "klíčový" — když váháš mezi klíčový a druhořadý, je to druhořadý. Co je plně zaceněné nebo co tezí realisticky pohnout nemůže, patří do "kontext" bez ohledu na to, jak sledovaný ten indikátor obecně je. "kontext" není známka selhání — poctivé zařazení je přesně to, co čtenáři šetří čas.
+- "why_it_matters": proč tenhle konkrétní print teď rozhoduje — napoj to na konkrétní driver teze (thesis.drivers) nebo na to, co tvrdí "narrative". ZAKÁZANÉ jsou učebnicové definice typu "HDP je klíčové měřítko ekonomické výkonnosti", "mzdy ovlivňují kupní sílu domácností" nebo "rozhodnutí o sazbách je zásadní pro měnovou politiku" — to čtenář ví a nemá z toho vůbec nic. Správně zní: "teze stojí na tom, že trh podceňuje odolnost trhu práce — tohle je první přímý test toho předpokladu".
 - "market_expectation": co trh čeká, přeložené do makro věty, ne holé číslo — konsensus VŮČI předchozí hodnotě a co ta trajektorie implikuje ("čeká se zpomalení na 2.4 % z 2.6 %, tedy potvrzení dezinflace a prostor pro další cut").
 - "thesis_test": KONKRÉTNÍ laťka — co by muselo vyjít, aby to současnou tezi skutečně změnilo, ne vágní "kdyby to bylo horší". Kde to jde, uveď přibližnou hodnotu nebo rozsah a řekni, kterého driveru teze by se to dotklo. Pokud tenhle event tezí realisticky pohnout NEMŮŽE, napiš to na rovinu — to je cenná informace, ne selhání.
 - "reaction": "silná" = trh na to reálně zareaguje; "omezená" = z velké části už v ceně nebo nízká informační hodnota; "asymetrická" = jedna strana překvapení hne trhem výrazně víc než druhá.
 - "reaction_note": jedna věta PROČ — opři se o zaceněnost (cbPolicy.pricedIn), pozicování (cot/retailSentiment, cotPercentile — přeplněný obchod zvětšuje reakci na překvapení proti pozici) a risk režim. U "asymetrická" VŽDY řekni, KTERÁ strana překvapení váží víc a proč.
 
 Agenda musí číst jako pokračování "narrative" — stejný příběh, stejné pojmy, stejná teze. Ne osm nezávislých odstavců slepených pod sebou.
+
+Čísla ber VÝHRADNĚ z dat, která jsi dostal (estimate/previous/actual u daného seedu), a hlídej si směr: když je hodnota nižší než předchozí, je to POKLES, ne růst. Nikdy si číslo nedomýšlej — radši ho vynech a popiš trend slovy, než abys uvedl smyšlený údaj. Piš spisovnou, gramaticky správnou češtinou; tohle čte profesionál a nesrozumitelná nebo zkomolená věta je horší než žádná.
 
 Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní, a co to znamená DÁL — potvrdil ten výsledek tezi, nebo jí odporuje? Piš to jako trader, co právě dostal číslo na obrazovku. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu.
 
@@ -122,7 +138,7 @@ async function loadMarketRegime() {
 // i když právě ty často testují růstovou část teze.
 function selectScenarioSeeds(candidates) {
   const weighted = candidates
-    .map((ev) => ({ ...ev, _weight: getWeight(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
+    .map((ev) => ({ ...ev, _weight: agendaWeight(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
     .filter((ev) => ev._weight > 0)
     .sort((a, b) => b._weight - a._weight || a.date.localeCompare(b.date));
 
@@ -406,6 +422,24 @@ async function generateForCurrency(currencyCode, context) {
         outcome: seed?.actual && isTooShortOutcome(outcome) ? buildFallbackOutcome(seed) : outcome,
       };
     });
+
+    // Strop na "klíčový" vynucený i kódem, ne jen promptem: v prvním živém běhu model označil
+    // 4 ze 7 položek za klíčové, čímž hierarchie ztratila smysl (když je klíčové skoro všechno,
+    // není klíčové nic). Přebytek degraduje na "druhořadý", přednost mají eventy s vyšší váhou.
+    const keyItems = result.scenarios.filter((s) => s.tier === "klíčový");
+    if (keyItems.length > MAX_KEY_ITEMS) {
+      const keep = new Set(
+        keyItems
+          .slice()
+          .sort((a, b) => agendaWeight(b.event) - agendaWeight(a.event))
+          .slice(0, MAX_KEY_ITEMS)
+          .map((s) => `${s.date}|${s.event}`)
+      );
+      result.scenarios = result.scenarios.map((s) =>
+        s.tier === "klíčový" && !keep.has(`${s.date}|${s.event}`) ? { ...s, tier: "druhořadý" } : s
+      );
+      console.log(`[${currencyCode}] agenda: ${keyItems.length} klíčových → degradováno na ${MAX_KEY_ITEMS}.`);
+    }
   }
 
   const audioUrl = await generateNarrativeAudio(currencyCode, result.narrative);
