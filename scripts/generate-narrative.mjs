@@ -6,7 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { getEventHistoryTrend, getWeight, eventDirection } from "./fundamental-scoring.mjs";
+import { getEventHistoryTrend, getWeight, eventDirection, matchRule } from "./fundamental-scoring.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -27,8 +27,17 @@ const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 const UPCOMING_DAYS = 21;
 const RECENT_DAYS = 90;
-const MAX_SCENARIOS = 3;
-const SCENARIO_LOOKBACK_DAYS = 5; // jak dlouho po zveřejnění actual event ještě zůstává ve scénářích (s komentářem k výsledku)
+// 8 položek, ne 3 — agenda má pokrýt VŠECHNY kategorie, co reálně hýbou tezí (sazby, inflace/PCE,
+// nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod = 7 kategorií z EVENT_RULES) + jeden
+// slot navíc. Se starým limitem 3 a čistě váhovým výběrem se PMI/maloobchod/HDP do agendy
+// prakticky nikdy nedostaly, protože je vždy vytlačily sazby (w 3.5) a inflace/práce (w 3.0).
+const MAX_AGENDA_ITEMS = 8;
+const SCENARIO_LOOKBACK_DAYS = 5; // jak dlouho po zveřejnění actual event ještě zůstává v agendě (s komentářem k výsledku)
+
+// Enumy, které smí model použít. Normalizujeme deterministicky (viz normalizeAgendaItem) —
+// UI se musí spolehnout na to, že tam nikdy nepřistane nečekaná hodnota.
+const VALID_TIERS = new Set(["klíčový", "druhořadý", "kontext"]);
+const VALID_REACTIONS = new Set(["silná", "omezená", "asymetrická"]);
 
 const SYSTEM_PROMPT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
@@ -37,8 +46,9 @@ const SYSTEM_PROMPT = `Jsi profesionální makro trader FX fondu. Dostaneš stru
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD.
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci.
 - Konvicience jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
+- Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
 - Nadcházející naplánované eventy s historickým trendem podobných eventů (upcomingEvents) a nedávné eventy s již známým výsledkem (recentEvents).
-- Předvybrané klíčové nadcházející eventy (scenarioSeeds) — pro tyhle napiš explicitní podmíněnou predikci.
+- Předvybrané eventy pro makro agendu (scenarioSeeds) — napříč kategoriemi (sazby, inflace/PCE, nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod).
 
 Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
 
@@ -46,11 +56,23 @@ Důležité ohraničení role: tvůj úkol je vysvětlit PROČ — makro kontext
 
 Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo historických dat, nebo "zaceněnost" vychází jen z konsensu posledního rozhodnutí (ne z reálných tržních dat), řekni to — nepředstírej jistotu, kterou data nemají.
 
-Pro každý event v "scenarioSeeds" (max 3) napiš do "scenarios" VŽDY "if_beat" a "if_miss" — DVĚ krátké věty, co se stane s měnou, POKUD data překonají odhad, a co POKUD zaostanou — zdůvodni to historickým trendem podobných eventů (historicalTrend v tom seedu) a aktuálním kontextem (pozicování, CB politika, risk režim), ne obecnou frází. Tohle je referenční scénář a ZŮSTÁVÁ i poté, co je výsledek známý — nikdy ho nemaž ani nepřepisuj.
+Pole "scenarios" je MAKRO AGENDA, ne ekonomický kalendář. Rozdíl: kalendář říká "kdy co vyjde", agenda říká "co z toho může změnit můj současný pohled a co je už dávno v ceně". Nikdy nepiš popis toho, co daný indikátor obecně měří — čtenář ví, co je CPI. Piš, co ten konkrétní print znamená PRO TUHLE MĚNU a PRO TUHLE TEZI právě teď.
 
-Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní (viz surpriseStrength kontext v datech), a co to podle tebe znamená DÁL — navazuje snad tenhle výsledek na to, co příběh (narrative) říká o pozicování/CB politice/risk režimu, potvrzuje ho, nebo mu odporuje? Piš to stejně jako zbytek příběhu — jako trader, co právě dostal číslo na obrazovku a rozhoduje se, co s tím. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu. Tohle platí pro KAŽDÝ scénář v poli stejně důkladně, i třetí a poslední — nezkracuj kvalitu u pozdějších položek.
+Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
+- "tier": "klíčový" = může sám o sobě překlopit nebo výrazně potvrdit tezi; "druhořadý" = posune konvikci, ale sám tezi nezmění; "kontext" = sleduje se, tezí hne jen při extrémním překvapení. Rozděl to POCTIVĚ — typicky 1-2 klíčové na měnu, ne všechno je klíčové. Když je něco už rozhodnuté nebo plně zaceněné, patří to do "kontext", i kdyby to byl jinak vysoce sledovaný indikátor.
+- "why_it_matters": proč tenhle konkrétní print teď rozhoduje — napoj to na konkrétní driver teze (thesis.drivers) nebo na to, co tvrdí "narrative". Např. "teze stojí na tom, že trh podceňuje odolnost trhu práce — tenhle print je první přímý test toho předpokladu".
+- "market_expectation": co trh čeká, přeložené do makro věty, ne holé číslo — konsensus VŮČI předchozí hodnotě a co ta trajektorie implikuje ("čeká se zpomalení na 2.4 % z 2.6 %, tedy potvrzení dezinflace a prostor pro další cut").
+- "thesis_test": KONKRÉTNÍ laťka — co by muselo vyjít, aby to současnou tezi skutečně změnilo, ne vágní "kdyby to bylo horší". Kde to jde, uveď přibližnou hodnotu nebo rozsah a řekni, kterého driveru teze by se to dotklo. Pokud tenhle event tezí realisticky pohnout NEMŮŽE, napiš to na rovinu — to je cenná informace, ne selhání.
+- "reaction": "silná" = trh na to reálně zareaguje; "omezená" = z velké části už v ceně nebo nízká informační hodnota; "asymetrická" = jedna strana překvapení hne trhem výrazně víc než druhá.
+- "reaction_note": jedna věta PROČ — opři se o zaceněnost (cbPolicy.pricedIn), pozicování (cot/retailSentiment, cotPercentile — přeplněný obchod zvětšuje reakci na překvapení proti pozici) a risk režim. U "asymetrická" VŽDY řekni, KTERÁ strana překvapení váží víc a proč.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (pole max 3 položek {event, date, if_beat, if_miss, outcome}, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
+Agenda musí číst jako pokračování "narrative" — stejný příběh, stejné pojmy, stejná teze. Ne osm nezávislých odstavců slepených pod sebou.
+
+Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní, a co to znamená DÁL — potvrdil ten výsledek tezi, nebo jí odporuje? Piš to jako trader, co právě dostal číslo na obrazovku. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu.
+
+KAŽDOU položku agendy zpracuj stejně důkladně — i sedmou a osmou. Nezkracuj kvalitu u pozdějších položek; radši piš u všech krátce a hutně než u prvních rozvláčně a u posledních jednoslovně.
+
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň convictionStars, pokud je nízká), "scenarios" (agenda, pole max 8 položek, prázdné pole pokud scenarioSeeds nic neobsahuje).`;
 
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
@@ -88,43 +110,56 @@ async function loadMarketRegime() {
   return data?.[0] ?? null;
 }
 
-// Vybere top-N eventů podle váhy z kombinovaného okna (nedávno vyšlé + nadcházející) —
-// přesně ty, na které by se profesionální trader díval jako na klíčové "co sledovat dál"
-// (buildForecastV5 styl). Eventy, co ve svém okně `actual` UŽ mají, zůstávají ve scénářích
-// pár dní (SCENARIO_LOOKBACK_DAYS) po zveřejnění, aby appka mohla okomentovat i skutečný
-// výsledek, ne jen hypotézu — viz `outcome` v system promptu. `candidates` je filtrované
-// jen na PŘÍMÉ eventy tyhle měny (viz loadCurrencyContext), takže relevance faktor je vždy 1.
+// Vybere eventy pro makro agendu z kombinovaného okna (nedávno vyšlé + nadcházející).
+// Eventy, co ve svém okně `actual` UŽ mají, zůstávají v agendě pár dní
+// (SCENARIO_LOOKBACK_DAYS) po zveřejnění, aby appka mohla okomentovat i skutečný výsledek,
+// ne jen hypotézu — viz `outcome` v system promptu. `candidates` je filtrované jen na PŘÍMÉ
+// eventy tyhle měny (viz loadCurrencyContext), takže relevance faktor je vždy 1.
+//
+// Výběr jde ve TŘECH kolech, ne čistě podle váhy. Čistě váhový výběr (původní chování) totiž
+// systematicky zahazoval celé kategorie: sazby (3.5) a inflace/práce (3.0) vždy obsadily
+// všechny sloty a HDP (2.2) / PMI (1.8) / maloobchod (1.7) se do agendy nedostaly nikdy,
+// i když právě ty často testují růstovou část teze.
 function selectScenarioSeeds(candidates) {
   const weighted = candidates
-    .map((ev) => ({ ...ev, _weight: getWeight(ev.title) }))
+    .map((ev) => ({ ...ev, _weight: getWeight(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
     .filter((ev) => ev._weight > 0)
-    .sort((a, b) => b._weight - a._weight);
+    .sort((a, b) => b._weight - a._weight || a.date.localeCompare(b.date));
 
-  // Zaručený slot pro NEJČERSTVĚJŠÍ již známý výsledek (ne nutně nejvýše váhou
-  // ohodnocený v celém okně) — jinak by ho z výběru mohl vytlačit jak vyšší váhou
-  // ohodnocený budoucí event (typicky sazby), tak starší stejně važený resolvnutý
-  // event (např. včerejší Claimant Count by jinak přebil dnešní CPI jen díky pořadí
-  // ve stabilním řazení). Mezi eventy ze stejného dne rozhoduje váha.
+  // 1. kolo — zaručený slot pro NEJČERSTVĚJŠÍ již známý výsledek (ne nutně nejvýše váhou
+  // ohodnocený v okně): jinak by ho vytlačil jak vyšší váhou ohodnocený budoucí event
+  // (typicky sazby), tak starší stejně važený resolvnutý event. Mezi eventy ze stejného dne
+  // rozhoduje váha.
   const topResolved = weighted
     .filter((ev) => ev.actual)
     .sort((a, b) => b.date.localeCompare(a.date) || b._weight - a._weight)[0];
 
   const seeds = [];
   const seen = new Set();
+  const usedCats = new Set();
   const addSeed = (ev) => {
     const key = `${ev.date}|${ev.title}`;
-    if (seen.has(key)) return;
+    if (seen.has(key) || seeds.length >= MAX_AGENDA_ITEMS) return;
     seen.add(key);
+    usedCats.add(ev._cat);
     seeds.push(ev);
   };
 
   if (topResolved) addSeed(topResolved);
+
+  // 2. kolo — nejvýše vážený event z KAŽDÉ dosud nepokryté kategorie (weighted je řazené
+  // podle váhy, takže první nalezený z kategorie je ten nejdůležitější).
   for (const ev of weighted) {
-    if (seeds.length >= MAX_SCENARIOS) break;
-    addSeed(ev);
+    if (!usedCats.has(ev._cat)) addSeed(ev);
   }
 
-  return seeds.map(({ _weight, ...ev }) => ev);
+  // 3. kolo — zbylé sloty doplní nejvýše vážené eventy bez ohledu na kategorii.
+  for (const ev of weighted) addSeed(ev);
+
+  // Chronologicky — agenda se čte jako časová osa "co nás čeká", ne jako žebříček vah.
+  return seeds
+    .map(({ _weight, _cat, ...ev }) => ev)
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
@@ -152,6 +187,15 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
     .eq("currency_code", currencyCode)
     .limit(1);
   const cbPolicy = cbRows?.[0] ?? null;
+
+  // Otevřená teze z Thesis Enginu — bez ní model nemá vůči čemu poměřovat "co by tezi
+  // změnilo" a psal by jen obecné komentáře k datům.
+  const { data: thesisRows } = await supabase
+    .from("latest_currency_thesis")
+    .select("direction, conviction, drivers, thesis_summary, status, confirm_streak, challenge_streak")
+    .eq("currency_code", currencyCode)
+    .limit(1);
+  const thesis = thesisRows?.[0] ?? null;
 
   const currencyEvents = allCalendarEvents.filter((e) => e.currency_code === currencyCode);
 
@@ -219,7 +263,7 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
 
   const otherCurrencies = Object.fromEntries(Object.entries(basketContext).filter(([code]) => code !== currencyCode));
 
-  return { cot, fundamental, cbPolicy, retailSentiment, riskRegime: marketRegime, basketContext: otherCurrencies, upcoming, recent, scenarioSeeds };
+  return { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime: marketRegime, basketContext: otherCurrencies, upcoming, recent, scenarioSeeds };
 }
 
 // Předčítání shrnutí příběhu (tlačítko se zvukovou ikonou u SHRNUTÍ PŘÍBĚHU ve frontendu).
@@ -254,7 +298,7 @@ async function generateNarrativeAudio(currencyCode, text) {
 }
 
 async function generateForCurrency(currencyCode, context) {
-  const { cot, fundamental, cbPolicy, retailSentiment, riskRegime, basketContext, upcoming, recent, scenarioSeeds } = context;
+  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, upcoming, recent, scenarioSeeds } = context;
 
   if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
     console.log(`[${currencyCode}] žádná data — přeskočeno.`);
@@ -266,6 +310,7 @@ async function generateForCurrency(currencyCode, context) {
     cot,
     fundamental,
     cbPolicy,
+    thesis,
     retailSentiment,
     riskRegime,
     basketContext,
@@ -295,17 +340,31 @@ async function generateForCurrency(currencyCode, context) {
               conviction_note: { type: "string" },
               scenarios: {
                 type: "array",
-                maxItems: MAX_SCENARIOS,
+                maxItems: MAX_AGENDA_ITEMS,
                 items: {
                   type: "object",
                   properties: {
                     event: { type: "string" },
                     date: { type: "string" },
-                    if_beat: { type: "string" },
-                    if_miss: { type: "string" },
+                    tier: { type: "string", enum: ["klíčový", "druhořadý", "kontext"] },
+                    why_it_matters: { type: "string" },
+                    market_expectation: { type: "string" },
+                    thesis_test: { type: "string" },
+                    reaction: { type: "string", enum: ["silná", "omezená", "asymetrická"] },
+                    reaction_note: { type: "string" },
                     outcome: { type: ["string", "null"] },
                   },
-                  required: ["event", "date", "if_beat", "if_miss", "outcome"],
+                  required: [
+                    "event",
+                    "date",
+                    "tier",
+                    "why_it_matters",
+                    "market_expectation",
+                    "thesis_test",
+                    "reaction",
+                    "reaction_note",
+                    "outcome",
+                  ],
                   additionalProperties: false,
                 },
               },
@@ -338,10 +397,14 @@ async function generateForCurrency(currencyCode, context) {
     result.scenarios = result.scenarios.map((s) => {
       const outcome = normalizeNullable(s.outcome);
       const seed = scenarioSeeds.find((sd) => sd.title === s.event && sd.date === s.date);
-      if (seed?.actual && isTooShortOutcome(outcome)) {
-        return { ...s, outcome: buildFallbackOutcome(seed) };
-      }
-      return { ...s, outcome };
+      return {
+        ...s,
+        // Enumy řídí barvy a řazení v UI — nesmí do nich prosáknout nic mimo množinu, i kdyby
+        // model json_schema enum obešel (viděli jsme ho obcházet i "strict" pravidla dřív).
+        tier: VALID_TIERS.has(s.tier) ? s.tier : "kontext",
+        reaction: VALID_REACTIONS.has(s.reaction) ? s.reaction : "omezená",
+        outcome: seed?.actual && isTooShortOutcome(outcome) ? buildFallbackOutcome(seed) : outcome,
+      };
     });
   }
 
@@ -363,7 +426,7 @@ async function generateForCurrency(currencyCode, context) {
   }
 
   console.log(
-    `[${currencyCode}] OK — narrative vygenerován (${result.narrative.length} znaků, ${result.scenarios?.length ?? 0} scénářů, audio: ${audioUrl ? "ano" : "ne"}).`
+    `[${currencyCode}] OK — narrative vygenerován (${result.narrative.length} znaků, ${result.scenarios?.length ?? 0} položek agendy, audio: ${audioUrl ? "ano" : "ne"}).`
   );
   return true;
 }

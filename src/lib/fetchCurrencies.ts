@@ -1,13 +1,19 @@
 import { supabase } from "./supabaseClient";
-import type { CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
+import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
 
-// Tvar, jak scénáře skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
+// Tvar, jak agendu skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
+// Vše kromě event/date je volitelné: řádky vygenerované starší verzí promptu mají jiný tvar
+// a nesmí shodit načtení celé měny, než je přepíše nejbližší běh generátoru.
 interface ScenarioRow {
   event: string;
   date: string;
-  if_beat: string;
-  if_miss: string;
+  tier?: AgendaTier;
+  why_it_matters?: string | null;
+  market_expectation?: string | null;
+  thesis_test?: string | null;
+  reaction?: AgendaReaction;
+  reaction_note?: string | null;
   outcome: string | null;
 }
 
@@ -262,8 +268,12 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     const scenarios: Scenario[] = (narrative?.scenarios ?? []).map((s) => ({
       event: s.event,
       date: s.date,
-      ifBeat: s.if_beat,
-      ifMiss: s.if_miss,
+      tier: s.tier ?? "kontext",
+      whyItMatters: s.why_it_matters ?? null,
+      marketExpectation: s.market_expectation ?? null,
+      thesisTest: s.thesis_test ?? null,
+      reaction: s.reaction ?? "omezená",
+      reactionNote: s.reaction_note ?? null,
       outcome: s.outcome,
     }));
 

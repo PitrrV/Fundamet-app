@@ -10,7 +10,7 @@ import { convictionColor } from "./utils";
 import { fetchCurrencies, fetchTopOpportunity } from "./lib/fetchCurrencies";
 import { supabase } from "./lib/supabaseClient";
 import { ADMIN_EMAIL, signOut } from "./lib/auth";
-import type { CurrencyData, LedgerEntry, TopOpportunity } from "./types";
+import type { AgendaReaction, AgendaTier, CurrencyData, LedgerEntry, TopOpportunity } from "./types";
 
 function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
   switch (impact) {
@@ -56,6 +56,41 @@ function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
   if (level === "HIGH") return "border-emerald-500/50 text-emerald-300 bg-emerald-500/10";
   if (level === "MEDIUM") return "border-amber-500/50 text-amber-300 bg-amber-500/10";
   return "border-red-500/50 text-red-300 bg-red-500/10";
+}
+
+// Pořadí je zároveň pořadím sekcí v UI — nejdřív to, co může tezí skutečně pohnout.
+const AGENDA_TIER_ORDER: AgendaTier[] = ["klíčový", "druhořadý", "kontext"];
+
+function agendaTierMeta(tier: AgendaTier): { heading: string; hint: string; classes: string } {
+  if (tier === "klíčový") {
+    return {
+      heading: "KLÍČOVÉ",
+      hint: "může tezi překlopit nebo výrazně potvrdit",
+      classes: "border-gold/50 text-gold bg-gold/10",
+    };
+  }
+  if (tier === "druhořadý") {
+    return {
+      heading: "DRUHOŘADÉ",
+      hint: "posune konvikci, samo o sobě tezi nezmění",
+      classes: "border-slate-500/50 text-slate-300 bg-slate-500/10",
+    };
+  }
+  return {
+    heading: "KONTEXT",
+    hint: "tezí pohne jen při extrémním překvapení",
+    classes: "border-panelborder text-muted",
+  };
+}
+
+function agendaReactionMeta(reaction: AgendaReaction): { label: string; classes: string } {
+  if (reaction === "silná") {
+    return { label: "SILNÁ REAKCE", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
+  }
+  if (reaction === "asymetrická") {
+    return { label: "ASYMETRICKÁ REAKCE", classes: "border-sky-500/50 text-sky-300 bg-sky-500/10" };
+  }
+  return { label: "OMEZENÁ — z velké části v ceně", classes: "border-panelborder text-muted" };
 }
 
 function topOpportunityTierMeta(tier: "strong" | "soft" | "flat" | null): { label: string; note: string; classes: string } {
@@ -446,27 +481,77 @@ export default function App() {
 
             {currency.scenarios.length > 0 && (
               <section className="bg-panel border border-panelborder rounded-xl p-6">
-                <div className="text-xs tracking-wide text-muted mb-4">MOŽNÉ SCÉNÁŘE</div>
-                <div className="space-y-4">
-                  {currency.scenarios.map((scenario) => (
-                    <div key={`${scenario.date}-${scenario.event}`} className="border-l-2 border-panelborder pl-4">
-                      <div className="text-sm text-slate-100 font-medium mb-1.5">
-                        {scenario.event} <span className="text-muted font-mono text-xs">({scenario.date})</span>
-                      </div>
-                      <div className="text-xs text-emerald-400/90 mb-1">
-                        <span className="text-muted">Pokud PŘEKONÁ odhad:</span> {scenario.ifBeat}
-                      </div>
-                      <div className="text-xs text-red-400/90">
-                        <span className="text-muted">Pokud ZAOSTANE:</span> {scenario.ifMiss}
-                      </div>
-                      {scenario.outcome && (
-                        <div className="text-xs text-slate-300 mt-2 pt-2 border-t border-panelborder/60">
-                          <span className="text-gold tracking-wide">VÝSLEDEK:</span> {scenario.outcome}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                <div className="text-xs tracking-wide text-muted">CO MŮŽE ZMĚNIT PŘÍBĚH</div>
+                <div className="text-[11px] text-muted/80 italic mt-1 mb-5">
+                  Makro agenda, ne kalendář — u každé události proč teď rozhoduje, co čeká trh, jaká
+                  laťka by skutečně změnila tezi a jestli je reakce ještě před námi, nebo už v ceně.
                 </div>
+
+                {AGENDA_TIER_ORDER.map((tier) => {
+                  const items = currency.scenarios.filter((s) => s.tier === tier);
+                  if (items.length === 0) return null;
+                  const tierMeta = agendaTierMeta(tier);
+
+                  return (
+                    <div key={tier} className="mb-6 last:mb-0">
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <span
+                          className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${tierMeta.classes}`}
+                        >
+                          {tierMeta.heading}
+                        </span>
+                        <span className="text-[11px] text-muted italic">{tierMeta.hint}</span>
+                      </div>
+
+                      <div className="space-y-5">
+                        {items.map((scenario) => {
+                          const reactionMeta = agendaReactionMeta(scenario.reaction);
+                          return (
+                            <div key={`${scenario.date}-${scenario.event}`} className="border-l-2 border-panelborder pl-4">
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-2">
+                                <span className="text-muted font-mono text-xs">{scenario.date}</span>
+                                <span className="text-sm text-slate-100 font-medium">{scenario.event}</span>
+                                <span
+                                  className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${reactionMeta.classes}`}
+                                >
+                                  {reactionMeta.label}
+                                </span>
+                              </div>
+
+                              {scenario.whyItMatters && (
+                                <div className="text-xs text-slate-300 mb-1.5">
+                                  <span className="text-muted">Proč teď rozhoduje: </span>
+                                  {scenario.whyItMatters}
+                                </div>
+                              )}
+                              {scenario.marketExpectation && (
+                                <div className="text-xs text-slate-300 mb-1.5">
+                                  <span className="text-muted">Co čeká trh: </span>
+                                  {scenario.marketExpectation}
+                                </div>
+                              )}
+                              {scenario.thesisTest && (
+                                <div className="text-xs text-slate-100 mb-1.5">
+                                  <span className="text-gold">Co by změnilo tezi: </span>
+                                  {scenario.thesisTest}
+                                </div>
+                              )}
+                              {scenario.reactionNote && (
+                                <div className="text-xs text-muted italic">{scenario.reactionNote}</div>
+                              )}
+
+                              {scenario.outcome && (
+                                <div className="text-xs text-slate-300 mt-2 pt-2 border-t border-panelborder/60">
+                                  <span className="text-gold tracking-wide">VÝSLEDEK:</span> {scenario.outcome}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </section>
             )}
 

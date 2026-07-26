@@ -57,11 +57,21 @@ export interface RiskRegime {
   regime: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
 }
 
+export type AgendaTier = "klíčový" | "druhořadý" | "kontext";
+export type AgendaReaction = "silná" | "omezená" | "asymetrická";
+
+// Položka makro agendy ("Co může změnit příběh"). V DB pořád sloupec narratives.scenarios
+// (jsonb, žádná migrace nebyla potřeba). Prosaická pole jsou nullable, aby starší řádky
+// vygenerované předchozí verzí promptu nerozbily UI, než je přepíše nejbližší běh generátoru.
 export interface Scenario {
   event: string;
   date: string;
-  ifBeat: string;
-  ifMiss: string;
+  tier: AgendaTier;
+  whyItMatters: string | null;
+  marketExpectation: string | null;
+  thesisTest: string | null; // co konkrétně by muselo nastat, aby to změnilo aktuální tezi
+  reaction: AgendaReaction;
+  reactionNote: string | null;
   outcome: string | null; // profesionální komentář ke skutečnému výsledku, jakmile je actual známý
 }
 
