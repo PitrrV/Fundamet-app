@@ -3,5 +3,23 @@
 @tailwind utilities;
 
 body {
-  @apply bg-bg text-slate-200 font-sans antialiased;
+  @apply bg-bg text-ink font-sans antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Scrollbar 1:1 podle Analyzeru — drobnost, ale je to první věc, která prozradí,
+   že jde o dva různé nástroje. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1b2130;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #2a3346;
 }

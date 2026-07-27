@@ -37,16 +37,16 @@ export function EditActualField({ eventId, currentActual, onSaved }: Props) {
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="actual"
-        className="w-20 bg-transparent border border-gold/40 rounded px-1.5 py-0.5 text-xs text-gold font-mono placeholder:text-muted"
+        className="w-20 bg-transparent border border-accent/40 rounded px-1.5 py-0.5 text-xs text-accent font-mono placeholder:text-faint"
       />
       <button
         onClick={handleSave}
         disabled={saving}
-        className="text-[10px] text-gold border border-gold/40 rounded px-1.5 py-0.5 hover:bg-gold/10 disabled:opacity-50"
+        className="text-[10px] text-accent border border-accent/40 rounded px-1.5 py-0.5 hover:bg-accent/10 disabled:opacity-50"
       >
         {saving ? "…" : "Uložit"}
       </button>
-      {error && <span className="text-[10px] text-red-400">{error}</span>}
+      {error && <span className="text-[10px] text-neg">{error}</span>}
     </div>
   );
 }

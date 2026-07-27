@@ -44,8 +44,8 @@ export function NarrativeAudioButton({ audioUrl }: Props) {
       title={audioUrl ? (playing ? "Zastavit přečtení" : "Přečíst nahlas") : "Namluvená verze zatím není k dispozici"}
       className={`inline-flex items-center justify-center w-6 h-6 rounded-full border transition-colors ${
         audioUrl
-          ? "border-gold/50 text-gold hover:bg-gold/10"
-          : "border-panelborder text-muted/40 cursor-not-allowed"
+          ? "border-accent/50 text-accent hover:bg-accent/10"
+          : "border-line text-faint/50 cursor-not-allowed"
       }`}
     >
       {playing ? (

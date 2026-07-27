@@ -12,15 +12,54 @@ import { supabase } from "./lib/supabaseClient";
 import { ADMIN_EMAIL, signOut } from "./lib/auth";
 import type { AgendaReaction, AgendaTier, CurrencyData, LedgerEntry, TopOpportunity } from "./types";
 
+// ── Sdílené primitivy ───────────────────────────────────────────────────────────────────
+// Dřív měla každá sekce vlastní kombinaci paddingu, rámečku a nadpisu, takže všechny působily
+// stejně důležitě. Teď jsou tři úrovně vyvýšení a nadpis je jednotný.
+
+function Card({
+  children,
+  tone = "base",
+  className = "",
+}: {
+  children: React.ReactNode;
+  tone?: "base" | "raised" | "quiet";
+  className?: string;
+}) {
+  const tones = {
+    base: "bg-surface border-line",
+    raised: "bg-surface2 border-line2",
+    quiet: "bg-surface/60 border-line/70",
+  };
+  return <section className={`${tones[tone]} border rounded-xl ${className}`}>{children}</section>;
+}
+
+function SectionTitle({ children, hint }: { children: React.ReactNode; hint?: string }) {
+  return (
+    <div className="mb-4">
+      <h2 className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">{children}</h2>
+      {hint && <p className="text-[11px] text-faint mt-1 leading-relaxed">{hint}</p>}
+    </div>
+  );
+}
+
+function Badge({ children, classes }: { children: React.ReactNode; classes: string }) {
+  return (
+    <span
+      className={`inline-flex items-center text-[10px] font-semibold tracking-wider px-2 py-0.5 rounded border whitespace-nowrap ${classes}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ── Barevná sémantika ───────────────────────────────────────────────────────────────────
+// Mátová = potvrzuje/silné, korálová = odporuje/riziko, jantarová = pozor/slábne,
+// indigo = interaktivní a značka, fialová = zvláštní případ. Stejný klíč jako v Analyzeru.
+
 function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
-  switch (impact) {
-    case "High":
-      return "border-red-500/50 text-red-300 bg-red-500/10";
-    case "Medium":
-      return "border-slate-500/50 text-slate-300 bg-slate-500/10";
-    default:
-      return "border-slate-700 text-muted bg-transparent";
-  }
+  if (impact === "High") return "border-neg/40 text-neg bg-neg/10";
+  if (impact === "Medium") return "border-line2 text-muted bg-surface3";
+  return "border-line text-faint";
 }
 
 function retailSentimentLabel(score: number | null): string {
@@ -34,7 +73,7 @@ function retailSentimentLabel(score: number | null): string {
 function riskRegimeLabel(regime: CurrencyData["riskRegime"]): string {
   if (!regime) return "Zatím nedostupné";
   const label = regime.regime === "RISK_ON" ? "RISK-ON" : regime.regime === "RISK_OFF" ? "RISK-OFF" : "NEUTRÁLNÍ";
-  return `${label} (VIX ${regime.vix.toFixed(1)}, 5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
+  return `${label} · VIX ${regime.vix.toFixed(1)} (5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
 }
 
 function convictionStars(stars: number | null): string {
@@ -47,99 +86,119 @@ function thesisDirectionLabel(direction: string): string {
 }
 
 function thesisDirectionColor(direction: string): string {
-  if (direction === "bullish") return "text-emerald-400";
-  if (direction === "bearish") return "text-red-400";
+  if (direction === "bullish") return "text-pos";
+  if (direction === "bearish") return "text-neg";
   return "text-muted";
 }
 
 function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
-  if (level === "HIGH") return "border-emerald-500/50 text-emerald-300 bg-emerald-500/10";
-  if (level === "MEDIUM") return "border-amber-500/50 text-amber-300 bg-amber-500/10";
-  return "border-red-500/50 text-red-300 bg-red-500/10";
+  if (level === "HIGH") return "border-pos/40 text-pos bg-pos/10";
+  if (level === "MEDIUM") return "border-warn/40 text-warn bg-warn/10";
+  return "border-neg/40 text-neg bg-neg/10";
 }
 
 // Pořadí je zároveň pořadím sekcí v UI — nejdřív to, co může tezí skutečně pohnout.
 const AGENDA_TIER_ORDER: AgendaTier[] = ["klíčový", "druhořadý", "kontext"];
 
-function agendaTierMeta(tier: AgendaTier): { heading: string; hint: string; classes: string } {
+function agendaTierMeta(tier: AgendaTier): { heading: string; hint: string; classes: string; rail: string } {
   if (tier === "klíčový") {
     return {
       heading: "KLÍČOVÉ",
       hint: "může tezi překlopit nebo výrazně potvrdit",
-      classes: "border-gold/50 text-gold bg-gold/10",
+      classes: "border-warn/50 text-warn bg-warn/10",
+      rail: "border-warn/50",
     };
   }
   if (tier === "druhořadý") {
     return {
       heading: "DRUHOŘADÉ",
       hint: "posune konvikci, samo o sobě tezi nezmění",
-      classes: "border-slate-500/50 text-slate-300 bg-slate-500/10",
+      classes: "border-line2 text-muted bg-surface3",
+      rail: "border-line2",
     };
   }
   return {
     heading: "KONTEXT",
     hint: "tezí pohne jen při extrémním překvapení",
-    classes: "border-panelborder text-muted",
+    classes: "border-line text-faint",
+    rail: "border-line",
   };
 }
 
 function agendaReactionMeta(reaction: AgendaReaction): { label: string; classes: string } {
-  if (reaction === "silná") {
-    return { label: "SILNÁ REAKCE", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
-  }
-  if (reaction === "asymetrická") {
-    return { label: "ASYMETRICKÁ REAKCE", classes: "border-sky-500/50 text-sky-300 bg-sky-500/10" };
-  }
-  return { label: "OMEZENÁ — z velké části v ceně", classes: "border-panelborder text-muted" };
+  if (reaction === "silná") return { label: "SILNÁ REAKCE", classes: "border-neg/40 text-neg bg-neg/10" };
+  if (reaction === "asymetrická")
+    return { label: "ASYMETRICKÁ", classes: "border-special/40 text-special bg-special/10" };
+  return { label: "OMEZENÁ · V CENĚ", classes: "border-line text-faint" };
 }
 
-function topOpportunityTierMeta(tier: "strong" | "soft" | "flat" | null): { label: string; note: string; classes: string } {
+function topOpportunityTierMeta(tier: "strong" | "soft" | "flat" | null): {
+  label: string;
+  note: string;
+  classes: string;
+  frame: string;
+} {
   if (tier === "strong") {
     return {
       label: "SILNÝ PŘÍBĚH",
       note: "Obě strany podpořené více nezávislými signály, kvalita dat není nízká.",
-      classes: "border-gold/50 text-gold bg-gold/10",
+      classes: "border-pos/40 text-pos bg-pos/10",
+      frame: "border-pos/25",
     };
   }
   if (tier === "soft") {
     return {
       label: "NEJVÝRAZNĚJŠÍ DOSTUPNÝ ROZDÍL",
       note: "Konvikce nebo kvalita dat zatím nejsou na plné úrovni — ber jako slabší podnět k prozkoumání.",
-      classes: "border-amber-500/50 text-amber-300 bg-amber-500/10",
+      classes: "border-warn/40 text-warn bg-warn/10",
+      frame: "border-warn/25",
     };
   }
   return {
     label: "TRH BEZ JASNÉHO PŘÍBĚHU",
     note: "Rozestup mezi nejsilnější a nejslabší měnou je teď malý — tenhle týden nikdo jasně nevyčnívá.",
-    classes: "border-panelborder text-muted",
+    classes: "border-line2 text-muted",
+    frame: "border-line",
   };
 }
 
 function ledgerEntryMeta(entry: LedgerEntry): { label: string; classes: string } {
   switch (entry.classification) {
     case "opened":
-      return { label: "NOVÁ TEZE", classes: "border-gold/50 text-gold bg-gold/10" };
+      return { label: "NOVÁ TEZE", classes: "border-accent/40 text-accent bg-accent/10" };
     case "confirms":
-      return { label: "TEZE POSÍLENA", classes: "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" };
+      return { label: "TEZE POSÍLENA", classes: "border-pos/40 text-pos bg-pos/10" };
     case "challenges":
-      return { label: "TEZE OSLABENA", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+      return { label: "TEZE OSLABENA", classes: "border-warn/40 text-warn bg-warn/10" };
     case "invalidates_driver":
-      return { label: "DRIVER INVALIDOVÁN", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+      return { label: "DRIVER INVALIDOVÁN", classes: "border-warn/40 text-warn bg-warn/10" };
     case "closed":
-      return { label: "TEZE UZAVŘENA", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
+      return { label: "TEZE UZAVŘENA", classes: "border-neg/40 text-neg bg-neg/10" };
     default:
-      return { label: entry.classification, classes: "border-panelborder text-muted" };
+      return { label: entry.classification, classes: "border-line text-muted" };
   }
 }
 
 function thesisStatusBadge(status: "active" | "watching" | "invalidated"): { label: string; classes: string } {
   if (status === "watching") {
-    return { label: "SLEDUJE SE — driver invalidován", classes: "border-amber-500/50 text-amber-300 bg-amber-500/10" };
+    return { label: "SLEDUJE SE", classes: "border-warn/40 text-warn bg-warn/10" };
   }
   if (status === "invalidated") {
-    return { label: "ZRUŠENO", classes: "border-red-500/50 text-red-300 bg-red-500/10" };
+    return { label: "ZRUŠENO", classes: "border-neg/40 text-neg bg-neg/10" };
   }
-  return { label: "AKTIVNÍ", classes: "border-emerald-500/50 text-emerald-300 bg-emerald-500/10" };
+  return { label: "AKTIVNÍ", classes: "border-pos/40 text-pos bg-pos/10" };
+}
+
+// Jeden pilíř ve stripu vstupů. Vlastní komponenta, aby šlo těch šest držet v mřížce
+// se stejnou výškou a typografií.
+function Pillar({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
+  return (
+    <div className="bg-surface2 border border-line rounded-lg px-3 py-2.5 min-w-0">
+      <div className="text-[10px] tracking-wider text-faint uppercase mb-1 truncate">{label}</div>
+      <div className="text-[13px] text-ink font-mono leading-snug break-words">{value}</div>
+      {sub && <div className="text-[10px] text-faint mt-1 leading-snug break-words">{sub}</div>}
+    </div>
+  );
 }
 
 export default function App() {
@@ -184,41 +243,32 @@ export default function App() {
     );
   }
 
-  const currency = useMemo(
-    () => currencies?.find((c) => c.code === currencyCode) ?? null,
-    [currencies, currencyCode]
-  );
+  const currency = useMemo(() => currencies?.find((c) => c.code === currencyCode) ?? null, [currencies, currencyCode]);
 
   return (
     <div className="min-h-screen bg-bg">
-      <header className="border-b border-panelborder">
-        <div className="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
-          <h1 className="font-serif text-2xl tracking-wide">
-            KON<span className="text-gold">FLUENCE</span>
-          </h1>
-          <div className="flex items-center gap-4">
-            <div className="text-[11px] tracking-wide text-muted">
-              INFORMAČNÍ NÁSTROJ · NENÍ INVESTIČNÍ DOPORUČENÍ
-            </div>
+      {/* Hlavička je sticky a užší — na mobilu zabírala pětinu obrazovky. */}
+      <header className="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-line">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-3 min-w-0">
+            <h1 className="text-lg font-extrabold tracking-tight shrink-0">
+              KON<span className="text-accent">FLUENCE</span>
+            </h1>
+            <span className="hidden md:inline text-[10px] tracking-wider text-faint uppercase truncate">
+              Fundamentální kontext · není investiční doporučení
+            </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
             {session ? (
-              isAdmin ? (
-                <div className="flex items-center gap-2 text-[11px] text-muted">
-                  <span className="text-gold">admin</span>
-                  <button
-                    onClick={() => signOut()}
-                    className="border border-panelborder rounded px-2 py-1 hover:bg-panelborder/40"
-                  >
-                    Odhlásit se
-                  </button>
-                </div>
-              ) : (
+              <div className="flex items-center gap-2 text-[11px] text-muted">
+                {isAdmin && <span className="text-accent font-semibold">admin</span>}
                 <button
                   onClick={() => signOut()}
-                  className="text-[11px] text-muted border border-panelborder rounded px-2 py-1 hover:bg-panelborder/40"
+                  className="border border-line rounded px-2 py-1 hover:bg-surface2 transition-colors"
                 >
-                  Odhlásit se
+                  Odhlásit
                 </button>
-              )
+              </div>
             ) : (
               <AdminLogin />
             )}
@@ -226,323 +276,305 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         {loadError && (
-          <section className="bg-panel border border-red-500/40 rounded-xl p-6 text-sm text-red-300">
+          <Card className="p-5 border-neg/40 text-sm text-neg">
             Nepodařilo se načíst data z databáze: {loadError}
-          </section>
+          </Card>
         )}
 
         {!loadError && !currencies && (
-          <section className="bg-panel border border-panelborder rounded-xl p-8 text-center text-muted text-sm">
-            Načítám confluence skóre…
-          </section>
+          <Card className="p-10 text-center text-muted text-sm">Načítám confluence skóre…</Card>
         )}
 
         {currencies && currencies.length === 0 && (
-          <section className="bg-panel border border-panelborder rounded-xl p-8 text-center text-muted text-sm">
+          <Card className="p-10 text-center text-muted text-sm">
             Zatím nejsou k dispozici žádná data — ingest job ještě neproběhl.
-          </section>
+          </Card>
         )}
 
-        {topOpportunity && (
-          <section className="bg-panel border border-gold/30 rounded-xl p-6">
-            <div className="text-xs tracking-wide text-gold mb-3">TOP FUNDAMENTÁLNÍ PŘÍLEŽITOST TÝDNE</div>
-            {topOpportunity.insufficientData ? (
-              <div className="text-sm text-muted italic">
-                Appka zatím nemá spočítané skóre aspoň u dvou měn — jakmile naběhne první přepočet,
-                objeví se tu srovnání.
+        {/* TOP PŘÍLEŽITOST — pruh napříč měnami, patří nad výběr měny, protože se ho netýká. */}
+        {topOpportunity && !topOpportunity.insufficientData && (
+          <Card tone="raised" className={`p-4 sm:p-5 ${topOpportunityTierMeta(topOpportunity.confidenceTier).frame}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+              <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+                Top fundamentální příležitost týdne
+              </span>
+              <Badge classes={topOpportunityTierMeta(topOpportunity.confidenceTier).classes}>
+                {topOpportunityTierMeta(topOpportunity.confidenceTier).label}
+              </Badge>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-pos tracking-tight">
+                  {topOpportunity.strongestCurrency}
+                </span>
+                <span className="text-[11px] text-faint uppercase tracking-wider">nejsilnější</span>
               </div>
-            ) : (
-              <>
-                <div className="flex justify-center mb-3">
-                  <span
-                    className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${
-                      topOpportunityTierMeta(topOpportunity.confidenceTier).classes
-                    }`}
-                  >
-                    {topOpportunityTierMeta(topOpportunity.confidenceTier).label}
-                  </span>
-                </div>
-                <div className="flex items-center justify-center gap-3 text-lg font-serif">
-                  <span className="text-emerald-400">{topOpportunity.strongestCurrency}</span>
-                  <span className="text-muted text-sm">nejsilnější bias</span>
-                  <span className="text-muted">·</span>
-                  <span className="text-red-400">{topOpportunity.weakestCurrency}</span>
-                  <span className="text-muted text-sm">nejslabší bias</span>
-                </div>
-                <div className="text-[11px] text-muted italic text-center mt-2">
-                  {topOpportunityTierMeta(topOpportunity.confidenceTier).note}
-                </div>
-                {topOpportunity.rationale && (
-                  <div className="text-xs text-slate-300 mt-3 max-w-xl mx-auto text-center">
-                    {topOpportunity.rationale}
-                  </div>
-                )}
-                <div className="text-[11px] text-muted italic text-center mt-3 pt-3 border-t border-panelborder">
-                  Jen inspirace k dalšímu zkoumání, ne signál ke vstupu — timing, risk management a
-                  technickou konfluenci řeší Fx Analyzer, ne tahle appka.
-                </div>
-              </>
+              <span className="text-line2 text-xl">/</span>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-extrabold text-neg tracking-tight">
+                  {topOpportunity.weakestCurrency}
+                </span>
+                <span className="text-[11px] text-faint uppercase tracking-wider">nejslabší</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-faint italic mt-2">
+              {topOpportunityTierMeta(topOpportunity.confidenceTier).note}
+            </p>
+            {topOpportunity.rationale && (
+              <p className="text-xs text-muted mt-3 leading-relaxed">{topOpportunity.rationale}</p>
             )}
-          </section>
+            <p className="text-[11px] text-faint italic mt-3 pt-3 border-t border-line">
+              Jen inspirace k dalšímu zkoumání, ne signál ke vstupu — timing, risk management a technickou
+              konfluenci řeší Fx Analyzer.
+            </p>
+          </Card>
         )}
 
         {currencies && currencies.length > 0 && currency && (
           <>
-            <CurrencyTabs
-              currencies={currencies.map((c) => c.code)}
-              selected={currency.code}
-              onSelect={setCurrencyCode}
-            />
+            {/* Přepínač měny je sticky hned pod hlavičkou — při dlouhém scrollu agendou
+                je pořád po ruce a je jasné, o které měně čtu. */}
+            <div className="sticky top-14 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur border-b border-line">
+              <CurrencyTabs
+                currencies={currencies.map((c) => c.code)}
+                selected={currency.code}
+                onSelect={setCurrencyCode}
+              />
+            </div>
 
-            <section className="bg-panel border border-panelborder rounded-xl p-8">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-xs tracking-wide text-muted">
-                  CONFLUENCE SKÓRE — {currency.code}
-                </div>
-                {currency.dataQuality && (
-                  <span
-                    className={`inline-flex items-center gap-1.5 text-[10px] tracking-wide px-2 py-0.5 rounded border ${dataQualityBadgeClasses(
-                      currency.dataQuality.level
-                    )}`}
-                    title={
-                      currency.dataQuality.missingCategories.length > 0
-                        ? `Chybí: ${currency.dataQuality.missingCategories.join(", ")}`
-                        : "Žádná chybějící core data"
-                    }
-                  >
-                    KVALITA DAT: {currency.dataQuality.level} · pokrytí {currency.dataQuality.coveragePct}%
+            {/* HERO — skóre a teze vedle sebe. Patří k sobě: obojí odpovídá na "co si myslíme". */}
+            <div className="grid lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] gap-4">
+              <Card tone="raised" className="p-5 flex flex-col">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+                    Confluence skóre
                   </span>
-                )}
-              </div>
-              <Gauge score={currency.score} />
-              <div className="text-center mt-2">
-                <div className="font-mono text-4xl text-gold">
-                  {currency.score > 0 ? "+" : ""}
-                  {currency.score.toFixed(1)}
+                  {currency.dataQuality && (
+                    <Badge classes={dataQualityBadgeClasses(currency.dataQuality.level)}>
+                      DATA {currency.dataQuality.level} · {currency.dataQuality.coveragePct} %
+                    </Badge>
+                  )}
                 </div>
-                <div className={`text-xs tracking-wide mt-1 ${convictionColor(currency.convictionLabel)}`}>
-                  {currency.convictionLabel}
+
+                <Gauge score={currency.score} />
+
+                <div className="text-center mt-1">
+                  <div className="font-mono text-5xl font-bold text-ink tracking-tight">
+                    {currency.score > 0 ? "+" : ""}
+                    {currency.score.toFixed(1)}
+                  </div>
+                  <div className={`text-[11px] tracking-wider mt-1.5 ${convictionColor(currency.convictionLabel)}`}>
+                    {currency.convictionLabel}
+                  </div>
+                  {currency.convictionStars !== null && (
+                    <div className="text-accent text-base mt-1 tracking-[0.2em]">
+                      {convictionStars(currency.convictionStars)}
+                    </div>
+                  )}
                 </div>
-                {currency.convictionStars !== null && (
-                  <div className="text-gold text-sm mt-1 tracking-wider">{convictionStars(currency.convictionStars)}</div>
-                )}
-                {currency.convictionNote && (
-                  <div className="text-xs text-muted mt-2 max-w-md mx-auto italic">
-                    {currency.convictionNote}
+
+                {(currency.convictionNote || currency.convictionReasons.length > 0) && (
+                  <div className="mt-4 pt-4 border-t border-line space-y-2">
+                    {currency.convictionNote && (
+                      <p className="text-[11px] text-muted italic leading-relaxed">{currency.convictionNote}</p>
+                    )}
+                    {currency.convictionReasons.length > 0 && (
+                      <ul className="text-[11px] text-faint space-y-1">
+                        {currency.convictionReasons.map((reason) => (
+                          <li key={reason} className="flex gap-1.5">
+                            <span className="text-accent/60">·</span>
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
-                {currency.convictionReasons.length > 0 && (
-                  <ul className="text-xs text-muted mt-2 max-w-md mx-auto space-y-0.5 text-left mx-auto">
-                    {currency.convictionReasons.map((reason) => (
-                      <li key={reason}>· {reason}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </section>
+              </Card>
 
-            {currency.thesis && (
-              <section className="bg-panel border border-panelborder rounded-xl p-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="text-xs tracking-wide text-muted">MAKRO TEZE</div>
-                  <span
-                    className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${
-                      thesisStatusBadge(currency.thesis.status).classes
-                    }`}
-                  >
-                    {thesisStatusBadge(currency.thesis.status).label}
-                  </span>
-                </div>
-                <div className={`text-xl font-serif ${thesisDirectionColor(currency.thesis.direction)}`}>
-                  {thesisDirectionLabel(currency.thesis.direction)}
-                </div>
-                <div className="text-gold text-sm mt-1 tracking-wider">
-                  {convictionStars(Math.round(currency.thesis.conviction))}
-                </div>
-                <div className="text-xs text-muted mt-1">
-                  otevřeno {new Date(currency.thesis.openedAt).toLocaleDateString("cs-CZ")} · potvrzeno {currency.thesis.confirmStreak}×
-                  {currency.thesis.challengeStreak > 0 && `, zpochybněno ${currency.thesis.challengeStreak}×`}
-                </div>
-                {currency.thesis.thesisSummary && (
-                  <div className="text-sm text-slate-300 mt-3">{currency.thesis.thesisSummary}</div>
-                )}
-                {currency.thesis.drivers.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {currency.thesis.drivers.map((driver) => (
-                      <span
-                        key={driver.driverKey}
-                        className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded border ${
-                          driver.status === "weakening"
-                            ? "border-amber-500/40 text-amber-300 bg-amber-500/5"
-                            : "border-emerald-500/40 text-emerald-300 bg-emerald-500/5"
-                        }`}
-                      >
-                        {driver.label}
-                        <span className="font-mono text-muted">
-                          {driver.value > 0 ? "+" : ""}
-                          {driver.value.toFixed(2)}
+              {currency.thesis ? (
+                <Card tone="raised" className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+                      Makro teze
+                    </span>
+                    <Badge classes={thesisStatusBadge(currency.thesis.status).classes}>
+                      {thesisStatusBadge(currency.thesis.status).label}
+                    </Badge>
+                  </div>
+
+                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                    <span className={`text-3xl font-extrabold tracking-tight ${thesisDirectionColor(currency.thesis.direction)}`}>
+                      {thesisDirectionLabel(currency.thesis.direction)}
+                    </span>
+                    <span className="text-accent text-base tracking-[0.2em]">
+                      {convictionStars(Math.round(currency.thesis.conviction))}
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-faint mt-2">
+                    otevřeno {new Date(currency.thesis.openedAt).toLocaleDateString("cs-CZ")} · potvrzeno{" "}
+                    {currency.thesis.confirmStreak}×
+                    {currency.thesis.challengeStreak > 0 && `, zpochybněno ${currency.thesis.challengeStreak}×`}
+                  </div>
+
+                  {currency.thesis.thesisSummary && (
+                    <p className="text-sm text-muted mt-4 leading-relaxed">{currency.thesis.thesisSummary}</p>
+                  )}
+
+                  {currency.thesis.drivers.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-line">
+                      {currency.thesis.drivers.map((driver) => (
+                        <span
+                          key={driver.driverKey}
+                          className={`inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-md border ${
+                            driver.status === "weakening"
+                              ? "border-warn/40 text-warn bg-warn/5"
+                              : "border-pos/40 text-pos bg-pos/5"
+                          }`}
+                        >
+                          {driver.label}
+                          <span className="font-mono text-faint">
+                            {driver.value > 0 ? "+" : ""}
+                            {driver.value.toFixed(2)}
+                          </span>
                         </span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              ) : (
+                <Card tone="raised" className="p-5 flex items-center justify-center text-sm text-faint">
+                  Pro tuhle měnu zatím není otevřená žádná teze.
+                </Card>
+              )}
+            </div>
 
-            {currency.ledgerFeed.length > 0 && (
-              <section className="bg-panel border border-panelborder rounded-xl p-6">
-                <div className="text-xs tracking-wide text-muted mb-4">CO SE ZMĚNILO?</div>
-                <div className="space-y-3">
-                  {currency.ledgerFeed.map((entry, i) => {
-                    const meta = ledgerEntryMeta(entry);
-                    return (
-                      <div key={`${entry.occurredAt}-${i}`} className="border-l-2 border-panelborder pl-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span
-                            className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${meta.classes}`}
-                          >
-                            {meta.label}
-                          </span>
-                          <span className="text-[11px] text-muted font-mono">
-                            {new Date(entry.occurredAt).toLocaleDateString("cs-CZ")}
-                          </span>
-                          {entry.driverKey && <span className="text-[11px] text-muted">· {entry.driverKey}</span>}
-                        </div>
-                        <div className="text-xs text-slate-300">{entry.reasoning}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
+            {/* PILÍŘE — vstupy, ze kterých skóre vzniklo. Dřív byly schované uvnitř panelu
+                se shrnutím, kam logicky nepatří: nejsou to závěry, jsou to data. */}
+            <Card className="p-5">
+              <SectionTitle hint="Vstupy, ze kterých skóre a teze vznikly.">Pilíře</SectionTitle>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+                <Pillar
+                  label="COT pozicování"
+                  value={currency.cotPositioning}
+                  sub={currency.cotPercentile !== null ? `${currency.cotPercentile}. percentil` : null}
+                />
+                <Pillar
+                  label="Fundamentální skóre"
+                  value={
+                    currency.fundamentalScore !== null
+                      ? `${currency.fundamentalScore > 0 ? "+" : ""}${currency.fundamentalScore.toFixed(1)}`
+                      : "—"
+                  }
+                />
+                <Pillar label="Retail sentiment" value={retailSentimentLabel(currency.retailScore)} />
+                <Pillar
+                  label="Zaceněnost"
+                  value={currency.pricedIn ?? "—"}
+                  sub={
+                    currency.cbPolicy
+                      ? `${
+                          currency.cbPolicy.pricedIn.method === "yield_gap"
+                            ? "2Y výnos vs. sazba (FRED)"
+                            : "konsensus rozhodnutí"
+                        } · ${currency.cbPolicy.pricedIn.confidenceLevel}`
+                      : null
+                  }
+                />
+                <Pillar label="Dlouhodobý bias (CB)" value={currency.longTermBias ?? "—"} />
+                <Pillar label="Risk režim" value={riskRegimeLabel(currency.riskRegime)} />
+              </div>
+            </Card>
 
-            <section className="bg-panel border border-panelborder rounded-xl p-6">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="text-xs tracking-wide text-muted">SHRNUTÍ PŘÍBĚHU</div>
+            {/* SHRNUTÍ + navazující upozornění — hlavní text, dostává nejvíc prostoru. */}
+            <Card tone="raised" className="p-5 sm:p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+                  Shrnutí příběhu
+                </span>
                 <NarrativeAudioButton audioUrl={currency.summaryAudioUrl} />
               </div>
-              <RichText text={currency.summary} className="text-sm leading-relaxed text-slate-300" />
+              <RichText text={currency.summary} className="text-[15px] leading-[1.75] text-ink/90" />
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-5 pt-5 border-t border-panelborder text-xs">
-                <div>
-                  <div className="text-muted mb-1">COT POZICOVÁNÍ</div>
-                  <div className="text-emerald-400 font-mono">
-                    {currency.cotPositioning}
-                    {currency.cotPercentile !== null && (
-                      <span className="text-muted"> · {currency.cotPercentile}. percentil</span>
-                    )}
-                  </div>
+              {currency.forwardFlag && (
+                <div className="mt-5 border-l-2 border-accent bg-accent/5 rounded-r-lg px-4 py-3">
+                  <div className="text-[10px] tracking-wider text-accent uppercase mb-1">Navazující eventy</div>
+                  <p className="text-sm text-muted leading-relaxed">{currency.forwardFlag}</p>
                 </div>
-                <div>
-                  <div className="text-muted mb-1">FUNDAMENTÁLNÍ SKÓRE</div>
-                  <div className="font-mono text-muted italic">
-                    {currency.fundamentalScore !== null
-                      ? `${currency.fundamentalScore > 0 ? "+" : ""}${currency.fundamentalScore.toFixed(1)}`
-                      : "Zatím nedostupné"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-muted mb-1">RETAIL SENTIMENT</div>
-                  <div className="font-mono text-muted italic">{retailSentimentLabel(currency.retailScore)}</div>
-                </div>
-                <div>
-                  <div className="text-muted mb-1">ZACENĚNOST (POSLEDNÍ ROZHODNUTÍ)</div>
-                  <div className="font-mono text-muted italic">
-                    {currency.pricedIn ?? "Zatím nedostupné"}
-                    {currency.cbPolicy && (
-                      <span className="text-[10px] text-muted/70 block mt-0.5">
-                        metoda: {currency.cbPolicy.pricedIn.method === "yield_gap" ? "2Y výnos vs. sazba (FRED)" : "konsensus rozhodnutí"} ·{" "}
-                        {currency.cbPolicy.pricedIn.confidenceLevel}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-muted mb-1">DLOUHODOBÝ BIAS (CB POLITIKA)</div>
-                  <div className="font-mono text-muted italic">
-                    {currency.longTermBias ?? "Zatím nedostupné"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-muted mb-1">RISK REŽIM</div>
-                  <div className="font-mono text-muted italic">{riskRegimeLabel(currency.riskRegime)}</div>
-                </div>
-              </div>
-            </section>
+              )}
+            </Card>
 
-            {currency.forwardFlag && (
-              <section className="bg-panel border-l-4 border-gold border-t border-r border-b border-panelborder rounded-lg p-5">
-                <div className="text-xs tracking-wide text-gold mb-2">NAVAZUJÍCÍ EVENTY — POZOR</div>
-                <div className="text-sm leading-relaxed text-slate-300">{currency.forwardFlag}</div>
-              </section>
-            )}
-
+            {/* AGENDA — hlavní obsah, proto tři úrovně a vlastní rytmus. */}
             {currency.scenarios.length > 0 && (
-              <section className="bg-panel border border-panelborder rounded-xl p-6">
-                <div className="text-xs tracking-wide text-muted">CO MŮŽE ZMĚNIT PŘÍBĚH</div>
-                <div className="text-[11px] text-muted/80 italic mt-1 mb-5">
-                  Makro agenda, ne kalendář — u každé události proč teď rozhoduje, co čeká trh, jaká
-                  laťka by skutečně změnila tezi a jestli je reakce ještě před námi, nebo už v ceně.
-                </div>
+              <Card className="p-5 sm:p-6">
+                <SectionTitle hint="Makro agenda, ne kalendář — u každé události proč teď rozhoduje, co čeká trh, jaká laťka by změnila tezi a jestli je reakce ještě před námi, nebo už v ceně.">
+                  Co může změnit příběh
+                </SectionTitle>
 
                 {AGENDA_TIER_ORDER.map((tier) => {
                   const items = currency.scenarios.filter((s) => s.tier === tier);
                   if (items.length === 0) return null;
-                  const tierMeta = agendaTierMeta(tier);
+                  const meta = agendaTierMeta(tier);
 
                   return (
-                    <div key={tier} className="mb-6 last:mb-0">
-                      <div className="flex items-baseline gap-2 mb-3">
-                        <span
-                          className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${tierMeta.classes}`}
-                        >
-                          {tierMeta.heading}
-                        </span>
-                        <span className="text-[11px] text-muted italic">{tierMeta.hint}</span>
+                    <div key={tier} className="mb-7 last:mb-0">
+                      <div className="flex flex-wrap items-baseline gap-2 mb-3">
+                        <Badge classes={meta.classes}>{meta.heading}</Badge>
+                        <span className="text-[11px] text-faint italic">{meta.hint}</span>
                       </div>
 
-                      <div className="space-y-5">
+                      <div className="grid md:grid-cols-2 gap-3">
                         {items.map((scenario) => {
-                          const reactionMeta = agendaReactionMeta(scenario.reaction);
+                          const reaction = agendaReactionMeta(scenario.reaction);
                           return (
-                            <div key={`${scenario.date}-${scenario.event}`} className="border-l-2 border-panelborder pl-4">
-                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-2">
-                                <span className="text-muted font-mono text-xs">{scenario.date}</span>
-                                <span className="text-sm text-slate-100 font-medium">{scenario.event}</span>
-                                <span
-                                  className={`inline-block text-[10px] tracking-wide px-2 py-0.5 rounded border ${reactionMeta.classes}`}
-                                >
-                                  {reactionMeta.label}
-                                </span>
+                            <div
+                              key={`${scenario.date}-${scenario.event}`}
+                              className={`bg-surface2 border border-line rounded-lg p-4 border-l-2 ${meta.rail}`}
+                            >
+                              <div className="flex flex-wrap items-center gap-2 mb-3">
+                                <span className="text-faint font-mono text-[11px]">{scenario.date}</span>
+                                <span className="text-sm text-ink font-semibold">{scenario.event}</span>
+                                <Badge classes={reaction.classes}>{reaction.label}</Badge>
                               </div>
 
-                              {scenario.whyItMatters && (
-                                <div className="text-xs text-slate-300 mb-1.5">
-                                  <span className="text-muted">Proč teď rozhoduje: </span>
-                                  {scenario.whyItMatters}
-                                </div>
-                              )}
-                              {scenario.marketExpectation && (
-                                <div className="text-xs text-slate-300 mb-1.5">
-                                  <span className="text-muted">Co čeká trh: </span>
-                                  {scenario.marketExpectation}
-                                </div>
-                              )}
-                              {scenario.thesisTest && (
-                                <div className="text-xs text-slate-100 mb-1.5">
-                                  <span className="text-gold">Co by změnilo tezi: </span>
-                                  {scenario.thesisTest}
-                                </div>
-                              )}
+                              <dl className="space-y-2 text-xs leading-relaxed">
+                                {scenario.whyItMatters && (
+                                  <div>
+                                    <dt className="text-[10px] tracking-wider text-faint uppercase">
+                                      Proč teď rozhoduje
+                                    </dt>
+                                    <dd className="text-muted mt-0.5">{scenario.whyItMatters}</dd>
+                                  </div>
+                                )}
+                                {scenario.marketExpectation && (
+                                  <div>
+                                    <dt className="text-[10px] tracking-wider text-faint uppercase">Co čeká trh</dt>
+                                    <dd className="text-muted mt-0.5">{scenario.marketExpectation}</dd>
+                                  </div>
+                                )}
+                                {scenario.thesisTest && (
+                                  <div>
+                                    <dt className="text-[10px] tracking-wider text-warn uppercase">
+                                      Co by změnilo tezi
+                                    </dt>
+                                    <dd className="text-ink/90 mt-0.5">{scenario.thesisTest}</dd>
+                                  </div>
+                                )}
+                              </dl>
+
                               {scenario.reactionNote && (
-                                <div className="text-xs text-muted italic">{scenario.reactionNote}</div>
+                                <p className="text-[11px] text-faint italic mt-2.5">{scenario.reactionNote}</p>
                               )}
 
                               {scenario.outcome && (
-                                <div className="text-xs text-slate-300 mt-2 pt-2 border-t border-panelborder/60">
-                                  <span className="text-gold tracking-wide">VÝSLEDEK:</span> {scenario.outcome}
+                                <div className="mt-3 pt-3 border-t border-line">
+                                  <div className="text-[10px] tracking-wider text-pos uppercase mb-1">Výsledek</div>
+                                  <p className="text-xs text-muted leading-relaxed">{scenario.outcome}</p>
                                 </div>
                               )}
                             </div>
@@ -552,74 +584,95 @@ export default function App() {
                     </div>
                   );
                 })}
-              </section>
+              </Card>
             )}
 
-            <section>
-              <h2 className="font-serif text-lg mb-4">Nadcházejících 21 dní</h2>
-              {currency.calendarEvents.length === 0 ? (
-                <div className="bg-panel border border-panelborder rounded-xl p-8 text-center text-sm text-muted">
-                  Zatím žádné naplánované eventy pro tuhle měnu v databázi.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {currency.calendarEvents.map((event) => (
-                    <div
-                      key={`${event.date}-${event.title}`}
-                      className="bg-panel border border-panelborder rounded-lg p-5 flex items-start justify-between gap-4"
-                    >
-                      <div>
-                        <div className="text-xs text-muted font-mono mb-1">{event.date}</div>
-                        <div className="text-slate-100 font-medium mb-1">{event.title}</div>
-                        <span
-                          className={`inline-block text-[11px] tracking-wide px-2 py-0.5 rounded border ${impactBadgeClasses(
-                            event.impact
-                          )}`}
-                        >
-                          {event.impact}
-                        </span>
-                      </div>
-                      <div className="text-right shrink-0 text-xs font-mono">
-                        <div className="text-muted mb-0.5">Konsensus / Předchozí</div>
-                        <div className="text-slate-200">
-                          {event.estimate ?? "–"} / {event.previous ?? "–"}
+            {/* Spodní dvojice — historie a kalendář jsou referenční, ne hlavní čtení,
+                proto tišší plocha a vedle sebe. */}
+            <div className="grid lg:grid-cols-2 gap-4">
+              {currency.ledgerFeed.length > 0 && (
+                <Card tone="quiet" className="p-5">
+                  <SectionTitle hint="Kdy a proč appka tezi potvrdila nebo zpochybnila.">Co se změnilo?</SectionTitle>
+                  <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                    {currency.ledgerFeed.map((entry, i) => {
+                      const meta = ledgerEntryMeta(entry);
+                      return (
+                        <div key={`${entry.occurredAt}-${i}`} className="border-l border-line pl-3">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <Badge classes={meta.classes}>{meta.label}</Badge>
+                            <span className="text-[10px] text-faint font-mono">
+                              {new Date(entry.occurredAt).toLocaleDateString("cs-CZ")}
+                            </span>
+                            {entry.driverKey && <span className="text-[10px] text-faint">· {entry.driverKey}</span>}
+                          </div>
+                          <p className="text-xs text-muted leading-relaxed">{entry.reasoning}</p>
                         </div>
-                        {event.actual && !isAdmin && (
-                          <div className="text-gold mt-1">Actual: {event.actual}</div>
-                        )}
-                        {isAdmin && (
-                          <EditActualField
-                            eventId={event.id}
-                            currentActual={event.actual}
-                            onSaved={(newActual) => handleActualSaved(currency.code, event.id, newActual)}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      );
+                    })}
+                  </div>
+                </Card>
               )}
-            </section>
+
+              <Card tone="quiet" className="p-5">
+                <SectionTitle hint="Vše naplánované, včetně méně důležitých položek.">
+                  Kalendář — nadcházejících 21 dní
+                </SectionTitle>
+                {currency.calendarEvents.length === 0 ? (
+                  <p className="text-sm text-faint py-6 text-center">
+                    Zatím žádné naplánované eventy pro tuhle měnu.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-line max-h-[420px] overflow-y-auto pr-1">
+                    {currency.calendarEvents.map((event) => (
+                      <div
+                        key={`${event.date}-${event.title}`}
+                        className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[10px] text-faint font-mono mb-0.5">{event.date}</div>
+                          <div className="text-[13px] text-ink leading-snug mb-1.5">{event.title}</div>
+                          <Badge classes={impactBadgeClasses(event.impact)}>{event.impact}</Badge>
+                        </div>
+                        <div className="text-right shrink-0 text-[11px] font-mono">
+                          <div className="text-faint mb-0.5 text-[10px]">kons. / předch.</div>
+                          <div className="text-muted">
+                            {event.estimate ?? "–"} / {event.previous ?? "–"}
+                          </div>
+                          {event.actual && !isAdmin && <div className="text-pos mt-1">{event.actual}</div>}
+                          {isAdmin && (
+                            <EditActualField
+                              eventId={event.id}
+                              currentActual={event.actual}
+                              onSaved={(newActual) => handleActualSaved(currency.code, event.id, newActual)}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
           </>
         )}
 
-        <footer className="text-center text-xs text-muted pt-6 pb-4 space-y-1">
+        <footer className="text-xs text-faint pt-6 pb-10 space-y-3 border-t border-line leading-relaxed">
           <p>
-            COT pozicování a retail sentiment (týdně, CFTC), fundamentální skóre a CB politika/real
-            yield (ekonomický kalendář ForexFactory) a risk režim (VIX, FRED) jsou reálná a průběžně
-            aktualizovaná data. "Zaceněnost" je u většiny měn odvozená z konsensu posledního
-            rozhodnutí (ne z reálné OIS/futures křivky) — metoda je vždy uvedená u čísla.
+            COT pozicování a retail sentiment (týdně, CFTC), fundamentální skóre a CB politika/real yield
+            (ekonomický kalendář ForexFactory) a risk režim (VIX, FRED) jsou reálná a průběžně aktualizovaná
+            data. „Zaceněnost" je u většiny měn odvozená z konsensu posledního rozhodnutí, ne z reálné
+            OIS/futures křivky — metoda je vždy uvedená u čísla.
           </p>
           <p>
-            Shrnutí příběhu, upozornění na navazující eventy a scénářová predikce vznikají jazykovým
-            modelem (OpenAI) na základě těchto dat — jde o syntézu veřejně dostupných informací a
-            heuristických odhadů, ne o investiční doporučení.
+            Shrnutí příběhu, upozornění na navazující eventy a makro agenda vznikají jazykovým modelem
+            (OpenAI) na základě těchto dat — jde o syntézu veřejně dostupných informací a heuristických
+            odhadů, ne o investiční doporučení.
           </p>
-          <p className="pt-2 border-t border-panelborder/60">
-            Konfluence vysvětluje PROČ — makro kontext, fundamentální bias a jak se v čase mění. Neřeší
-            timing vstupu, risk management ani technickou konfluenci na grafu — o to, jestli je
-            konkrétní obchod podpořený daty a potvrzený napříč zdroji, se stará samostatný nástroj Fx
-            Analyzer.
+          <p className="text-muted">
+            <span className="text-accent font-semibold">Konfluence</span> vysvětluje PROČ — makro kontext,
+            fundamentální bias a jak se v čase mění. Neřeší timing vstupu, risk management ani technickou
+            konfluenci na grafu; o to, jestli je konkrétní obchod podpořený daty a potvrzený napříč zdroji,
+            se stará samostatný nástroj <span className="text-ink font-semibold">Fx Analyzer</span>.
           </p>
         </footer>
       </main>

@@ -33,16 +33,16 @@ export function AdminLogin() {
         placeholder="e-mail pro přihlášení"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
-        className="bg-transparent border border-panelborder rounded px-2 py-1 text-[11px] text-slate-200 placeholder:text-muted w-40"
+        className="bg-transparent border border-line rounded px-2 py-1 text-[11px] text-ink placeholder:text-faint w-40"
       />
       <button
         type="submit"
         disabled={sending}
-        className="text-[11px] text-gold border border-gold/40 rounded px-2 py-1 hover:bg-gold/10 disabled:opacity-50 whitespace-nowrap"
+        className="text-[11px] text-accent border border-accent/40 rounded px-2 py-1 hover:bg-accent/10 disabled:opacity-50 whitespace-nowrap"
       >
         {sending ? "…" : "Přihlásit se"}
       </button>
-      {error && <span className="text-[11px] text-red-400">{error}</span>}
+      {error && <span className="text-[11px] text-neg">{error}</span>}
     </form>
   );
 }

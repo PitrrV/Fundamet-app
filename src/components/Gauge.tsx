@@ -27,14 +27,15 @@ export function Gauge({ score }: Props) {
     <div className="relative w-full max-w-[320px] mx-auto">
       <svg viewBox="0 0 300 170" className="w-full">
         <defs>
+          {/* Přechod korálová → jantarová → mátová: přesně sémantické barvy Analyzeru,
+              takže záporné/kladné skóre má v obou nástrojích stejný barevný význam. */}
           <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#d9534f" />
-            <stop offset="22%" stopColor="#e8934f" />
-            <stop offset="42%" stopColor="#e8c94f" />
-            <stop offset="58%" stopColor="#b9d46a" />
-            <stop offset="75%" stopColor="#5f9ea8" />
-            <stop offset="90%" stopColor="#3d5a8a" />
-            <stop offset="100%" stopColor="#1c2540" />
+            <stop offset="0%" stopColor="#f2606e" />
+            <stop offset="25%" stopColor="#e8794f" />
+            <stop offset="45%" stopColor="#e8ab3f" />
+            <stop offset="55%" stopColor="#b9c15a" />
+            <stop offset="75%" stopColor="#5ec9a8" />
+            <stop offset="100%" stopColor="#2ed3a0" />
           </linearGradient>
         </defs>
 
@@ -51,14 +52,14 @@ export function Gauge({ score }: Props) {
           y1={CY}
           x2={needleTip.x}
           y2={needleTip.y}
-          stroke="#e8b756"
+          stroke="#5e7cfb"
           strokeWidth={2.5}
           strokeLinecap="round"
         />
-        <circle cx={CX} cy={CY} r={5} fill="#e8b756" />
+        <circle cx={CX} cy={CY} r={5} fill="#5e7cfb" />
       </svg>
 
-      <div className="flex justify-between text-[11px] tracking-wide text-muted -mt-2 px-2">
+      <div className="flex justify-between text-[10px] tracking-widest text-faint -mt-2 px-2">
         <span>BEARISH</span>
         <span>NEUTRÁLNÍ</span>
         <span>BULLISH</span>

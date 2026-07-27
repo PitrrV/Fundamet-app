@@ -1,29 +1,32 @@
 import type { Importance, Verdict } from "./types";
 
+// Konvikce je míra SHODY nezávislých signálů, ne směr — vysoká je tedy dobrá zpráva.
+// Původní mapování dávalo VYSOKÉ konvikci červenou, což se četlo jako varování; přehozeno
+// na mátovou/jantarovou podle síly.
 export function convictionColor(label: string): string {
-  if (label.startsWith("VYSOKÁ")) return "text-red-400";
-  if (label.startsWith("STŘEDNÍ")) return "text-emerald-400";
+  if (label.startsWith("VYSOKÁ")) return "text-pos";
+  if (label.startsWith("STŘEDNÍ")) return "text-warn";
   return "text-muted";
 }
 
 export function verdictColor(v: Verdict): string {
   switch (v) {
     case "Souhlasí":
-      return "text-emerald-400";
+      return "text-pos";
     case "Nesouhlasí":
-      return "text-red-400";
+      return "text-neg";
     default:
-      return "text-gold";
+      return "text-muted";
   }
 }
 
 export function importanceBadgeClasses(imp: Importance): string {
   switch (imp) {
     case "VYSOKÁ":
-      return "border-red-500/50 text-red-300 bg-red-500/10";
+      return "border-neg/40 text-neg bg-neg/10";
     case "STŘEDNÍ":
-      return "border-slate-500/50 text-slate-300 bg-slate-500/10";
+      return "border-line2 text-muted bg-surface3";
     default:
-      return "border-slate-700 text-muted bg-transparent";
+      return "border-line text-faint bg-transparent";
   }
 }

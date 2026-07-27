@@ -15,8 +15,8 @@ export function CurrencyTabs({ currencies, selected, onSelect }: Props) {
             onClick={() => onSelect(code)}
             className={`px-4 py-2 rounded-md text-sm font-medium border transition-colors ${
               active
-                ? "border-gold text-gold bg-gold/5"
-                : "border-panelborder text-muted hover:text-slate-200 hover:border-slate-500"
+                ? "border-accent text-accent bg-accent/10"
+                : "border-line text-muted hover:text-ink hover:border-line2"
             }`}
           >
             {code}
