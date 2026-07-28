@@ -1,16 +1,29 @@
 import { createClient } from "@supabase/supabase-js";
+import { matchRule } from "./fundamental-scoring.mjs";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const { data } = await supabase
-  .from("cb_policy_state")
-  .select("currency_code, rate, cpi, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, rate_history")
-  .order("currency_code");
+const FAILING = ["AUD", "CHF", "GBP", "USD", "JPY"];
 
-console.log("=== cb_policy_state po backfillu ===");
-for (const row of data ?? []) {
-  console.log(
-    `${row.currency_code}: rate=${row.rate} cpi=${row.cpi} label="${row.policy_label}" conf=${row.policy_confidence} ` +
-      `real_yield_adj=${row.real_yield_adj} cb_policy_adj=${row.cb_policy_adj} historie=${(row.rate_history ?? []).length} bodů`
-  );
+const { data, error } = await supabase
+  .from("calendar_events")
+  .select("currency_code, event_title, event_day, actual, estimate")
+  .in("currency_code", FAILING)
+  .order("currency_code")
+  .order("event_day");
+
+if (error) {
+  console.error("query error:", error);
+  process.exit(1);
+}
+
+console.log(`=== ${data.length} celkem eventů pro ${FAILING.join(",")} ===`);
+
+for (const cc of FAILING) {
+  const rows = (data ?? []).filter((r) => r.currency_code === cc);
+  const irRows = rows.filter((r) => matchRule(r.event_title)?.cat === "Interest Rates");
+  console.log(`\n--- ${cc}: ${rows.length} eventů celkem, ${irRows.length} v kategorii Interest Rates ---`);
+  for (const r of irRows) {
+    console.log(`  ${r.event_day}  "${r.event_title}"  actual="${r.actual}"  estimate="${r.estimate}"`);
+  }
 }
