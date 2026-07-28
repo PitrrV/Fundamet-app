@@ -1,29 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
-import { matchRule } from "./fundamental-scoring.mjs";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const FAILING = ["AUD", "CHF", "GBP", "USD", "JPY"];
+const { count } = await supabase.from("calendar_events").select("*", { count: "exact", head: true });
+console.log(`Celkem řádků v calendar_events: ${count}`);
 
-const { data, error } = await supabase
+const { data } = await supabase
   .from("calendar_events")
-  .select("currency_code, event_title, event_day, actual, estimate")
-  .in("currency_code", FAILING)
-  .order("currency_code")
-  .order("event_day");
+  .select("id, currency_code");
+console.log(`Počet řádků vrácených neomezeným .select() (bez .range()): ${data?.length}`);
 
-if (error) {
-  console.error("query error:", error);
-  process.exit(1);
-}
-
-console.log(`=== ${data.length} celkem eventů pro ${FAILING.join(",")} ===`);
-
-for (const cc of FAILING) {
-  const rows = (data ?? []).filter((r) => r.currency_code === cc);
-  const irRows = rows.filter((r) => matchRule(r.event_title)?.cat === "Interest Rates");
-  console.log(`\n--- ${cc}: ${rows.length} eventů celkem, ${irRows.length} v kategorii Interest Rates ---`);
-  for (const r of irRows) {
-    console.log(`  ${r.event_day}  "${r.event_title}"  actual="${r.actual}"  estimate="${r.estimate}"`);
-  }
-}
+const byCurrency = {};
+for (const row of data ?? []) byCurrency[row.currency_code] = (byCurrency[row.currency_code] ?? 0) + 1;
+console.log("Rozložení podle měny v tomhle (možná oříznutém) výsledku:", JSON.stringify(byCurrency));
