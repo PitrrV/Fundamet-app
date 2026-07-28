@@ -307,10 +307,26 @@ function convictionLabelFromStars(stars) {
   return `${base} CONVICTION (${stars}/5 NEZÁVISLÝCH SIGNÁLŮ SOUHLASÍ)`;
 }
 
+// PostgREST vrací max 1000 řádků na dotaz bez explicitní stránkování — od backfillu historie
+// (3000+ řádků v calendar_events) by neomezený .select() tiše ořezal část měn/historie
+// použité pro fundamentální i CB Policy scoring. Stránkuje po 1000, dokud nedojdou řádky.
+async function fetchAllCalendarEvents() {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("calendar_events")
+      .select("id, currency_code, event_title, event_day, actual, estimate, previous")
+      .range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
+
 export async function recomputeScores() {
-  const { data: allEvents, error } = await supabase
-    .from("calendar_events")
-    .select("id, currency_code, event_title, event_day, actual, estimate, previous");
+  const { data: allEvents, error } = await fetchAllCalendarEvents();
 
   if (error) {
     console.error("Nepodařilo se načíst calendar_events pro scoring:", error.message);
