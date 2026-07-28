@@ -123,7 +123,7 @@ const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml",
 };
 
-async function fetchWeek(offsetDays) {
+export async function fetchWeek(offsetDays) {
   const week = weekParam(offsetDays);
   const url = `https://www.forexfactory.com/calendar?week=${week}`;
   const res = await fetch(url, { headers: BROWSER_HEADERS });
@@ -167,7 +167,7 @@ async function fetchWeek(offsetDays) {
   return events;
 }
 
-function dedupePreferComplete(events) {
+export function dedupePreferComplete(events) {
   const map = new Map();
   for (const ev of events) {
     const key = `${ev.currency_code}|${ev.event_title}|${ev.event_day}`;
@@ -179,7 +179,7 @@ function dedupePreferComplete(events) {
   return [...map.values()];
 }
 
-async function mergeUpsert(events) {
+export async function mergeUpsert(events) {
   let count = 0;
   // Jestli během tohohle běhu přibyl actual u eventu, na kterém appce záleží (má váhu v
   // EVENT_RULES) — pokud ano, stojí za to hned po přepočtu spustit generate-narrative.yml,

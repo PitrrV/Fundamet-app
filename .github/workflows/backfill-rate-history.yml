@@ -1,0 +1,25 @@
+name: Backfill CB rate history (jednorázově)
+
+# Řeší studený start CB Policy pilíře — appka běžně stahuje jen −42 až +14 dní, což u většiny
+# centrálních bank (rozhodují po 6–8 týdnech, SNB čtvrtletně) nestačí na 2 rozhodnutí potřebná
+# pro autoDetectPolicy() (scripts/cb-policy.mjs). Tenhle běh stáhne ~35 týdnů zpětně ze STEJNÉHO
+# zdroje (ForexFactory) STEJNOU cestou jako běžný provoz — žádný nový zdroj dat, žádná ruční
+# hodnota, žádný LLM. Spustit RUČNĚ jednou (Actions -> tenhle workflow -> Run workflow).
+# Po prvním doplnění historie by se cb_policy_adj u většiny měn měl přestat rovnat nule —
+# ověřit v cb_policy_state.policy_label.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/backfill-rate-history.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
