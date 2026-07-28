@@ -427,6 +427,40 @@ export async function recomputeScores() {
           `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
       );
 
+      // Snímek skóre do historie — jen když se overall_score SKUTEČNĚ pohnulo. Zapisovat každých
+      // 15 minut i beze změny by tabulku zaplnilo identickými řádky a "poslední změna" by pak
+      // ukazovala delta 0 z doby před pár minutami místo skutečného posledního pohybu.
+      // Ukládá se i rozpad na pilíře, protože bez něj nejde určit, KTERÁ komponenta skóre pohnula
+      // (fundamentalScoreAdj a riskAdj jinde v DB neexistují — počítají se jen v paměti výš).
+      try {
+        const { data: lastSnap } = await supabase
+          .from("score_snapshots")
+          .select("overall_score")
+          .eq("currency_code", currencyCode)
+          .order("recorded_at", { ascending: false })
+          .limit(1);
+
+        const previous = lastSnap?.[0]?.overall_score ?? null;
+        if (previous === null || Math.abs(Number(previous) - overallScore) >= 0.05) {
+          const { error: snapErr } = await supabase.from("score_snapshots").insert({
+            currency_code: currencyCode,
+            overall_score: overallScore,
+            fundamental_score_adj: Math.round(fundamentalScoreAdj * 100) / 100,
+            cot_score: cotRow.cot_score,
+            retail_score: retailScore,
+            risk_adj: Math.round(riskAdj * 100) / 100,
+            conviction_stars: conviction.stars,
+          });
+          if (snapErr) console.error(`[${currencyCode}] chyba zápisu score_snapshots:`, snapErr.message);
+          else if (previous !== null) {
+            const d = Math.round((overallScore - Number(previous)) * 100) / 100;
+            console.log(`[${currencyCode}] skóre se pohnulo: ${previous} -> ${overallScore} (${d > 0 ? "+" : ""}${d})`);
+          }
+        }
+      } catch (snapErr) {
+        console.error(`[${currencyCode}] score_snapshots selhalo (nekriticky):`, snapErr.message);
+      }
+
       // Gen2 Thesis Engine, Fáze 1 — běží "ve stínu" vedle stávajícího scoringu (currency_thesis/
       // thesis_ledger se plní, ale frontend je zatím nečte). Nesmí shodit zbytek přepočtu, kdyby
       // selhal — proto vlastní try/catch, ne propagace chyby výš.

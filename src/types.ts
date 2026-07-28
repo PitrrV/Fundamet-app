@@ -89,6 +89,14 @@ export interface DataQuality {
   missingCategories: string[];
 }
 
+// Poslední pohyb skóre — spočítaný v SQL (view latest_score_change nad score_snapshots),
+// ne dopočítávaný ve frontendu.
+export interface ScoreChange {
+  delta: number;
+  previousScore: number;
+  changedAt: string;
+}
+
 export interface CurrencyThesis {
   direction: "bullish" | "bearish" | "neutral";
   conviction: number; // 0..5
@@ -145,4 +153,6 @@ export interface CurrencyData {
   thesis: CurrencyThesis | null; // Gen2 Thesis Engine — teze s pamětí napříč dny, null dokud appka žádnou neotevřela
   dataQuality: DataQuality | null; // Gen3.5 CDQE Fáze 1 — kvalita/pokrytí vstupních dat, ne kvalita samotné teze
   ledgerFeed: LedgerEntry[]; // "Co se změnilo?" — historie potvrzení/zpochybnění teze (thesis_ledger)
+  scoreChange: ScoreChange | null; // null dokud nejsou dva snímky k porovnání
+  thesisChangeNote: string | null; // vysvětlení posledního pohybu skóre od LLM, patří k Makro tezi
 }

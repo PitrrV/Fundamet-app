@@ -367,6 +367,19 @@ export default function App() {
                     {currency.score > 0 ? "+" : ""}
                     {currency.score.toFixed(1)}
                   </div>
+                  {currency.scoreChange && currency.scoreChange.delta !== 0 && (
+                    <div
+                      className={`font-mono text-sm font-semibold mt-0.5 ${
+                        currency.scoreChange.delta > 0 ? "text-pos" : "text-neg"
+                      }`}
+                      title={`Předchozí skóre ${currency.scoreChange.previousScore.toFixed(1)} · změna ${new Date(
+                        currency.scoreChange.changedAt
+                      ).toLocaleString("cs-CZ")}`}
+                    >
+                      {currency.scoreChange.delta > 0 ? "+" : ""}
+                      {currency.scoreChange.delta.toFixed(1)}
+                    </div>
+                  )}
                   <div className={`text-[11px] tracking-wider mt-1.5 ${convictionColor(currency.convictionLabel)}`}>
                     {currency.convictionLabel}
                   </div>
@@ -424,6 +437,15 @@ export default function App() {
 
                   {currency.thesis.thesisSummary && (
                     <p className="text-sm text-muted mt-4 leading-relaxed">{currency.thesis.thesisSummary}</p>
+                  )}
+
+                  {currency.thesisChangeNote && (
+                    <div className="mt-4 border-l-2 border-accent bg-accent/5 rounded-r-lg px-4 py-3">
+                      <div className="text-[10px] tracking-wider text-accent uppercase mb-1">
+                        Poslední pohyb skóre
+                      </div>
+                      <p className="text-sm text-ink/90 leading-relaxed">{currency.thesisChangeNote}</p>
+                    </div>
                   )}
 
                   {currency.thesis.drivers.length > 0 && (

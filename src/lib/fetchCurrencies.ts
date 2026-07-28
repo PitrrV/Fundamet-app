@@ -43,6 +43,14 @@ interface LatestNarrativeRow {
   conviction_note: string | null;
   scenarios: ScenarioRow[] | null;
   audio_url: string | null;
+  thesis_change_note: string | null;
+}
+
+interface ScoreChangeRow {
+  currency_code: string;
+  delta: number | null;
+  previous_score: number | null;
+  recorded_at: string;
 }
 
 interface CalendarEventRow {
@@ -167,6 +175,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     dataQualityResult,
     dataCoverageResult,
     ledgerFeedResult,
+    scoreChangeResult,
   ] = await Promise.all([
       withTimeout(
         supabase
@@ -184,7 +193,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       withTimeout(
         supabase
           .from("latest_narratives")
-          .select("currency_code, narrative, forward_flag, conviction_note, scenarios, audio_url"),
+          .select("currency_code, narrative, forward_flag, conviction_note, scenarios, audio_url, thesis_change_note"),
         FETCH_TIMEOUT_MS
       ),
       withTimeout(
@@ -219,6 +228,10 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           .limit(200),
         FETCH_TIMEOUT_MS
       ),
+      withTimeout(
+        supabase.from("latest_score_change").select("currency_code, delta, previous_score, recorded_at"),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -237,6 +250,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const dataQualityByCode = groupByCurrency((dataQualityResult.data ?? []) as DataQualityScoreRow[]);
   const dataCoverageByCode = groupByCurrency((dataCoverageResult.data ?? []) as DataCoverageRow[]);
   const ledgerFeedByCode = groupByCurrency((ledgerFeedResult.data ?? []) as LedgerFeedRow[]);
+  const scoreChangeByCode = groupByCurrency((scoreChangeResult.data ?? []) as ScoreChangeRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -305,6 +319,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           }
         : null;
 
+    const scoreChangeRow = scoreChangeByCode.get(row.currency_code)?.[0] ?? null;
+
     const ledgerFeed: LedgerEntry[] = (ledgerFeedByCode.get(row.currency_code) ?? [])
       .slice(0, LEDGER_FEED_LIMIT_PER_CURRENCY)
       .map((l) => ({
@@ -339,6 +355,15 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       thesis,
       dataQuality,
       ledgerFeed,
+      scoreChange:
+        scoreChangeRow && scoreChangeRow.delta !== null && scoreChangeRow.previous_score !== null
+          ? {
+              delta: scoreChangeRow.delta,
+              previousScore: scoreChangeRow.previous_score,
+              changedAt: scoreChangeRow.recorded_at,
+            }
+          : null,
+      thesisChangeNote: narrative?.thesis_change_note ?? null,
     };
   });
 }

@@ -144,7 +144,20 @@ Dostaneš navíc kontext zbytku koše měn (basketContext) — FX je vždy relat
 
 Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká).`;
+POLE "thesis_change_note" — vysvětlení posledního pohybu skóre. Píšeš ho jako makro analytik hedgeového fondu, který vysvětluje kolegovi, co se změnilo a jestli to má nějaký význam.
+
+Podklady dostaneš dva, oba SPOČÍTANÉ, ne odhadnuté:
+- "scoreChange" — předchozí a aktuální skóre, rozdíl, a rozpad po komponentách (pole "components", seřazené sestupně podle velikosti pohybu; první položka je hlavní viník změny). Tahle čísla jsou fakt, přebírej je, nepřepočítávej ani nezaokrouhluj jinak.
+- "recentLedger" — deterministické klasifikace z Thesis Enginu za posledních 7 dní: "confirms" = driver dál sedí, "challenges" = poprvé nesedí, "invalidates_driver" = nesedí podruhé a byl z teze odebrán, "closed" = teze uzavřena, "opened" = nová teze.
+
+Napiš 2-4 věty, které odpoví na tohle pořadí otázek:
+1. KTERÁ komponenta skóre pohnula — vezmi první položku z "components" a uveď její pohyb číselně.
+2. PROČ se pohnula — a tady smíš čerpat VÝHRADNĚ z "recentEvents" a "scenarioSeeds", které máš v kontextu. Když se hnul fundament, hledej mezi nedávno vyšlými daty ten konkrétní print, který to způsobil, a pojmenuj ho. Když v datech žádné vysvětlení není, napiš na rovinu, že se skóre posunulo bez jediného zřejmého katalyzátoru — TO JE SPRÁVNÁ ODPOVĚĎ, ne selhání. NIKDY si důvod nedomýšlej a nikdy nezmiňuj událost, kterou v datech nemáš.
+3. MĚNÍ TO PŘÍBĚH, NEBO NE — rozhodni podle "recentLedger", ne podle velikosti čísla: "invalidates_driver" nebo "closed" znamená zásah do konstrukce teze (příběh se mění), samé "confirms" znamená, že jde jen o pohyb v rámci běžícího příběhu. Řekni to natvrdo, ne vyhýbavě.
+
+Když "scoreChange" chybí nebo je null (appka ještě nemá dva snímky k porovnání), vrať "thesis_change_note" jako null. Nevymýšlej si změnu, která se nestala.
+
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
 
 const AGENDA_PROMPT = `${SHARED_CONTEXT}
 
@@ -256,6 +269,45 @@ function selectScenarioSeeds(candidates) {
   return seeds
     .map(({ _weight, _cat, ...ev }) => ev)
     .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+// ── Změna skóre ─────────────────────────────────────────────────────────────────────────
+// Atribuce je čistá aritmetika nad dvěma uloženými snímky, ne úsudek. Model dostane hotové
+// delty a smí je jen převyprávět — tím je vyloučené, že by si "co pohnulo skóre" domyslel.
+const SCORE_COMPONENTS = [
+  { key: "fundamental_score_adj", label: "Fundament + CB politika / real yield" },
+  { key: "cot_score", label: "COT pozicování" },
+  { key: "retail_score", label: "Retail sentiment" },
+  { key: "risk_adj", label: "Risk režim" },
+];
+
+function buildScoreChange(snapsDesc) {
+  if (!Array.isArray(snapsDesc) || snapsDesc.length < 2) return null;
+
+  const [current, previous] = snapsDesc;
+  const num = (v) => (v === null || v === undefined ? null : Number(v));
+  const round2 = (v) => Math.round(v * 100) / 100;
+
+  const components = SCORE_COMPONENTS.map(({ key, label }) => {
+    const prev = num(previous[key]);
+    const curr = num(current[key]);
+    if (prev === null || curr === null) return null;
+    return { component: label, previous: prev, current: curr, delta: round2(curr - prev) };
+  })
+    .filter(Boolean)
+    // Sestupně podle velikosti pohybu — na prvním místě je vždy hlavní viník změny.
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+  return {
+    previousScore: num(previous.overall_score),
+    currentScore: num(current.overall_score),
+    delta: round2(num(current.overall_score) - num(previous.overall_score)),
+    previousConvictionStars: previous.conviction_stars ?? null,
+    currentConvictionStars: current.conviction_stars ?? null,
+    changedAt: current.recorded_at,
+    previousAt: previous.recorded_at,
+    components,
+  };
 }
 
 // ── Detekce změny vstupů ────────────────────────────────────────────────────────────────
@@ -370,6 +422,28 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
     .limit(1);
   const thesis = thesisRows?.[0] ?? null;
 
+  // Poslední dva snímky skóre — rozdíl mezi nimi je JEDINÝ ověřený podklad pro vysvětlení
+  // změny. Model nesmí atribuci odhadovat; dostane spočítané delty po komponentách.
+  const { data: snaps } = await supabase
+    .from("score_snapshots")
+    .select("overall_score, fundamental_score_adj, cot_score, retail_score, risk_adj, conviction_stars, recorded_at")
+    .eq("currency_code", currencyCode)
+    .order("recorded_at", { ascending: false })
+    .limit(2);
+
+  const scoreChange = buildScoreChange(snaps ?? []);
+
+  // Klasifikace z thesis_ledger za posledních 7 dní — deterministický verdikt, jestli šlo
+  // o strukturální zásah (invalidates_driver / closed), nebo jen o potvrzení běžícího příběhu.
+  const ledgerCutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+  const { data: ledgerRows } = await supabase
+    .from("thesis_ledger_feed")
+    .select("driver_key, classification, reasoning, occurred_at")
+    .eq("currency_code", currencyCode)
+    .gte("occurred_at", ledgerCutoff)
+    .order("occurred_at", { ascending: false })
+    .limit(12);
+
   const currencyEvents = allCalendarEvents.filter((e) => e.currency_code === currencyCode);
 
   const upcoming = currencyEvents
@@ -441,7 +515,20 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
 
   const otherCurrencies = Object.fromEntries(Object.entries(basketContext).filter(([code]) => code !== currencyCode));
 
-  return { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime: marketRegime, basketContext: otherCurrencies, upcoming, recent, scenarioSeeds };
+  return {
+    cot,
+    fundamental,
+    cbPolicy,
+    thesis,
+    scoreChange,
+    recentLedger: ledgerRows ?? [],
+    retailSentiment,
+    riskRegime: marketRegime,
+    basketContext: otherCurrencies,
+    upcoming,
+    recent,
+    scenarioSeeds,
+  };
 }
 
 // Předčítání shrnutí příběhu (tlačítko se zvukovou ikonou u SHRNUTÍ PŘÍBĚHU ve frontendu).
@@ -477,7 +564,7 @@ async function generateNarrativeAudio(currencyCode, text) {
 
 // Krok 1 — shrnutí příběhu. Krátká odpověď, dostane široký kontext (koš měn, oba proudy eventů).
 async function generateNarrativePart(currencyCode, context) {
-  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, upcoming, recent } = context;
+  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent } = context;
 
   const payload = {
     currency: currencyCode,
@@ -485,6 +572,8 @@ async function generateNarrativePart(currencyCode, context) {
     fundamental,
     cbPolicy,
     thesis,
+    scoreChange,
+    recentLedger,
     retailSentiment,
     riskRegime,
     basketContext,
@@ -509,8 +598,9 @@ async function generateNarrativePart(currencyCode, context) {
             narrative: { type: "string" },
             forward_flag: { type: ["string", "null"] },
             conviction_note: { type: "string" },
+            thesis_change_note: { type: ["string", "null"] },
           },
-          required: ["narrative", "forward_flag", "conviction_note"],
+          required: ["narrative", "forward_flag", "conviction_note", "thesis_change_note"],
           additionalProperties: false,
         },
       },
@@ -670,6 +760,9 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     narrative,
     forward_flag: normalizeNullable(narrativePart.forward_flag),
     conviction_note: narrativePart.conviction_note,
+    // Pojistka: model občas u nullable pole vrátí string "null" i ve strict módu. A když appka
+    // nemá dva snímky k porovnání, nesmí tam přistát vymyšlené vysvětlení neexistující změny.
+    thesis_change_note: context.scoreChange ? normalizeNullable(narrativePart.thesis_change_note) : null,
     scenarios: agenda,
     model: OPENAI_MODEL,
     audio_url: audioUrl,
