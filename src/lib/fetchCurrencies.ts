@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
+import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
 
 // Tvar, jak agendu skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -51,6 +51,14 @@ interface ScoreChangeRow {
   delta: number | null;
   previous_score: number | null;
   recorded_at: string;
+}
+
+interface RegimeShiftStateRow {
+  currency_code: string;
+  long_term_score: number | null;
+  short_term_score: number | null;
+  divergence: number | null;
+  alert: boolean;
 }
 
 interface CalendarEventRow {
@@ -176,6 +184,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     dataCoverageResult,
     ledgerFeedResult,
     scoreChangeResult,
+    regimeShiftResult,
   ] = await Promise.all([
       withTimeout(
         supabase
@@ -232,6 +241,10 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         supabase.from("latest_score_change").select("currency_code, delta, previous_score, recorded_at"),
         FETCH_TIMEOUT_MS
       ),
+      withTimeout(
+        supabase.from("regime_shift_state").select("currency_code, long_term_score, short_term_score, divergence, alert"),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -251,6 +264,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const dataCoverageByCode = groupByCurrency((dataCoverageResult.data ?? []) as DataCoverageRow[]);
   const ledgerFeedByCode = groupByCurrency((ledgerFeedResult.data ?? []) as LedgerFeedRow[]);
   const scoreChangeByCode = groupByCurrency((scoreChangeResult.data ?? []) as ScoreChangeRow[]);
+  const regimeShiftByCode = groupByCurrency((regimeShiftResult.data ?? []) as RegimeShiftStateRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -320,6 +334,16 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         : null;
 
     const scoreChangeRow = scoreChangeByCode.get(row.currency_code)?.[0] ?? null;
+    const regimeShiftRow = regimeShiftByCode.get(row.currency_code)?.[0] ?? null;
+    const regimeShift: RegimeShift | null =
+      regimeShiftRow && regimeShiftRow.long_term_score !== null && regimeShiftRow.short_term_score !== null && regimeShiftRow.divergence !== null
+        ? {
+            longTermScore: regimeShiftRow.long_term_score,
+            shortTermScore: regimeShiftRow.short_term_score,
+            divergence: regimeShiftRow.divergence,
+            alert: regimeShiftRow.alert,
+          }
+        : null;
 
     const ledgerFeed: LedgerEntry[] = (ledgerFeedByCode.get(row.currency_code) ?? [])
       .slice(0, LEDGER_FEED_LIMIT_PER_CURRENCY)
@@ -364,6 +388,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
             }
           : null,
       thesisChangeNote: narrative?.thesis_change_note ?? null,
+      regimeShift,
     };
   });
 }

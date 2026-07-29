@@ -97,6 +97,16 @@ export interface ScoreChange {
   changedAt: string;
 }
 
+// Nezávislý indikátor "možná se mění fundamentální režim" — dlouhodobé (celá historie) vs.
+// krátkodobé (90 dní) fundamentální skóre, STEJNOU funkcí. Neblenduje se do overall_score,
+// jen upozorňuje na výraznou odchylku (computeRegimeShift, fundamental-scoring.mjs).
+export interface RegimeShift {
+  longTermScore: number;
+  shortTermScore: number;
+  divergence: number;
+  alert: boolean;
+}
+
 export interface CurrencyThesis {
   direction: "bullish" | "bearish" | "neutral";
   conviction: number; // 0..5
@@ -155,4 +165,5 @@ export interface CurrencyData {
   ledgerFeed: LedgerEntry[]; // "Co se změnilo?" — historie potvrzení/zpochybnění teze (thesis_ledger)
   scoreChange: ScoreChange | null; // null dokud nejsou dva snímky k porovnání
   thesisChangeNote: string | null; // vysvětlení posledního pohybu skóre od LLM, patří k Makro tezi
+  regimeShift: RegimeShift | null; // null dokud regime_shift_state pro tuhle měnu nemá řádek
 }

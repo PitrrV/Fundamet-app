@@ -170,6 +170,37 @@ export function computeFundamentalScore(currencyCode, calendarEvents, now = new 
   };
 }
 
+// Nezávislý indikátor "možná se mění fundamentální režim" — NEBLENDUJE se do
+// fundamentalScore, jen ho staví vedle sebe s krátkodobým přepočtem stejnou funkcí (žádná
+// duplicitní logika kategorií/vah). 90 dní odpovídá nejvyšší recency() bandě (≤90 dní = 1.8×
+// váha) — stejný, už existující práh, ne nové svévolné číslo.
+const REGIME_SHIFT_SHORT_TERM_DAYS = 90;
+const REGIME_SHIFT_ALERT_THRESHOLD = 2.0; // na škále -5..5, stejná jako fundamentalScore
+
+export function computeRegimeShift(currencyCode, calendarEvents, now = new Date()) {
+  const longTerm = computeFundamentalScore(currencyCode, calendarEvents, now);
+
+  const shortTermEvents = calendarEvents.filter((ev) => {
+    const daysAgo = (now.getTime() - new Date(ev.event_day).getTime()) / 86400000;
+    return daysAgo >= 0 && daysAgo <= REGIME_SHIFT_SHORT_TERM_DAYS;
+  });
+  const shortTerm = computeFundamentalScore(currencyCode, shortTermEvents, now);
+
+  const divergence = Math.round((shortTerm.fundamentalScore - longTerm.fundamentalScore) * 10) / 10;
+  const signFlip =
+    Math.abs(longTerm.fundamentalScore) >= 0.5 &&
+    Math.abs(shortTerm.fundamentalScore) >= 0.5 &&
+    Math.sign(longTerm.fundamentalScore) !== Math.sign(shortTerm.fundamentalScore);
+  const alert = signFlip || Math.abs(divergence) >= REGIME_SHIFT_ALERT_THRESHOLD;
+
+  return {
+    longTermScore: longTerm.fundamentalScore,
+    shortTermScore: shortTerm.fundamentalScore,
+    divergence,
+    alert,
+  };
+}
+
 /**
  * Vážený průměr směru posledních 6 výskytů stejného typu události pro danou měnu.
  * @param {string} eventTitle

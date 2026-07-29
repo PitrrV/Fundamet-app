@@ -390,6 +390,20 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Nezávislý indikátor — NEOVLIVŇUJE currency.score, jen upozorňuje, když se
+                    krátkodobý (90 dní) a dlouhodobý fundamentální pohled výrazně rozejdou. */}
+                {currency.regimeShift?.alert && (
+                  <div className="mt-3 border-l-2 border-warn/60 bg-warn/5 rounded-r-lg px-3 py-2">
+                    <div className="text-[10px] tracking-wider text-warn uppercase mb-1">Možná změna režimu</div>
+                    <p className="text-[11px] text-ink/80 leading-relaxed">
+                      Krátkodobá data (90 dní: {currency.regimeShift.shortTermScore > 0 ? "+" : ""}
+                      {currency.regimeShift.shortTermScore.toFixed(1)}) se rozcházejí s dlouhodobým trendem (
+                      {currency.regimeShift.longTermScore > 0 ? "+" : ""}
+                      {currency.regimeShift.longTermScore.toFixed(1)}).
+                    </p>
+                  </div>
+                )}
+
                 {(currency.convictionNote || currency.convictionReasons.length > 0) && (
                   <div className="mt-4 pt-4 border-t border-line space-y-2">
                     {currency.convictionNote && (

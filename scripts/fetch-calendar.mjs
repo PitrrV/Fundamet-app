@@ -5,7 +5,7 @@
 // historie je tak od začátku konzistentní napříč zařízeními, ne per-prohlížeč.
 
 import { createClient } from "@supabase/supabase-js";
-import { computeFundamentalScore, matchRule } from "./fundamental-scoring.mjs";
+import { computeFundamentalScore, computeRegimeShift, matchRule } from "./fundamental-scoring.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
@@ -360,6 +360,23 @@ export async function recomputeScores() {
       console.error(`[${currencyCode}] chyba zápisu fundamental_scores:`, insErr.message);
       continue;
     }
+
+    // Nezávislý indikátor "možná se mění fundamentální režim" — dlouhodobé (celá historie)
+    // vs. krátkodobé (90 dní) fundamentální skóre STEJNOU funkcí. Neblenduje se do
+    // overall_score, jen upozorňuje, když se výrazně rozejdou (viz fundamental-scoring.mjs).
+    const regimeShift = computeRegimeShift(currencyCode, allEvents ?? []);
+    const { error: regimeShiftErr } = await supabase.from("regime_shift_state").upsert(
+      {
+        currency_code: currencyCode,
+        long_term_score: regimeShift.longTermScore,
+        short_term_score: regimeShift.shortTermScore,
+        divergence: regimeShift.divergence,
+        alert: regimeShift.alert,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "currency_code" }
+    );
+    if (regimeShiftErr) console.error(`[${currencyCode}] chyba upsertu regime_shift_state:`, regimeShiftErr.message);
 
     const cbPolicy = computeCbPolicyState(currencyCode, SCORED_CURRENCIES, allEvents ?? []);
 
