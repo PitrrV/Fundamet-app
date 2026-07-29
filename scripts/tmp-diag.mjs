@@ -105,6 +105,8 @@ const WINDOWS = [
   { label: "365d/současnost", days: 365 },
 ];
 
+const FULL_DUMP_CCY = ["EUR", "GBP", "CAD", "AUD", "USD"];
+
 for (const w of WINDOWS) {
   console.log(`\n\n########## OKNO: ${w.label} ##########`);
   const events = filterByWindow(allEvents, w.days);
@@ -117,12 +119,22 @@ for (const w of WINDOWS) {
     const overallRaw = fundamentalScoreAdj * BLEND_WEIGHTS.fund + (c.cot_score ?? 0) * BLEND_WEIGHTS.cot + (c.retail_score ?? 0) * BLEND_WEIGHTS.retail + riskAdj;
     const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
 
+    const posSum = fs.contributions.filter((e) => e.contribution > 0).reduce((s, e) => s + e.contribution, 0);
+    const negSum = fs.contributions.filter((e) => e.contribution < 0).reduce((s, e) => s + e.contribution, 0);
     console.log(`\n--- ${ccy} ---`);
     console.log(`  fund=${fs.fundamentalScore} (conf ${fs.confidence}) | cb: rate=${cb.rate} cpi=${cb.cpi} "${cb.policyLabel}" | real_yield_adj=${cb.realYieldAdj} cb_policy_adj=${cb.cbPolicyAdj}`);
     console.log(`  fundamentalScoreAdj=${fundamentalScoreAdj.toFixed(2)} | cot=${c.cot_score} retail=${c.retail_score} risk=${riskAdj} -> OVERALL=${overallScore}`);
-    console.log(`  Top přispívající eventy (fundament):`);
-    for (const ev of fs.contributions.slice(0, 5)) {
-      console.log(`    [${ev.cat}] "${ev.title}" (${ev.ccy}) ${ev.day} actual=${ev.actual} est=${ev.estimate} dir=${ev.dir} contrib=${ev.contribution} (${ev.daysAgo}d zpět)`);
+    console.log(`  Součet přispívajících eventů: ${fs.contributions.length} eventů, kladných=+${posSum.toFixed(1)}, záporných=${negSum.toFixed(1)}, netto=${(posSum + negSum).toFixed(1)} (před clampem ±10)`);
+    if (w.days === 365 && FULL_DUMP_CCY.includes(ccy)) {
+      console.log(`  KOMPLETNÍ seznam přispívajících eventů (${fs.contributions.length}):`);
+      for (const ev of fs.contributions) {
+        console.log(`    [${ev.cat}] "${ev.title}" (${ev.ccy}) ${ev.day} actual=${ev.actual} est=${ev.estimate} dir=${ev.dir} contrib=${ev.contribution} (${ev.daysAgo}d zpět)`);
+      }
+    } else {
+      console.log(`  Top přispívající eventy:`);
+      for (const ev of fs.contributions.slice(0, 5)) {
+        console.log(`    [${ev.cat}] "${ev.title}" (${ev.ccy}) ${ev.day} actual=${ev.actual} est=${ev.estimate} dir=${ev.dir} contrib=${ev.contribution} (${ev.daysAgo}d zpět)`);
+      }
     }
   }
 }
