@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { CurrencyTabs } from "./components/CurrencyTabs";
 import { Gauge } from "./components/Gauge";
+import { ConvictionMeter } from "./components/ConvictionMeter";
 import { RichText } from "./components/RichText";
 import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
@@ -123,11 +124,6 @@ function realYieldDisplay(cbPolicy: CurrencyData["cbPolicy"]): { value: string; 
   };
 }
 
-function convictionStars(stars: number | null): string {
-  if (stars === null) return "";
-  return "★".repeat(stars) + "☆".repeat(Math.max(0, 5 - stars));
-}
-
 function thesisDirectionLabel(direction: string): string {
   return direction === "bullish" ? "Bullish" : direction === "bearish" ? "Bearish" : "Neutrální";
 }
@@ -243,21 +239,137 @@ function Pillar({
   value,
   sub,
   interpretation,
+  barPct,
 }: {
   label: string;
   value: string;
   sub?: string | null;
   interpretation?: string | null;
+  barPct?: number | null;
 }) {
+  // COT percentil >80/<20 = "crowded" pozicování — stejný práh jako zbytek appky (viz
+  // top-opportunity.mjs), proto se pruh přebarví na warn.
+  const barColor = barPct !== undefined && barPct !== null && (barPct > 80 || barPct < 20) ? "bg-warn" : "bg-accent";
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
-    <div className="bg-surface2 border border-line rounded-lg px-3 py-2.5 min-w-0">
+    <div className="bg-surface2 border border-line rounded-lg px-3 py-2.5 min-w-0 transition duration-200 hover:border-line2 hover:-translate-y-px">
       <div className="text-[10px] tracking-wider text-faint uppercase mb-1 truncate">{label}</div>
       {interpretation && (
         <div className="text-[12px] text-accent font-medium leading-snug mb-1.5">{interpretation}</div>
       )}
       <div className="text-[13px] text-ink font-mono leading-snug break-words">{value}</div>
       {sub && <div className="text-[10px] text-faint mt-1 leading-snug break-words">{sub}</div>}
+      {barPct !== undefined && barPct !== null && (
+        <div className="w-full h-1 bg-line rounded-full mt-2.5 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-[width] duration-[900ms] ease-[cubic-bezier(.16,1,.3,1)] ${barColor}`}
+            style={{ width: revealed ? `${Math.max(0, Math.min(100, barPct))}%` : "0%" }}
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+// Agenda jako accordion po tierech — vlastní lokální stav, ne stav App.tsx, protože se týká
+// jen "jak je tahle sekce zrovna rozbalená" a nemá cenu ho tahat výš. `key={currency.code}`
+// na callsite komponentu při přepnutí měny odmountuje a nastaví defaulty znovu.
+function AgendaSection({ scenarios }: { scenarios: CurrencyData["scenarios"] }) {
+  const [expanded, setExpanded] = useState<Record<AgendaTier, boolean>>({
+    klíčový: true,
+    druhořadý: true,
+    kontext: false,
+  });
+
+  return (
+    <>
+      {AGENDA_TIER_ORDER.map((tier) => {
+        const items = scenarios.filter((s) => s.tier === tier);
+        if (items.length === 0) return null;
+        const meta = agendaTierMeta(tier);
+        const isOpen = expanded[tier];
+
+        return (
+          <div key={tier} className="mb-3 last:mb-0">
+            <button
+              onClick={() => setExpanded((prev) => ({ ...prev, [tier]: !prev[tier] }))}
+              className="w-full flex flex-wrap items-center gap-2 py-1.5 text-left"
+            >
+              <Badge classes={meta.classes}>{meta.heading}</Badge>
+              <span className="text-[11px] text-faint italic">{meta.hint}</span>
+              <span className="text-[11px] text-faint font-mono">({items.length})</span>
+              <span
+                className={`ml-auto text-faint text-[11px] transition-transform duration-200 ${
+                  isOpen ? "rotate-180" : ""
+                }`}
+              >
+                ▾
+              </span>
+            </button>
+
+            <div
+              className="overflow-hidden transition-[max-height,opacity] duration-300 ease-[cubic-bezier(.16,1,.3,1)]"
+              style={{ maxHeight: isOpen ? "3000px" : "0px", opacity: isOpen ? 1 : 0 }}
+            >
+              <div className="grid md:grid-cols-2 gap-3 mt-3 mb-4">
+                {items.map((scenario) => {
+                  const reaction = agendaReactionMeta(scenario.reaction);
+                  return (
+                    <div
+                      key={`${scenario.date}-${scenario.event}`}
+                      className={`bg-surface2 border border-line rounded-lg p-4 border-l-2 ${meta.rail} transition-transform duration-200 hover:-translate-y-[2px]`}
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-3">
+                        <span className="text-faint font-mono text-[11px]">{scenario.date}</span>
+                        <span className="text-sm text-ink font-semibold">{scenario.event}</span>
+                        <Badge classes={reaction.classes}>{reaction.label}</Badge>
+                      </div>
+
+                      <dl className="space-y-2 text-xs leading-relaxed">
+                        {scenario.whyItMatters && (
+                          <div>
+                            <dt className="text-[10px] tracking-wider text-faint uppercase">Proč teď rozhoduje</dt>
+                            <dd className="text-muted mt-0.5">{scenario.whyItMatters}</dd>
+                          </div>
+                        )}
+                        {scenario.marketExpectation && (
+                          <div>
+                            <dt className="text-[10px] tracking-wider text-faint uppercase">Co čeká trh</dt>
+                            <dd className="text-muted mt-0.5">{scenario.marketExpectation}</dd>
+                          </div>
+                        )}
+                        {scenario.thesisTest && (
+                          <div>
+                            <dt className="text-[10px] tracking-wider text-warn uppercase">Co by změnilo tezi</dt>
+                            <dd className="text-ink/90 mt-0.5">{scenario.thesisTest}</dd>
+                          </div>
+                        )}
+                      </dl>
+
+                      {scenario.reactionNote && (
+                        <p className="text-[11px] text-faint italic mt-2.5">{scenario.reactionNote}</p>
+                      )}
+
+                      {scenario.outcome && (
+                        <div className="mt-3 pt-3 border-t border-line">
+                          <div className="text-[10px] tracking-wider text-pos uppercase mb-1">Výsledek</div>
+                          <p className="text-xs text-muted leading-relaxed">{scenario.outcome}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -310,10 +422,14 @@ export default function App() {
       {/* Hlavička je sticky a užší — na mobilu zabírala pětinu obrazovky. */}
       <header className="sticky top-0 z-30 bg-bg/95 backdrop-blur border-b border-line">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-          <div className="flex items-baseline gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             <h1 className="text-lg font-extrabold tracking-tight shrink-0">
               KON<span className="text-accent">FLUENCE</span>
             </h1>
+            <div className="flex items-center gap-1.5 shrink-0 pl-2 pr-2.5 py-1 bg-surface border border-line rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-pos animate-live-pulse" />
+              <span className="text-[10px] tracking-[0.1em] text-muted font-bold">ŽIVÁ DATA</span>
+            </div>
             <span className="hidden md:inline text-[10px] tracking-wider text-faint uppercase truncate">
               Fundamentální kontext · není investiční doporučení
             </span>
@@ -324,7 +440,7 @@ export default function App() {
                 {isAdmin && <span className="text-accent font-semibold">admin</span>}
                 <button
                   onClick={() => signOut()}
-                  className="border border-line rounded px-2 py-1 hover:bg-surface2 transition-colors"
+                  className="border border-line rounded px-2 py-1 hover:border-line2 hover:bg-surface2 hover:text-ink transition-colors duration-200"
                 >
                   Odhlásit
                 </button>
@@ -400,7 +516,7 @@ export default function App() {
                 je pořád po ruce a je jasné, o které měně čtu. */}
             <div className="sticky top-14 z-20 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-bg/95 backdrop-blur border-b border-line">
               <CurrencyTabs
-                currencies={currencies.map((c) => c.code)}
+                currencies={currencies.map((c) => ({ code: c.code, score: c.score }))}
                 selected={currency.code}
                 onSelect={setCurrencyCode}
               />
@@ -444,8 +560,8 @@ export default function App() {
                     {currency.convictionLabel}
                   </div>
                   {currency.convictionStars !== null && (
-                    <div className="text-accent text-base mt-1 tracking-[0.2em]">
-                      {convictionStars(currency.convictionStars)}
+                    <div className="mt-2">
+                      <ConvictionMeter filled={currency.convictionStars} />
                     </div>
                   )}
                 </div>
@@ -498,9 +614,7 @@ export default function App() {
                     <span className={`text-3xl font-extrabold tracking-tight ${thesisDirectionColor(currency.thesis.direction)}`}>
                       {thesisDirectionLabel(currency.thesis.direction)}
                     </span>
-                    <span className="text-accent text-base tracking-[0.2em]">
-                      {convictionStars(Math.round(currency.thesis.conviction))}
-                    </span>
+                    <ConvictionMeter filled={Math.round(currency.thesis.conviction)} />
                   </div>
 
                   <div className="text-[11px] text-faint mt-2">
@@ -559,6 +673,7 @@ export default function App() {
                   label="COT pozicování"
                   value={currency.cotPositioning}
                   sub={currency.cotPercentile !== null ? `${currency.cotPercentile}. percentil` : null}
+                  barPct={currency.cotPercentile}
                 />
                 <Pillar
                   label="Fundamentální skóre"
@@ -618,74 +733,7 @@ export default function App() {
                   Co může změnit příběh
                 </SectionTitle>
 
-                {AGENDA_TIER_ORDER.map((tier) => {
-                  const items = currency.scenarios.filter((s) => s.tier === tier);
-                  if (items.length === 0) return null;
-                  const meta = agendaTierMeta(tier);
-
-                  return (
-                    <div key={tier} className="mb-7 last:mb-0">
-                      <div className="flex flex-wrap items-baseline gap-2 mb-3">
-                        <Badge classes={meta.classes}>{meta.heading}</Badge>
-                        <span className="text-[11px] text-faint italic">{meta.hint}</span>
-                      </div>
-
-                      <div className="grid md:grid-cols-2 gap-3">
-                        {items.map((scenario) => {
-                          const reaction = agendaReactionMeta(scenario.reaction);
-                          return (
-                            <div
-                              key={`${scenario.date}-${scenario.event}`}
-                              className={`bg-surface2 border border-line rounded-lg p-4 border-l-2 ${meta.rail}`}
-                            >
-                              <div className="flex flex-wrap items-center gap-2 mb-3">
-                                <span className="text-faint font-mono text-[11px]">{scenario.date}</span>
-                                <span className="text-sm text-ink font-semibold">{scenario.event}</span>
-                                <Badge classes={reaction.classes}>{reaction.label}</Badge>
-                              </div>
-
-                              <dl className="space-y-2 text-xs leading-relaxed">
-                                {scenario.whyItMatters && (
-                                  <div>
-                                    <dt className="text-[10px] tracking-wider text-faint uppercase">
-                                      Proč teď rozhoduje
-                                    </dt>
-                                    <dd className="text-muted mt-0.5">{scenario.whyItMatters}</dd>
-                                  </div>
-                                )}
-                                {scenario.marketExpectation && (
-                                  <div>
-                                    <dt className="text-[10px] tracking-wider text-faint uppercase">Co čeká trh</dt>
-                                    <dd className="text-muted mt-0.5">{scenario.marketExpectation}</dd>
-                                  </div>
-                                )}
-                                {scenario.thesisTest && (
-                                  <div>
-                                    <dt className="text-[10px] tracking-wider text-warn uppercase">
-                                      Co by změnilo tezi
-                                    </dt>
-                                    <dd className="text-ink/90 mt-0.5">{scenario.thesisTest}</dd>
-                                  </div>
-                                )}
-                              </dl>
-
-                              {scenario.reactionNote && (
-                                <p className="text-[11px] text-faint italic mt-2.5">{scenario.reactionNote}</p>
-                              )}
-
-                              {scenario.outcome && (
-                                <div className="mt-3 pt-3 border-t border-line">
-                                  <div className="text-[10px] tracking-wider text-pos uppercase mb-1">Výsledek</div>
-                                  <p className="text-xs text-muted leading-relaxed">{scenario.outcome}</p>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
+                <AgendaSection key={currency.code} scenarios={currency.scenarios} />
               </Card>
             )}
 

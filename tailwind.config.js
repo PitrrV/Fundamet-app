@@ -34,6 +34,18 @@ export default {
         panelborder: "#1f2637",
         gold: "#e8ab3f",
       },
+      keyframes: {
+        // Pulsující tečka "ŽIVÁ DATA" v hlavičce — box-shadow prstenec, ne škálování,
+        // aby tečka neposouvala okolní text.
+        livePulse: {
+          "0%": { boxShadow: "0 0 0 0 rgba(46,211,160,.5)" },
+          "70%": { boxShadow: "0 0 0 6px rgba(46,211,160,0)" },
+          "100%": { boxShadow: "0 0 0 0 rgba(46,211,160,0)" },
+        },
+      },
+      animation: {
+        "live-pulse": "livePulse 2s infinite",
+      },
       fontFamily: {
         // Manrope napříč celou appkou — stejně jako Analyzer. Playfair Display (serif) jsem
         // vypustil: dva různé displayové řezy vedle sebe působily jako dva různé produkty.

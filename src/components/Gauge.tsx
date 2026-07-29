@@ -1,31 +1,29 @@
+import { useEffect, useState } from "react";
+
 interface Props {
   score: number; // -5..+5
 }
 
-const CX = 150;
-const CY = 150;
-const R = 110;
-const NEEDLE_R = 95;
-
-function pointOnArc(radius: number, angleDeg: number) {
-  const rad = (angleDeg * Math.PI) / 180;
-  return {
-    x: CX + radius * Math.cos(rad),
-    y: CY - radius * Math.sin(rad),
-  };
-}
+const VIEWBOX = "0 0 300 175";
+// Půlkruhový oblouk, střed (150,150), poloměr 110 — stejná geometrie jako design handoff.
+const ARC_PATH = "M 40 150 A 110 110 0 0 1 260 150";
 
 export function Gauge({ score }: Props) {
   const clamped = Math.max(-5, Math.min(5, score));
-  const needleAngle = 180 - ((clamped + 5) / 10) * 180;
-  const needleTip = pointOnArc(NEEDLE_R, needleAngle);
+  // -90° = bearish (vlevo), 0° = neutrální (nahoru), +90° = bullish (vpravo).
+  const targetAngle = (clamped / 5) * 90;
 
-  const arcStart = pointOnArc(R, 180);
-  const arcEnd = pointOnArc(R, 0);
+  // Jehla se při mountu (a při každé změně skóre) "vysune" z 0° do cílového úhlu přes CSS
+  // transition, ne skokem — první render musí jít s angle=0, aby transition měla co animovat.
+  const [angle, setAngle] = useState(0);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setAngle(targetAngle));
+    return () => cancelAnimationFrame(raf);
+  }, [targetAngle]);
 
   return (
     <div className="relative w-full max-w-[320px] mx-auto">
-      <svg viewBox="0 0 300 170" className="w-full">
+      <svg viewBox={VIEWBOX} className="w-full overflow-visible block">
         <defs>
           {/* Přechod korálová → jantarová → mátová: přesně sémantické barvy Analyzeru,
               takže záporné/kladné skóre má v obou nástrojích stejný barevný význam. */}
@@ -39,27 +37,35 @@ export function Gauge({ score }: Props) {
           </linearGradient>
         </defs>
 
+        {/* Tmavá dráha za obloukem — dřív byl jen samotný gradient, teď má za sebou hloubku. */}
+        <path d={ARC_PATH} fill="none" stroke="#1b2130" strokeWidth={18} strokeLinecap="round" />
         <path
-          d={`M ${arcStart.x} ${arcStart.y} A ${R} ${R} 0 0 1 ${arcEnd.x} ${arcEnd.y}`}
+          d={ARC_PATH}
           fill="none"
           stroke="url(#gaugeGrad)"
-          strokeWidth={14}
+          strokeWidth={11}
           strokeLinecap="round"
+          opacity={0.95}
         />
 
-        <line
-          x1={CX}
-          y1={CY}
-          x2={needleTip.x}
-          y2={needleTip.y}
-          stroke="#5e7cfb"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-        />
-        <circle cx={CX} cy={CY} r={5} fill="#5e7cfb" />
+        {/* Rysky na -90°/0°/+90°. */}
+        <line x1={150} y1={33} x2={150} y2={45} stroke="#2a3242" strokeWidth={2} />
+        <line x1={62} y1={88} x2={72} y2={95} stroke="#2a3242" strokeWidth={2} />
+        <line x1={238} y1={88} x2={228} y2={95} stroke="#2a3242" strokeWidth={2} />
+
+        <g
+          style={{
+            transformOrigin: "150px 150px",
+            transform: `rotate(${angle}deg)`,
+            transition: "transform 900ms cubic-bezier(.16,1,.3,1)",
+          }}
+        >
+          <polygon points="150,50 145,150 150,161 155,150" fill="#5e7cfb" />
+          <circle cx={150} cy={150} r={9} fill="#11151d" stroke="#5e7cfb" strokeWidth={3} />
+        </g>
       </svg>
 
-      <div className="flex justify-between text-[10px] tracking-widest text-faint -mt-2 px-2">
+      <div className="flex justify-between text-[9.5px] tracking-[0.1em] text-faint font-bold -mt-2 px-1">
         <span>BEARISH</span>
         <span>NEUTRÁLNÍ</span>
         <span>BULLISH</span>
