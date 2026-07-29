@@ -63,8 +63,13 @@ export function autoDetectPolicy(rateHistory) {
   const cutCount = recent.filter((c) => c.change < 0).length;
   const lastChange = changes[changes.length - 1]?.change ?? 0;
 
-  const now = Date.now();
-  const yearAgo = rateHistory.filter((r) => new Date(r.date).getTime() > now - 365 * 86400000);
+  // Ukotveno na datu POSLEDNÍHO zachyceného rozhodnutí, ne na Date.now() — jinak by se
+  // klasifikace (viz větve níž) tiše měnila jen plynutím dní beze změny vstupních dat,
+  // pokaždé když starší rozhodnutí vypadne z 365denního okna. Živě ověřeno (audit 2026-07-29):
+  // se stejnou historií GBP/USD po 200 dnech "beze změny" sklouzly z "poslední cut" (-1) na
+  // "plateau, hold" (0) jen kvůli posunu wall-clock data.
+  const referenceTime = new Date(rateHistory[rateHistory.length - 1].date).getTime();
+  const yearAgo = rateHistory.filter((r) => new Date(r.date).getTime() > referenceTime - 365 * 86400000);
   const yearChange = yearAgo.length >= 2 ? yearAgo[yearAgo.length - 1].rate - yearAgo[0].rate : 0;
 
   const last6 = rateHistory.slice(-6);

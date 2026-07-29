@@ -74,8 +74,10 @@ for (const ccy of SCORED) {
   console.log(`  ${ccy}: dnes=${r1.fundamentalScore} (conf ${r1.confidence}) za 200 dní=${r2.fundamentalScore} (conf ${r2.confidence}) drift=${drift >= 0 ? "+" : ""}${drift}`);
 }
 
-// ── TEST 4: Časový drift CB Policy z 365denního okna (yearChange) ──
-console.log("\n=== TEST 4: Drift CB Policy labelu čistě z plynutí času ('now' +200 dní, STEJNÁ rozhodnutí) ===");
+// ── TEST 4 (PO OPRAVĚ): CB Policy label už nezávisí na Date.now(), jen na datu poslední
+// zachycené rozhodnutí — ověřujeme, že "posun v čase" (simulovaný přes globální Date.now,
+// i kdyby ho něco jinde volalo) teď na klasifikaci nemá vliv, protože kód ho už nečte.
+console.log("\n=== TEST 4 (po opravě): CB Policy label při simulovaném posunu wall-clock o 200 dní ===");
 for (const ccy of SCORED) {
   const hist = extractRateHistory(ccy, allEvents);
   if (hist.length < 2) { console.log(`  ${ccy}: nedostatek historie pro test`); continue; }
@@ -86,7 +88,7 @@ for (const ccy of SCORED) {
   const p2 = autoDetectPolicy(hist);
   Date.now = origNow;
   const changed = p1.label !== p2.label || p1.score !== p2.score;
-  console.log(`  ${ccy}: dnes="${p1.label}" (score ${p1.score}) za 200 dní="${p2.label}" (score ${p2.score}) ${changed ? "ZMĚNA BEZ NOVÝCH DAT" : "stabilní"}`);
+  console.log(`  ${ccy}: dnes="${p1.label}" (score ${p1.score}) simulace+200d="${p2.label}" (score ${p2.score}) ${changed ? "STÁLE MĚNÍ SE BEZ NOVÝCH DAT (oprava nefunguje!)" : "stabilní (oprava funguje)"}`);
 }
 
 // ── TEST 5: Věcná kontrola proti známé historické makro události (AUD RBA hiking cyklus) ──
