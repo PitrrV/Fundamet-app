@@ -76,6 +76,29 @@ function riskRegimeLabel(regime: CurrencyData["riskRegime"]): string {
   return `${label} · VIX ${regime.vix.toFixed(1)} (5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
 }
 
+// Jednověté, okamžitě čitelné shrnutí "co to znamená" nad syrová čísla pilíře — deterministicky
+// odvozené z už spočtených polí cbPolicy (žádné nové LLM volání, žádné domýšlení).
+function pricedInInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
+  if (!cbPolicy) return "Zaceněnost zatím nelze určit, chybí data o sazbách.";
+  const level = cbPolicy.pricedIn.confidenceLevel;
+  if (level === "HIGH") return "Trh má další krok centrální banky jasně zaceněný.";
+  if (level === "MEDIUM") return "Trh částečně počítá s dalším krokem, prostor pro překvapení zůstává.";
+  return "Trh zatím nemá jednoznačné očekávání dalšího kroku.";
+}
+
+function longTermBiasInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
+  if (!cbPolicy || cbPolicy.policyLabel === "nedostatek dat") {
+    return "Zatím nedostatek dat pro jasný dlouhodobý směr politiky.";
+  }
+  if (cbPolicy.policyConfidence === "LOW") {
+    return "Signály jsou smíšené, vyčkejte na potvrzení.";
+  }
+  const label = cbPolicy.policyLabel.toLowerCase();
+  if (/hik/.test(label)) return "Centrální banka drží jestřábí kurz, sazby mohou dál růst.";
+  if (/cut|řez|snižování/.test(label)) return "Centrální banka směřuje k uvolňování, sazby mohou dál klesat.";
+  return "Centrální banka drží sazby beze změny, žádný jasný směr zatím.";
+}
+
 function convictionStars(stars: number | null): string {
   if (stars === null) return "";
   return "★".repeat(stars) + "☆".repeat(Math.max(0, 5 - stars));
@@ -191,10 +214,23 @@ function thesisStatusBadge(status: "active" | "watching" | "invalidated"): { lab
 
 // Jeden pilíř ve stripu vstupů. Vlastní komponenta, aby šlo těch šest držet v mřížce
 // se stejnou výškou a typografií.
-function Pillar({ label, value, sub }: { label: string; value: string; sub?: string | null }) {
+function Pillar({
+  label,
+  value,
+  sub,
+  interpretation,
+}: {
+  label: string;
+  value: string;
+  sub?: string | null;
+  interpretation?: string | null;
+}) {
   return (
     <div className="bg-surface2 border border-line rounded-lg px-3 py-2.5 min-w-0">
       <div className="text-[10px] tracking-wider text-faint uppercase mb-1 truncate">{label}</div>
+      {interpretation && (
+        <div className="text-[12px] text-accent font-medium leading-snug mb-1.5">{interpretation}</div>
+      )}
       <div className="text-[13px] text-ink font-mono leading-snug break-words">{value}</div>
       {sub && <div className="text-[10px] text-faint mt-1 leading-snug break-words">{sub}</div>}
     </div>
@@ -511,6 +547,7 @@ export default function App() {
                 <Pillar label="Retail sentiment" value={retailSentimentLabel(currency.retailScore)} />
                 <Pillar
                   label="Zaceněnost"
+                  interpretation={pricedInInterpretation(currency.cbPolicy)}
                   value={currency.pricedIn ?? "—"}
                   sub={
                     currency.cbPolicy
@@ -522,7 +559,11 @@ export default function App() {
                       : null
                   }
                 />
-                <Pillar label="Dlouhodobý bias (CB)" value={currency.longTermBias ?? "—"} />
+                <Pillar
+                  label="Dlouhodobý bias (CB)"
+                  interpretation={longTermBiasInterpretation(currency.cbPolicy)}
+                  value={currency.longTermBias ?? "—"}
+                />
                 <Pillar label="Risk režim" value={riskRegimeLabel(currency.riskRegime)} />
               </div>
             </Card>
