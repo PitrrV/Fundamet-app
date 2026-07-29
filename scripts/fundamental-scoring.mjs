@@ -36,6 +36,21 @@ const INDIRECT_FACTOR = 0.45;
 const FF_CONF_MONTHS = 15;
 const FF_FUND_DAMP = 0.4;
 
+// Historický backfill (viz commit "rozšíření CB Policy historie") zvedl počet relevantních
+// eventů z řádově desítek (původní ~56denní okno, pro které byl níže uvedený ±10 rozsah
+// navržen) na stovky za rok. Neomezený součet přes celou historii pak u většiny měn narazil
+// do ±10 stropu jen objemem dat, ne silou signálu — živě ověřeno (audit 2026-07-29): 7 z 8
+// měn saturovaných, ztráta schopnosti rozlišit sílu mezi měnami. Čtyři nezávislé pokusy omezit
+// příspěvek PO KATEGORII (normalizace na maximum, top-N nejrozhodnějších eventů, průměr ×
+// zastropovaný počet, tvrdý strop ±10/15/20 na kategorii) tuhle saturaci sice opravily, ale
+// všechny čtyři shodně otočily znaménko u GBP (kde reálný, konzistentní cyklus snižování BoE
+// vychází ze dvou datově bohatých kategorií — Inflation, Labor) — kategorie s NEJVÍC důkazy
+// pro svůj směr dostávaly nejtvrdší zásah, což je ekonomicky obráceně.
+// Řešení: JEDEN kladný tlumící faktor na CELÝ součet (ne po kategoriích) — kladné číslo krát
+// kladná konstanta nikdy nezmění znaménko, takže tohle nemůže nikdy vyrobit stejnou chybu.
+// Pod REFERENCE_EVENT_COUNT je výstup identický s výpočtem bez tlumení (dampingFactor=1).
+const REFERENCE_EVENT_COUNT = 60;
+
 export function matchRule(title) {
   const lower = (title || "").toLowerCase();
   return EVENT_RULES.find((rule) => rule.keys.some((k) => lower.includes(k))) ?? null;
@@ -118,6 +133,7 @@ export function ffConfidence(relevantEvents) {
 export function computeFundamentalScore(currencyCode, calendarEvents, now = new Date()) {
   const relevant = [];
   let rawSum = 0;
+  let signedEventCount = 0;
 
   for (const ev of calendarEvents) {
     const relevance = eventRelevance(currencyCode, ev);
@@ -137,9 +153,11 @@ export function computeFundamentalScore(currencyCode, calendarEvents, now = new 
 
     const contribution = dir * rule.w * surpriseStrength(ev) * recency(daysAgo) * relevance.factor;
     rawSum += contribution;
+    signedEventCount++;
   }
 
-  const rawScore = Math.max(-10, Math.min(10, rawSum));
+  const dampingFactor = signedEventCount > 0 ? Math.min(1, REFERENCE_EVENT_COUNT / signedEventCount) : 1;
+  const rawScore = Math.max(-10, Math.min(10, rawSum * dampingFactor));
   const { confidence, historyMonths } = ffConfidence(relevant);
   const scaledRaw = rawScore / 2; // -10..10 -> -5..5, stejný rozsah jako cot_score
   const fundamentalScore = Math.round(Math.max(-5, Math.min(5, scaledRaw * confidence)) * 10) / 10;
