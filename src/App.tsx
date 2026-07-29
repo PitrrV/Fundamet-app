@@ -99,6 +99,30 @@ function longTermBiasInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string 
   return "Centrální banka drží sazby beze změny, žádný jasný směr zatím.";
 }
 
+// Real yield (sazba - CPI, relativně vůči koši měn) se počítá stejně pro všechny měny
+// (computeRealYieldAdj, cb-policy.mjs) — v "AI komentáři" ale text "Real yield: X" ukazuje
+// jen conviction reasons, které se přidají výhradně když souhlasí se směrem overall skóre
+// (computeConviction, fetch-calendar.mjs). Proto u měn s nesouhlasícím znaménkem appka dřív
+// nezobrazovala vůbec nic a nešlo poznat, jestli chybí data nebo se jen nehodí do seznamu
+// shody. Tahle dlaždice je nezávislá na tom filtru — ukazuje se vždy, se třemi jasnými stavy.
+function realYieldDisplay(cbPolicy: CurrencyData["cbPolicy"]): { value: string; sub: string | null } {
+  if (!cbPolicy) {
+    return { value: "Data nejsou dostupná", sub: null };
+  }
+  // cbPolicy.rate === null <=> měna vůbec nebyla zahrnuta do relativního výpočtu
+  // (computeRealYieldAdj vrací 0 jako sentinel, ne jako spočtenou hodnotu) — CPI naopak
+  // ve vzorci má bezpečný výchozí odhad 2 %, takže jeho absence výpočet neblokuje.
+  if (cbPolicy.rate === null) {
+    return { value: "Real yield se pro tuto měnu nevyhodnocuje", sub: "chybí zachycená úroková sazba v kalendáři" };
+  }
+  const adj = cbPolicy.realYieldAdj;
+  const cpiPart = cbPolicy.cpi !== null ? `CPI ${cbPolicy.cpi.toFixed(1)} %` : "CPI odhad 2 % (chybí data)";
+  return {
+    value: `${adj > 0 ? "+" : ""}${adj.toFixed(2)} vůči průměru koše měn`,
+    sub: `sazba ${cbPolicy.rate.toFixed(2)} % · ${cpiPart}`,
+  };
+}
+
 function convictionStars(stars: number | null): string {
   if (stars === null) return "";
   return "★".repeat(stars) + "☆".repeat(Math.max(0, 5 - stars));
@@ -564,6 +588,7 @@ export default function App() {
                   interpretation={longTermBiasInterpretation(currency.cbPolicy)}
                   value={currency.longTermBias ?? "—"}
                 />
+                <Pillar label="Real yield" {...realYieldDisplay(currency.cbPolicy)} />
                 <Pillar label="Risk režim" value={riskRegimeLabel(currency.riskRegime)} />
               </div>
             </Card>
