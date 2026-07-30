@@ -208,11 +208,21 @@ async function closeThesis(thesisId, reasoning) {
  * @param {string} currencyCode
  * @param {{overallScore:number, convictionStars:number, fundamentalScoreAdj:number, cotScore:number,
  *          cbPolicyAdj:number, realYieldAdj:number, riskAdj:number, retailScore:number}} pillars
+ * @returns {Promise<boolean>} true, když se stalo něco naratívně významného (viz komentář níž)
  */
+// Vrací true, když se stalo něco NARATIVNĚ významného (nová teze, obrat směru, dominantní
+// driver invalidován, návrat ze watching na active) — fetch-calendar.mjs to používá jako
+// druhý, nezávislý spouštěč přegenerování shrnutí, viz volání níž. Důvod: dosavadní jediný
+// spouštěč (materialActualArrived, čistě diff "actual" v calendar_events mezi během) je
+// křehký — dvě po sobě jdoucí souběžně běžící úlohy (např. ruční dispatch uprostřed
+// pravidelného 15minutového cronu) mohou obě vidět "actual" už vyplněný tou druhou a
+// spouštěč tiše nenastane, i když k reálné, důležité změně skutečně došlo (živě zachyceno
+// 30. 7. 2026: rozhodnutí BOE o sazbě dorazilo, teze GBP přešla do watching, ale shrnutí
+// se nepřegenerovalo, protože scrape-diff spouštěč nezafiroval).
 export async function runThesisEngineForCurrency(currencyCode, pillars) {
   if (!supabase) {
     console.warn(`[${currencyCode}] thesis-engine přeskočen — chybí Supabase env.`);
-    return;
+    return false;
   }
 
   const pillarValues = {
@@ -233,16 +243,16 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
 
   if (readErr) {
     console.error(`[${currencyCode}] chyba čtení currency_thesis:`, readErr.message);
-    return;
+    return false;
   }
 
   const thesis = existingRows?.[0] ?? null;
 
   if (!thesis) {
-    if (direction === "neutral") return; // nic pojmenovaného, o čem otevírat tezi
+    if (direction === "neutral") return false; // nic pojmenovaného, o čem otevírat tezi
     const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars);
     if (newId) console.log(`[${currencyCode}] thesis-engine: otevřena nová ${direction} teze (id=${newId}).`);
-    return;
+    return newId != null;
   }
 
   // Tvrdý obrat směru (bullish <-> bearish) — teze se rovnou uzavírá, klasifikace přes
@@ -251,13 +261,15 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
     await closeThesis(thesis.id, `Celkový směr se otočil z ${thesis.direction} na ${direction} — teze zrušena.`);
     const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars, thesis.id);
     if (newId) console.log(`[${currencyCode}] thesis-engine: obrat směru, nová ${direction} teze (id=${newId}) nahrazuje id=${thesis.id}.`);
-    return;
+    return true;
   }
 
+  let recovered = false;
   // Teze byla "watching" a signály se zase srovnaly se směrem -> návrat na active.
   if (thesis.status === "watching" && direction === thesis.direction) {
     const { error: recoverErr } = await supabase.from("currency_thesis").update({ status: "active" }).eq("id", thesis.id);
     if (recoverErr) console.error(`[${currencyCode}] chyba návratu teze na active:`, recoverErr.message);
+    else recovered = true;
     await insertLedgerEntries(thesis.id, [
       { driver_key: null, classification: "confirms", reasoning: "Teze se stabilizovala — návrat ze stavu watching na active." },
     ]);
@@ -285,7 +297,7 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
 
   if (updErr) {
     console.error(`[${currencyCode}] chyba update currency_thesis:`, updErr.message);
-    return;
+    return recovered;
   }
 
   await insertLedgerEntries(thesis.id, ledgerEntries);
@@ -296,4 +308,6 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
         (dominantInvalidated ? " — DOMINANTNÍ DRIVER INVALIDOVÁN, teze -> watching" : "")
     );
   }
+
+  return recovered || dominantInvalidated;
 }

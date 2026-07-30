@@ -346,6 +346,11 @@ export async function recomputeScores() {
     console.warn("FRED VIX fetch selhal — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
   }
 
+  // Druhý, nezávislý spouštěč přegenerování narrativu (viz komentář u runThesisEngineForCurrency
+  // v thesis-engine.mjs) — na rozdíl od materialActualArrived (scrape-diff, per-event) tohle
+  // sleduje, jestli se u NĚKTERÉ měny reálně pohnul stav teze (nová teze, obrat, watching...).
+  let thesisSignal = false;
+
   for (const currencyCode of SCORED_CURRENCIES) {
     const result = computeFundamentalScore(currencyCode, allEvents ?? []);
 
@@ -498,7 +503,7 @@ export async function recomputeScores() {
       // thesis_ledger se plní, ale frontend je zatím nečte). Nesmí shodit zbytek přepočtu, kdyby
       // selhal — proto vlastní try/catch, ne propagace chyby výš.
       try {
-        await runThesisEngineForCurrency(currencyCode, {
+        const thesisChanged = await runThesisEngineForCurrency(currencyCode, {
           overallScore,
           convictionStars: conviction.stars,
           fundamentalScoreAdj,
@@ -508,6 +513,7 @@ export async function recomputeScores() {
           riskAdj,
           retailScore,
         });
+        if (thesisChanged) thesisSignal = true;
       } catch (thesisErr) {
         console.error(`[${currencyCode}] thesis-engine selhal (nekriticky, scoring pokračuje):`, thesisErr.message);
       }
@@ -537,6 +543,8 @@ export async function recomputeScores() {
   } catch (topErr) {
     console.error("top-opportunity selhal (nekriticky):", topErr.message);
   }
+
+  return thesisSignal;
 }
 
 async function main() {
@@ -564,16 +572,24 @@ async function main() {
   const { count, materialActualArrived } = await mergeUpsert(deduped);
   console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
 
-  await recomputeScores();
+  const thesisSignal = await recomputeScores();
 
   // FORCE_NARRATIVE_REGEN přichází z workflow_dispatch inputs.force_narrative — appka ho
   // nastaví, když admin ručně přepíše "actual" v kalendáři (EditActualField.tsx přes Edge
   // Function trigger-recompute). Ruční zásah scraper sám o sobě nevidí jako "nový actual"
   // (v DB už existuje, jen ho nezapsal on), proto se materialActualArrived samo nenastaví.
+  //
+  // thesisSignal je druhý, nezávislý spouštěč (viz runThesisEngineForCurrency) — chrání proti
+  // tomu, že materialActualArrived (scrape-diff) může minout skutečnou změnu, když dva běhy
+  // scraperu proběhnou blízko sebe (živě zachyceno 30.7.2026 u GBP — viz git historie).
   const forceNarrative = process.env.FORCE_NARRATIVE_REGEN === "true";
-  if (materialActualArrived || forceNarrative) {
+  if (materialActualArrived || thesisSignal || forceNarrative) {
     await triggerNarrativeRegeneration(
-      forceNarrative ? "ruční úprava actual administrátorem" : "nový actual u důležitého eventu"
+      forceNarrative
+        ? "ruční úprava actual administrátorem"
+        : thesisSignal && !materialActualArrived
+          ? "změnil se stav teze (nová/obrat/watching)"
+          : "nový actual u důležitého eventu"
     );
   }
 }

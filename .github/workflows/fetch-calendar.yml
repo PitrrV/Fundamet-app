@@ -14,6 +14,14 @@ permissions:
   contents: read
   actions: write  # potřeba, aby skript mohl přes GitHub API rovnou spustit generate-narrative.yml
 
+# Souběžné běhy fronta, ne zabít/přeskočit — dřívější absence tohohle byla pravděpodobná
+# příčina minutého spouštěče přegenerování narrativu (viz komentář u thesisSignal ve
+# fetch-calendar.mjs): dva běhy blízko sebe (pravidelný cron + ruční dispatch) mohly každý
+# vidět "actual" už vyplněný tím druhým, takže scrape-diff spouštěč tiše nezafiroval.
+concurrency:
+  group: fetch-calendar
+  cancel-in-progress: false
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
