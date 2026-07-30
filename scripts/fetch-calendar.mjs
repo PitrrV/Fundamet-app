@@ -566,8 +566,15 @@ async function main() {
 
   await recomputeScores();
 
-  if (materialActualArrived) {
-    await triggerNarrativeRegeneration("nový actual u důležitého eventu");
+  // FORCE_NARRATIVE_REGEN přichází z workflow_dispatch inputs.force_narrative — appka ho
+  // nastaví, když admin ručně přepíše "actual" v kalendáři (EditActualField.tsx přes Edge
+  // Function trigger-recompute). Ruční zásah scraper sám o sobě nevidí jako "nový actual"
+  // (v DB už existuje, jen ho nezapsal on), proto se materialActualArrived samo nenastaví.
+  const forceNarrative = process.env.FORCE_NARRATIVE_REGEN === "true";
+  if (materialActualArrived || forceNarrative) {
+    await triggerNarrativeRegeneration(
+      forceNarrative ? "ruční úprava actual administrátorem" : "nový actual u důležitého eventu"
+    );
   }
 }
 

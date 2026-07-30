@@ -3,7 +3,12 @@ name: Fetch ForexFactory Calendar
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_narrative:
+        description: "Vynutit přegenerování shrnutí i bez nově zachyceného 'actual' (ruční editace v appce)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,3 +28,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # U cronu je inputs.force_narrative prázdné -> vyhodnotí se jako false, chování beze změny.
+          FORCE_NARRATIVE_REGEN: ${{ inputs.force_narrative }}
