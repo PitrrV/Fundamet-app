@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { sendLoginCode, verifyLoginCode } from "../lib/auth";
+import { supabase } from "../lib/supabaseClient";
 
 // Přihlášení je v samostatném panelu, ne přímo v hlavičce. Dvoukrokový formulář (e-mail →
 // kód) se do 56px vysokého sticky pruhu na mobilu nevejde tak, aby se dal pohodlně ovládat.
@@ -57,6 +58,9 @@ export function AdminLogin() {
       // okamžitého zavření — potvrzení, že se přihlášení skutečně povedlo, ne jen tichý zánik.
       setStep("done");
       setTimeout(close, 900);
+      // Fire-and-forget bezpečnostní upozornění — nesmí zpomalit ani shodit přihlášení
+      // samotné, kdyby se e-mail nepovedlo odeslat (viz supabase/functions/notify-admin-login).
+      supabase.functions.invoke("notify-admin-login", { method: "POST" }).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Kód se nepodařilo ověřit.");
     } finally {
