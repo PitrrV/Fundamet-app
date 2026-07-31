@@ -1,9 +1,10 @@
 // Risk-on/risk-off režim ze SKUTEČNÝCH dat (VIX), ne ruční přepínač jako v původním
-// Fx-Analyzeru (`g_riskSentiment` tam byl UI toggle). Zdroj: FRED (Federal Reserve Economic
-// Data) — CSV bez API klíče, ověřeno živě přes GitHub Actions (viz commit historie), funguje
-// spolehlivě i pro US 2Y výnos (DGS2), který se používá jako "zaceněnost" proxy pro USD v
-// cb-policy.mjs. Jediné I/O v tomhle souboru je fetch samotný — klasifikace/škálování jsou
-// čisté funkce testovatelné bez sítě.
+// Fx-Analyzeru (`g_riskSentiment` tam byl UI toggle). Historie + US 2Y výnos (DGS2, "zaceněnost"
+// proxy pro USD v cb-policy.mjs) jde z FRED (Federal Reserve Economic Data) — CSV bez API
+// klíče. Aktuální VIX hodnota ale jde z CBOE/Yahoo Finance (viz fetchLiveVix níž), protože FRED
+// VIXCLS je jen denní závěrka se zpožděním 1-2 dny — pro "risk teď" appce nestačilo. Vše
+// ověřeno živě přes GitHub Actions (viz commit historie). Jediné I/O v tomhle souboru je fetch
+// samotný — klasifikace/škálování jsou čisté funkce testovatelné bez sítě.
 
 const FRED_CSV_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=";
 
@@ -49,6 +50,45 @@ export function classifyRegime(vixRows) {
   };
 }
 
+// FRED VIXCLS je jen denní závěrečná hodnota s běžným zpožděním 1-2 dny (živě ověřeno
+// 31.7.2026: appka ukazovala 20,66 z 29.7., zatímco skutečný trh byl na 17,09) — pro "teď"
+// to appce nestačí. CBOE (burza samotná, žádný klíč) i Yahoo Finance vrací aktuální cenu
+// v rámci pár minut, ověřeno živě přes GitHub Actions. Zkouší se v pořadí, první úspěch vyhrává;
+// když selžou oba, volající se vrátí k čistě FRED chování jako dřív (žádný tvrdý pád).
+async function fetchLiveVix() {
+  const attempts = [
+    async () => {
+      const res = await fetch("https://cdn.cboe.com/api/global/delayed_quotes/quotes/_VIX.json", {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!res.ok) throw new Error(`CBOE HTTP ${res.status}`);
+      const json = await res.json();
+      const price = json?.data?.current_price;
+      if (typeof price !== "number") throw new Error("CBOE: chybí current_price");
+      return price;
+    },
+    async () => {
+      const res = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=1d", {
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+      if (!res.ok) throw new Error(`Yahoo HTTP ${res.status}`);
+      const json = await res.json();
+      const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (typeof price !== "number") throw new Error("Yahoo: chybí regularMarketPrice");
+      return price;
+    },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (err) {
+      console.error("Živý VIX fetch selhal, zkouším další zdroj:", err.message);
+    }
+  }
+  return null;
+}
+
 export function riskAdjForCurrency(currencyCode, regime) {
   if (regime === "RISK_ON") return RISK_ON_MAP[currencyCode] ?? 0;
   if (regime === "RISK_OFF") return RISK_OFF_MAP[currencyCode] ?? 0;
@@ -84,6 +124,22 @@ export async function computeMarketRegime() {
     vixRows = await fetchFredSeries("VIXCLS");
   } catch (err) {
     console.error("FRED VIXCLS fetch selhal:", err.message);
+  }
+
+  // FRED necháváme jako spolehlivou historii pro výpočet 5denní změny (classifyRegime),
+  // ale poslední hodnotu přepíšeme (nebo doplníme, pokud FRED ještě nemá dnešní řádek)
+  // živou cenou — viz fetchLiveVix výš.
+  if (vixRows && vixRows.length > 0) {
+    const liveVix = await fetchLiveVix();
+    if (liveVix !== null) {
+      const today = new Date().toISOString().slice(0, 10);
+      const lastRow = vixRows[vixRows.length - 1];
+      if (lastRow.date === today) {
+        lastRow.value = liveVix;
+      } else {
+        vixRows.push({ date: today, value: liveVix });
+      }
+    }
   }
 
   try {
