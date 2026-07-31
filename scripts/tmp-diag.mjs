@@ -14,18 +14,28 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const { data: rows, error } = await supabase
-  .from("thesis_ledger")
-  .select("id, thesis_id, driver_key, occurred_at")
-  .eq("classification", "confirms")
-  .order("occurred_at", { ascending: true });
+// PostgREST defaultně vrací max 1000 řádků na dotaz — první běh tenhle skript spustil bez
+// stránkování a tiše zpracoval jen nejstarších 1000 z celkově výrazně víc řádků. Stránkuje se
+// přes .range(), dokud dotaz nevrátí méně než PAGE_SIZE (= konec dat).
+const PAGE_SIZE = 1000;
+const rows = [];
+for (let from = 0; ; from += PAGE_SIZE) {
+  const { data: page, error } = await supabase
+    .from("thesis_ledger")
+    .select("id, thesis_id, driver_key, occurred_at")
+    .eq("classification", "confirms")
+    .order("occurred_at", { ascending: true })
+    .range(from, from + PAGE_SIZE - 1);
 
-if (error) {
-  console.error("Chyba čtení thesis_ledger:", error.message);
-  process.exit(1);
+  if (error) {
+    console.error("Chyba čtení thesis_ledger:", error.message);
+    process.exit(1);
+  }
+  rows.push(...page);
+  if (page.length < PAGE_SIZE) break;
 }
 
-console.log(`Načteno ${rows.length} řádků s classification='confirms'.`);
+console.log(`Načteno ${rows.length} řádků s classification='confirms' (celkem, stránkováno).`);
 
 const keepFirstPerDay = new Map();
 const toDelete = [];
