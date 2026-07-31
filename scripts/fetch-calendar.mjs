@@ -18,6 +18,28 @@ import { computeTopOpportunity } from "./top-opportunity.mjs";
 // Fx-Analyzeru (fund .42/cot .45/sent .11/sea .02), s přerozdělenou sezónností (chybí pilíř).
 const BLEND_WEIGHTS = { fund: 0.43, cot: 0.46, retail: 0.11 };
 
+// Jediný driver, u kterého jde v okamžiku klasifikace dohledat KONKRÉTNÍ dnešní event (na
+// rozdíl od cot/retail/cb_policy/risk_regime, což jsou agregátní čísla bez jednoho jasného
+// "zdroje") — najde dnešní event s nejvyšší váhou (matchRule) a vyplněným actual, ať
+// thesis-engine.mjs může do reasoning textu napsat "PPI", ne jen obecně "Fundamentální data".
+// Vrací null, když dnes u téhle měny žádný takový event nepřišel — thesis-engine pak použije
+// obecný text jako dřív.
+function todaysFundamentalEventLabel(currencyCode, allEvents) {
+  const today = new Date().toISOString().slice(0, 10);
+  let best = null;
+  let bestWeight = 0;
+  for (const ev of allEvents) {
+    if (ev.currency_code !== currencyCode || ev.event_day !== today) continue;
+    if (ev.actual === null || ev.actual === undefined) continue;
+    const w = matchRule(ev.event_title)?.w ?? 0;
+    if (w > bestWeight) {
+      bestWeight = w;
+      best = ev.event_title;
+    }
+  }
+  return best;
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
@@ -512,6 +534,7 @@ export async function recomputeScores() {
           realYieldAdj: cbPolicy.realYieldAdj,
           riskAdj,
           retailScore,
+          fundamentalEventLabel: todaysFundamentalEventLabel(currencyCode, allEvents ?? []),
         });
         if (thesisChanged) thesisSignal = true;
       } catch (thesisErr) {
