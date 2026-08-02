@@ -17,7 +17,11 @@ export default {
         // Text
         ink: "#eaedf3",
         muted: "#8b93a3",
-        faint: "#5a6273",
+        // Původní #5a6273 vycházelo proti bg (#07080c) na kontrastní poměr ~3.4:1 — pod WCAG AA
+        // minimem pro běžný text (4.5:1), a u drobných 9-11px popisků (agenda, hinty, labely)
+        // to bylo živě nahlášené jako špatně čitelné. Nové ~5.7:1, pořád viditelně tlumenější
+        // než `muted` (~6.7:1), jen ne až na hraně nečitelnosti.
+        faint: "#7e8697",
         // Akcent Analyzeru — nahrazuje původní zlatou jako hlavní interaktivní barvu.
         accent: "#5e7cfb",
         accentdim: "#4c63d9",
