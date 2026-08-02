@@ -95,9 +95,21 @@ export function autoDetectPolicy(rateHistory) {
   } else if (cutCount >= 1 && hikeCount === 0 && holdCount <= 3) {
     score = -1;
     desc = "cyklus snižování";
-  } else if (holdCount >= 4 && Math.abs(yearChange) < 0.15) {
+  } else if (holdCount >= 4) {
+    // Bez podmínky na `yearChange` — živě nahlášená chyba (USD, audit 2026-08-02): jediný
+    // skutečný cut z prosince 2025, následovaný 5 rozhodnutími beze změny (do 29.7.2026),
+    // padal do 365denního okna a |yearChange| (0.25) přesáhlo tehdejší práh 0.15, takže
+    // klasifikace spadla na fallback "poslední cut, pozorujeme" — i když jde o 8 měsíců
+    // staré, dávno stabilní plató. `holdCount >= 4` (aspoň 4 z posledních 6 ROZHODNUTÍ beze
+    // změny) je sám o sobě dostatečný důkaz aktuálního plató — agresivní cykly už odchytily
+    // dřívější větve (ty vyžadují holdCount <= 3), takže sem se dostane jen skutečně stabilní
+    // sazba bez ohledu na to, jak starý je poslední skutečný pohyb.
+    // Bez "@ rate %" tady v `desc` — `label` o pár řádků níž sazbu připojuje sám, stejně jako
+    // u ostatních větví ("cyklus hikování", "poslední cut, pozorujeme" apod.). Dřív duplicitně
+    // dávalo "plateau, hold @ 3.75 % @ 3.75 %" — nikdy předtím naživo neprojevené, protože tahle
+    // větev díky bugu výš (viz komentář nad `holdCount >= 4`) v praxi nikdy nenaskočila.
     score = 0;
-    desc = `plateau, hold @ ${rateHistory[rateHistory.length - 1].rate.toFixed(2)} %`;
+    desc = "plateau, hold";
   } else if (lastChange > 0) {
     score = 1;
     desc = "poslední hike, pozorujeme";
