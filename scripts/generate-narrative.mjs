@@ -136,6 +136,11 @@ Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo his
 
 Čísla ber VÝHRADNĚ z dat, která jsi dostal, a hlídej si směr: když je hodnota nižší než předchozí, je to POKLES, ne růst. Nikdy si číslo nedomýšlej — radši ho vynech a popiš trend slovy.
 
+KRITICKÉ — přechod přes nulu mění POJEM, ne jen tempo. Živě zachycená chyba: CHF CPI m/m odhad -0,1 % z předchozích 0,0 % byl popsán jako "potvrzení dezinflace" — správně jde o DEFLAČNÍ tisk, ne dezinflaci.
+- "dezinflace" smíš použít JEN když je hodnota (m/m i y/y) pořád KLADNÁ a jen zpomaluje tempo (např. 2,6 % → 2,4 %).
+- Jakmile je hodnota — ODHAD, ACTUAL, nebo i jen PŘEDCHOZÍ — ZÁPORNÁ, jde o DEFLACI (skutečný pokles cen v tom období), i kdyby šlo jen o jeden měsíc. Nikdy tomu neříkej "dezinflace".
+- Stejné pravidlo plať i jinde, kde přechod přes nulu mění kvalitativní pojem, ne jen velikost: záporný růst HDP je RECESE/KONTRAKCE, ne "zpomalení růstu" (to je jen pro pořád kladný, ale nižší růst).
+
 ${GLOSSARY}`;
 
 const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
