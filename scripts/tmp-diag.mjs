@@ -1,8 +1,14 @@
-// DOČASNÝ diagnostický skript — smazat po použití. Ověření opraveného data v NZD agendě.
+// DOČASNÝ diagnostický skript — smazat po použití.
+// Proč zmizely Employment Change/Unemployment Rate/Labor Cost Index ze scenarios agendy?
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const { data } = await supabase.from("latest_narratives").select("scenarios, forward_flag").eq("currency_code", "NZD").single();
-console.log("forward_flag:", data?.forward_flag);
-console.log("scenarios:", JSON.stringify(data?.scenarios?.map((s) => ({ event: s.event, date: s.date })), null, 2));
+const { data: nzdEvents } = await supabase
+  .from("calendar_events")
+  .select("id, event_title, event_day, event_time, actual, estimate")
+  .eq("currency_code", "NZD")
+  .gte("event_day", "2026-07-25")
+  .lte("event_day", "2026-08-10")
+  .order("event_day", { ascending: true });
+console.log("NZD eventy 25.7-10.8:", JSON.stringify(nzdEvents, null, 2));
