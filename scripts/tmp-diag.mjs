@@ -62,6 +62,15 @@ const BATCH = 500;
 let deleted = 0;
 for (let i = 0; i < toDelete.length; i += BATCH) {
   const batch = toDelete.slice(i, i + BATCH);
+
+  // market_expectations/event_reactions mají FK na calendar_events(id) bez on delete cascade —
+  // stará (nesprávně datovaná) calendar_events řádka může mít vlastní snímek/reakci, kterou
+  // je potřeba smazat první, jinak DELETE na calendar_events spadne na FK violation.
+  const { error: meErr } = await supabase.from("market_expectations").delete().in("calendar_event_id", batch);
+  if (meErr) console.error("Chyba mazání market_expectations:", meErr.message);
+  const { error: erErr } = await supabase.from("event_reactions").delete().in("calendar_event_id", batch);
+  if (erErr) console.error("Chyba mazání event_reactions:", erErr.message);
+
   const { error, count } = await supabase.from("calendar_events").delete({ count: "exact" }).in("id", batch);
   if (error) {
     console.error("Chyba mazání dávky:", error.message);
