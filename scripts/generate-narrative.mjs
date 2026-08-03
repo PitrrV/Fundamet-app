@@ -152,11 +152,11 @@ Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne
 POLE "thesis_change_note" — vysvětlení posledního pohybu skóre. Píšeš ho jako makro analytik hedgeového fondu, který vysvětluje kolegovi, co se změnilo a jestli to má nějaký význam.
 
 Podklady dostaneš dva, oba SPOČÍTANÉ, ne odhadnuté:
-- "scoreChange" — předchozí a aktuální skóre, rozdíl, a rozpad po komponentách (pole "components", seřazené sestupně podle velikosti pohybu; první položka je hlavní viník změny). Tahle čísla jsou fakt, přebírej je, nepřepočítávej ani nezaokrouhluj jinak.
+- "scoreChange" — předchozí a aktuální skóre, rozdíl, a rozpad po komponentách (pole "components", seřazené sestupně podle velikosti pohybu; první položka je hlavní viník změny). Tahle čísla jsou fakt, přebírej je, nepřepočítávej ani nezaokrouhluj jinak. KAŽDÁ položka v "components" má i "verdict" ("zlepšilo"/"zhoršilo"/"beze změny") — jestli se komponenta pro tu měnu zlepšila nebo zhoršila, je SPOČÍTANÉ z delty, ne k odhadu. Živě nahlášená chyba: model u záporného čísla, co se přiblížilo k nule (např. -4.8 → -4.6), napsal "zhoršilo", i když je to zlepšení (méně bearish). NIKDY neurčuj zlepšilo/zhoršilo sám ze znaménka čísla — vždy použij "verdict" doslova.
 - "recentLedger" — deterministické klasifikace z Thesis Enginu za posledních 7 dní: "confirms" = driver dál sedí, "challenges" = poprvé nesedí, "invalidates_driver" = nesedí podruhé a byl z teze odebrán, "closed" = teze uzavřena, "opened" = nová teze.
 
 Napiš 2-4 věty, které odpoví na tohle pořadí otázek:
-1. KTERÁ komponenta skóre pohnula — vezmi první položku z "components" a uveď její pohyb číselně.
+1. KTERÁ komponenta skóre pohnula — vezmi první položku z "components" a uveď její pohyb číselně i slovní verdikt ("verdict") tak, jak je spočítaný.
 2. PROČ se pohnula — a tady smíš čerpat VÝHRADNĚ z "recentEvents" a "scenarioSeeds", které máš v kontextu. Když se hnul fundament, hledej mezi nedávno vyšlými daty ten konkrétní print, který to způsobil, a pojmenuj ho. Když v datech žádné vysvětlení není, napiš na rovinu, že se skóre posunulo bez jediného zřejmého katalyzátoru — TO JE SPRÁVNÁ ODPOVĚĎ, ne selhání. NIKDY si důvod nedomýšlej a nikdy nezmiňuj událost, kterou v datech nemáš.
 3. MĚNÍ TO PŘÍBĚH, NEBO NE — rozhodni podle "recentLedger", ne podle velikosti čísla: "invalidates_driver" nebo "closed" znamená zásah do konstrukce teze (příběh se mění), samé "confirms" znamená, že jde jen o pohyb v rámci běžícího příběhu. Řekni to natvrdo, ne vyhýbavě.
 
@@ -297,7 +297,15 @@ function buildScoreChange(snapsDesc) {
     const prev = num(previous[key]);
     const curr = num(current[key]);
     if (prev === null || curr === null) return null;
-    return { component: label, previous: prev, current: curr, delta: round2(curr - prev) };
+    const delta = round2(curr - prev);
+    // Živě nahlášená chyba (NZD, audit 2026-08-03): cot_score šel z -4.8 na -4.6 (delta +0.2,
+    // tedy MÉNĚ bearish = zlepšení), ale narrativ napsal "zhoršení". Model měl na výběr jen
+    // syrová čísla a "zlepšilo/zhoršilo" si domýšlel sám ze znaménka záporné hodnoty, ne z
+    // delty — přesně stejná třída chyby jako beatImplication/resolvedVerdict výš v souboru.
+    // Verdikt proto počítá kód (delta > 0 = zlepšilo, < 0 = zhoršilo, škála komponent je vždy
+    // "vyšší = bullish pro měnu" bez ohledu na aktuální znaménko), model ho jen přebírá.
+    const verdict = delta > 0.05 ? "zlepšilo" : delta < -0.05 ? "zhoršilo" : "beze změny";
+    return { component: label, previous: prev, current: curr, delta, verdict };
   })
     .filter(Boolean)
     // Sestupně podle velikosti pohybu — na prvním místě je vždy hlavní viník změny.
