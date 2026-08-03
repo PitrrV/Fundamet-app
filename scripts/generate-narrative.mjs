@@ -154,7 +154,7 @@ KRITICKÉ — přechod přes nulu mění POJEM, ne jen tempo. Živě zachycená 
 
 ${GLOSSARY}`;
 
-const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
+export const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
 
 Dostaneš navíc kontext zbytku koše měn (basketContext) — FX je vždy relativní, piš o měně i VE VZTAHU k ostatním, ne v izolaci — a nadcházející (upcomingEvents) i nedávno vyšlé eventy (recentEvents).
 
@@ -183,7 +183,7 @@ Appka živě zachytila i opačnou chybu, než tu s vágním datem: model jednou 
 
 Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (viz výš, nebo null), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
 
-const AGENDA_PROMPT = `${SHARED_CONTEXT}
+export const AGENDA_PROMPT = `${SHARED_CONTEXT}
 
 Dostaneš navíc HOTOVÉ shrnutí příběhu ("narrative"), které appka právě zveřejnila, a předvybrané eventy (scenarioSeeds) napříč kategoriemi (sazby, inflace/PCE, nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod). Tvým úkolem je napsat MAKRO AGENDU, která na to shrnutí přímo navazuje — stejný příběh, stejné pojmy, stejná teze. Čtenář právě dočetl "narrative"; agenda mu má říct, co s tím příběhem může pohnout, ne začínat znovu od nuly.
 
@@ -280,7 +280,7 @@ function buildFallbackForwardFlag(flaggedEvents) {
   return text;
 }
 
-async function loadBasketContext() {
+export async function loadBasketContext() {
   const { data } = await supabase
     .from("latest_confluence_scores")
     .select("currency_code, overall_score, conviction_label");
@@ -291,7 +291,7 @@ async function loadBasketContext() {
   return map;
 }
 
-async function loadMarketRegime() {
+export async function loadMarketRegime() {
   const { data } = await supabase.from("market_regime").select("vix, vix_5d_change, regime").limit(1);
   return data?.[0] ?? null;
 }
@@ -491,7 +491,7 @@ function changedSections(previous, next) {
   return Object.keys(next).filter((key) => previous[key] !== next[key]);
 }
 
-async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
+export async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
   const today = isoToday();
   const upcomingCutoff = new Date(Date.now() + UPCOMING_DAYS * 86400000).toISOString().slice(0, 10);
   const recentCutoff = new Date(Date.now() - RECENT_DAYS * 86400000).toISOString().slice(0, 10);
@@ -727,19 +727,34 @@ function findForeignScript(value, path = "$") {
 // explicitním upozorněním na chybu, než výsledek přijme — stejný princip "prompt engineering
 // snižuje pravděpodobnost, kód garantuje" jako u ostatních pojistek v souboru (isTooShortOutcome,
 // forwardFlagCitesFlaggedEvent...), jen tady řešíme celou odpověď najednou, ne jedno pole.
-async function callStructuredCompletion({ currencyCode, label, systemPrompt, payload, schemaName, schema }) {
+export async function callStructuredCompletion({
+  currencyCode,
+  label,
+  systemPrompt,
+  payload,
+  schemaName,
+  schema,
+  model = OPENAI_MODEL,
+  onUsage,
+}) {
   const messages = [
     { role: "system", content: systemPrompt },
     { role: "user", content: JSON.stringify(payload) },
   ];
 
+  const usageTotal = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
   const runOnce = async (msgs) => {
     const completion = await openai.chat.completions.create({
-      model: OPENAI_MODEL,
+      model,
       messages: msgs,
-      ...samplingParams(OPENAI_MODEL),
+      ...samplingParams(model),
       response_format: { type: "json_schema", json_schema: { name: schemaName, strict: true, schema } },
     });
+    if (completion.usage) {
+      usageTotal.prompt_tokens += completion.usage.prompt_tokens ?? 0;
+      usageTotal.completion_tokens += completion.usage.completion_tokens ?? 0;
+      usageTotal.total_tokens += completion.usage.total_tokens ?? 0;
+    }
     return JSON.parse(completion.choices[0].message.content);
   };
 
@@ -767,11 +782,15 @@ async function callStructuredCompletion({ currencyCode, label, systemPrompt, pay
     }
   }
 
+  onUsage?.(usageTotal);
   return result;
 }
 
 // Krok 1 — shrnutí příběhu. Krátká odpověď, dostane široký kontext (koš měn, oba proudy eventů).
-async function generateNarrativePart(currencyCode, context) {
+// `model`/`onUsage` jsou nepovinné — produkční volání (main()) je nechává na výchozí hodnotě,
+// slouží pro A/B srovnání modelů (viz níže), kde appka potřebuje vynutit konkrétní model a
+// přečíst si spotřebu tokenů bez zápisu do produkční tabulky narratives.
+export async function generateNarrativePart(currencyCode, context, model = OPENAI_MODEL, onUsage) {
   const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent, flaggedEvents } = context;
 
   const payload = {
@@ -796,6 +815,8 @@ async function generateNarrativePart(currencyCode, context) {
     systemPrompt: NARRATIVE_PROMPT,
     payload,
     schemaName: "fx_narrative",
+    model,
+    onUsage,
     schema: {
       type: "object",
       properties: {
@@ -815,7 +836,7 @@ async function generateNarrativePart(currencyCode, context) {
 // (2) takhle agenda dostane HOTOVÝ text shrnutí a může na něj skutečně navazovat — dokud se
 // generovalo obojí naráz, agenda shrnutí vůbec neviděla. Užší payload než krok 1 (bez koše měn
 // a bez obou proudů eventů), takže rozdělení nezdvojnásobí vstupní tokeny.
-async function generateAgendaPart(currencyCode, context, narrative) {
+export async function generateAgendaPart(currencyCode, context, narrative, model = OPENAI_MODEL, onUsage) {
   const { cot, cbPolicy, thesis, retailSentiment, riskRegime, scenarioSeeds } = context;
 
   if (scenarioSeeds.length === 0) return [];
@@ -837,6 +858,8 @@ async function generateAgendaPart(currencyCode, context, narrative) {
     systemPrompt: AGENDA_PROMPT,
     payload,
     schemaName: "fx_agenda",
+    model,
+    onUsage,
     schema: {
       type: "object",
       properties: {
@@ -1077,7 +1100,13 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error("Neočekávaná chyba:", err);
-  process.exit(1);
-});
+// Spustit main() jen když je soubor zavolaný přímo (`node scripts/generate-narrative.mjs`), ne
+// když ho někdo importuje (A/B test modelů apod. potřebuje sáhnout na loadCurrencyContext/
+// generateNarrativePart/generateAgendaPart bez vedlejšího efektu "rovnou přegeneruj produkci").
+const isMainModule = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  main().catch((err) => {
+    console.error("Neočekávaná chyba:", err);
+    process.exit(1);
+  });
+}
