@@ -110,15 +110,18 @@ export function AdminLogin() {
                 </p>
               </div>
               <label className="block">
-                <span className="text-[11px] text-faint">Šestimístný kód z e-mailu</span>
-                {/* autoComplete="one-time-code" — iOS i Android kód nabídnou k vyplnění samy. */}
+                <span className="text-[11px] text-faint">Ověřovací kód z e-mailu</span>
+                {/* autoComplete="one-time-code" — iOS i Android kód nabídnou k vyplnění samy.
+                    Supabase umí OTP kód dlouhý 6-10 číslic (nastavitelné v Auth), appka proto
+                    nesmí délku natvrdo předpokládat — maxLength 11 = 10 číslic + 1 mezera, což
+                    pokrývá celý rozsah, co Supabase vůbec umí nastavit. */}
                 <input
                   type="text"
                   required
                   autoFocus
                   inputMode="numeric"
                   pattern="[0-9 ]*"
-                  maxLength={7}
+                  maxLength={11}
                   autoComplete="one-time-code"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
