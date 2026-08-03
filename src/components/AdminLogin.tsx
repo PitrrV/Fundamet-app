@@ -1,38 +1,22 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { sendLoginCode, verifyLoginCode } from "../lib/auth";
 import { supabase } from "../lib/supabaseClient";
 
-// Přihlášení je v samostatném panelu, ne přímo v hlavičce. Dvoukrokový formulář (e-mail →
-// kód) se do 56px vysokého sticky pruhu na mobilu nevejde tak, aby se dal pohodlně ovládat.
+// Celostránková brána — appka teď vyžaduje přihlášení pro KOHOKOLI, ne jen pro admina (App.tsx
+// tenhle komponent renderuje místo dashboardu, dokud neexistuje session). Proto žádné tlačítko
+// "zavřít"/Escape jako dřív, když šlo o volitelný panel v hlavičce — není co zavírat, dokud se
+// uživatel nepřihlásí, appku neuvidí.
 //
 // Session je perzistentní (supabaseClient.ts, persistSession: true) — po úspěšném ověření
-// se appka příště sama přihlásí ze storage, dokud session nevyprší nebo se admin sám neodhlásí.
+// se appka příště sama přihlásí ze storage, dokud session nevyprší nebo se uživatel sám neodhlásí.
 // Účet v auth.users vzniká automaticky při prvním ověření kódu (signInWithOtp/verifyOtp),
-// žádný samostatný "registrační" krok není potřeba.
+// žádný samostatný "registrační" krok není potřeba — kdokoli se svým e-mailem se tak i registruje.
 export function AdminLogin() {
-  const [open, setOpen] = useState(false);
   const [step, setStep] = useState<"email" | "code" | "done">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function close() {
-    setOpen(false);
-    setStep("email");
-    setEmail("");
-    setCode("");
-    setError(null);
-  }
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
 
   async function handleSendCode(e: FormEvent) {
     e.preventDefault();
@@ -54,11 +38,10 @@ export function AdminLogin() {
     setBusy(true);
     try {
       await verifyLoginCode(email, code);
-      // Session zachytí onAuthStateChange v App.tsx. Krátká "hotovo" obrazovka místo
-      // okamžitého zavření — potvrzení, že se přihlášení skutečně povedlo, ne jen tichý zánik.
+      // Session zachytí onAuthStateChange v App.tsx a přepne z týhle brány na dashboard sám —
+      // krátká "hotovo" obrazovka je jen potvrzení, že se přihlášení skutečně povedlo.
       setStep("done");
-      setTimeout(close, 900);
-      // Fire-and-forget bezpečnostní upozornění — nesmí zpomalit ani shodit přihlášení
+      // Fire-and-forget upozornění administrátorovi — nesmí zpomalit ani shodit přihlášení
       // samotné, kdyby se e-mail nepovedlo odeslat (viz supabase/functions/notify-admin-login).
       supabase.functions.invoke("notify-admin-login", { method: "POST" }).catch(() => {});
     } catch (err) {
@@ -68,50 +51,31 @@ export function AdminLogin() {
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="text-[11px] text-muted border border-line rounded px-2.5 py-1.5 hover:text-ink hover:border-line2 hover:bg-surface2 transition-colors duration-200"
-      >
-        Admin
-      </button>
-    );
-  }
-
   return (
-    <>
-      <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-[2px]" onClick={close} aria-hidden />
+    <div className="min-h-screen bg-bg flex items-center justify-center px-4">
+      <div className="w-full max-w-[400px] bg-surface2 border border-line2 rounded-xl shadow-2xl overflow-hidden">
+        <div className="px-6 pt-6 pb-4 border-b border-line">
+          <h1 className="text-lg font-extrabold tracking-tight mb-3">
+            KON<span className="text-accent">FLUENCE</span>
+          </h1>
 
-      <div className="fixed z-50 top-16 left-4 right-4 sm:left-auto sm:right-6 sm:w-[380px] bg-surface2 border border-line2 rounded-xl shadow-2xl overflow-hidden">
-        <div className="px-5 pt-5 pb-4 border-b border-line">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-ink">Přihlášení administrátora</h2>
-            <button onClick={close} className="text-faint hover:text-ink text-lg leading-none px-1" aria-label="Zavřít">
-              ×
-            </button>
-          </div>
-
-          {/* Krokový indikátor — dva segmenty, aktivní/dokončený je accent, budoucí je line2. */}
+          {/* Krokový indikátor — tři segmenty, aktivní/dokončený je accent, budoucí je line2. */}
           <div className="flex items-center gap-2">
             <StepDot label="E-mail" state={step === "email" ? "active" : "done"} />
             <div className={`flex-1 h-px ${step === "email" ? "bg-line2" : "bg-accent/50"}`} />
-            <StepDot
-              label="Kód"
-              state={step === "code" ? "active" : step === "done" ? "done" : "pending"}
-            />
+            <StepDot label="Kód" state={step === "code" ? "active" : step === "done" ? "done" : "pending"} />
             <div className={`flex-1 h-px ${step === "done" ? "bg-accent/50" : "bg-line2"}`} />
             <StepDot label="Hotovo" state={step === "done" ? "active" : "pending"} />
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-6">
           {step === "email" && (
             <form onSubmit={handleSendCode} className="space-y-4">
               <p className="text-[12px] text-faint leading-relaxed">
-                Pošleme vám šestimístný ověřovací kód e-mailem. Přihlásí se jen účet{" "}
-                <span className="text-muted">p.vospalek@gmail.com</span> — ostatní e-maily kód dostanou, ale
-                nezískají admin oprávnění.
+                Appka je jen po přihlášení. Pošleme vám šestimístný ověřovací kód e-mailem — po ověření se
+                vám rovnou vytvoří účet, žádná samostatná registrace není potřeba. Upravovat data může jen
+                admin, ostatní účty appku jen prohlížejí.
               </p>
               <label className="block">
                 <span className="text-[11px] text-faint">E-mail</span>
@@ -195,7 +159,7 @@ export function AdminLogin() {
           {error && <p className="text-[11px] text-neg mt-3 leading-relaxed">{error}</p>}
         </div>
       </div>
-    </>
+    </div>
   );
 }
 

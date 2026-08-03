@@ -41,6 +41,29 @@ Deno.serve(async (req: Request) => {
   const isAdminAccount = loggedInEmail === ADMIN_EMAIL;
   const when = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
 
+  // Appka je teď otevřená pro registraci komukoli s e-mailem (auth.users vzniká automaticky
+  // při prvním ověření kódu, viz auth.ts) — admin chce vědět SPECIFICKY o nových registracích,
+  // ne jen o přihlášeních obecně. created_at (vznik účtu) a last_sign_in_at (tenhle příchozí
+  // sign-in) jsou u prvního ověření kódu prakticky totožné (stejná operace v Supabase Auth);
+  // u vracejícího se uživatele je created_at o dost starší. 10s je bezpečná rezerva na latenci.
+  const createdAtMs = new Date(user.created_at).getTime();
+  const lastSignInMs = user.last_sign_in_at ? new Date(user.last_sign_in_at).getTime() : createdAtMs;
+  const isNewRegistration = Math.abs(lastSignInMs - createdAtMs) < 10_000;
+
+  const subject = isNewRegistration
+    ? "🆕 Nová registrace v Konfluence"
+    : isAdminAccount
+      ? "Nové přihlášení do Konfluence"
+      : "Přihlášení do Konfluence";
+
+  const text = isNewRegistration
+    ? `Nový uživatel se právě poprvé zaregistroval a přihlásil do appky Konfluence.\n\nE-mail: ${loggedInEmail}\nČas: ${when}\n\n${
+        isAdminAccount ? "Jde o tvůj vlastní admin účet." : "Tenhle účet nemá admin oprávnění (ta má jen p.vospalek@gmail.com), jen může appku prohlížet."
+      }`
+    : `${isAdminAccount ? "Přihlásil ses" : `Uživatel ${loggedInEmail} se přihlásil`} do appky Konfluence.\n\nČas: ${when}${
+        isAdminAccount ? "\n\nPokud jsi to nebyl ty, změň si přístup k e-mailu." : ""
+      }`;
+
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -50,12 +73,8 @@ Deno.serve(async (req: Request) => {
     body: JSON.stringify({
       from: "Konfluence <onboarding@resend.dev>",
       to: [ADMIN_EMAIL],
-      subject: isAdminAccount ? "Nové přihlášení do Konfluence" : "⚠️ Přihlášení do Konfluence jiným e-mailem",
-      text: `${isAdminAccount ? "Přihlásil ses" : "Někdo se přihlásil"} do appky Konfluence.\n\nE-mail: ${loggedInEmail}\nČas: ${when}\n\n${
-        isAdminAccount
-          ? "Pokud jsi to nebyl ty, změň si přístup k e-mailu."
-          : "Tenhle účet nemá admin oprávnění (ta má jen p.vospalek@gmail.com), ale někdo prošel ověřovacím krokem přihlášení."
-      }`,
+      subject,
+      text,
     }),
   });
 

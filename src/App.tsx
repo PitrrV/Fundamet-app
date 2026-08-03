@@ -378,9 +378,25 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [currencyCode, setCurrencyCode] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const [topOpportunity, setTopOpportunity] = useState<TopOpportunity | null>(null);
 
   useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setSessionChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // Appka teď vyžaduje přihlášení pro KOHOKOLI (DB granty na anon jsou zrušené, viz
+  // schema-require-auth.sql) — data se tedy nemá cenu tahat, dokud session neexistuje, jinak
+  // by to skončilo jen zbytečnou 401/403 chybou z Supabase.
+  useEffect(() => {
+    if (!session) return;
     fetchCurrencies()
       .then((data) => {
         setCurrencies(data);
@@ -390,15 +406,7 @@ export default function App() {
     fetchTopOpportunity()
       .then(setTopOpportunity)
       .catch(() => setTopOpportunity(null));
-  }, []);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-    });
-    return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [session]);
 
   const isAdmin = session?.user?.email?.toLowerCase() === ADMIN_EMAIL;
 
@@ -416,6 +424,18 @@ export default function App() {
   }
 
   const currency = useMemo(() => currencies?.find((c) => c.code === currencyCode) ?? null, [currencies, currencyCode]);
+
+  // Dokud neproběhne první getSession(), nevíme, jestli ukázat bránu, nebo dashboard — krátká
+  // prázdná obrazovka je lepší než blesknutí přihlašovací brány každému, kdo má platnou session.
+  if (!sessionChecked) {
+    return <div className="min-h-screen bg-bg" />;
+  }
+
+  // Appka je teď jen po přihlášení (viz notify-admin-login a schema-require-auth.sql) —
+  // kdokoli se svým e-mailem, admin oprávnění na úpravu dat má ale pořád jen ADMIN_EMAIL.
+  if (!session) {
+    return <AdminLogin />;
+  }
 
   return (
     <div className="min-h-screen bg-bg">
@@ -435,19 +455,15 @@ export default function App() {
             </span>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {session ? (
-              <div className="flex items-center gap-2 text-[11px] text-muted">
-                {isAdmin && <span className="text-accent font-semibold">admin</span>}
-                <button
-                  onClick={() => signOut()}
-                  className="border border-line rounded px-2 py-1 hover:border-line2 hover:bg-surface2 hover:text-ink transition-colors duration-200"
-                >
-                  Odhlásit
-                </button>
-              </div>
-            ) : (
-              <AdminLogin />
-            )}
+            <div className="flex items-center gap-2 text-[11px] text-muted">
+              {isAdmin && <span className="text-accent font-semibold">admin</span>}
+              <button
+                onClick={() => signOut()}
+                className="border border-line rounded px-2 py-1 hover:border-line2 hover:bg-surface2 hover:text-ink transition-colors duration-200"
+              >
+                Odhlásit
+              </button>
+            </div>
           </div>
         </div>
       </header>
