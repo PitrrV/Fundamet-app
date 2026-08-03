@@ -27,6 +27,11 @@ const FORCE_REGENERATE = truthy(process.env.FORCE_REGENERATE);
 // Trvalý vypínač celé detekce změn (repo variable). Návrat k původnímu chování "generuj vždy
 // všechno" bez revertu kódu — kdyby se přeskakování chovalo nečekaně.
 const DISABLE_INPUT_HASH = truthy(process.env.DISABLE_INPUT_HASH);
+// Nákladový audit (2026-08-03): tts-1 stojí $15 za 1M znaků — na jedno volání malé peníze, ale
+// při ladění, kdy se force=true pouští opakovaně jen kvůli ověření TEXTU jedné měny, appka
+// zbytečně přegeneruje i audio pro všech 8 měn pokaždé. SKIP_AUDIO nechá text/agendu beze změny,
+// jen vynechá TTS krok — pro běžný denní cron zůstává vypnuté (audio se generuje jako dřív).
+const SKIP_AUDIO = truthy(process.env.SKIP_AUDIO);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Chybí SUPABASE_URL nebo SUPABASE_SERVICE_KEY v prostředí.");
@@ -947,7 +952,7 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     console.error(`[${currencyCode}] generování agendy selhalo (shrnutí se uloží i tak):`, err.message);
   }
 
-  const audioUrl = await generateNarrativeAudio(currencyCode, narrative);
+  const audioUrl = SKIP_AUDIO ? null : await generateNarrativeAudio(currencyCode, narrative);
 
   // Model vrátil forward_flag (nechtěl null), ale buď je moc krátký na použitelnou větu, nebo
   // mluví o eventu mimo appkou předvybrané "flaggedEvents" (viz isTooShortForwardFlag a
