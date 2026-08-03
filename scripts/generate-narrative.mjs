@@ -162,7 +162,7 @@ Napiš 2-4 věty, které odpoví na tohle pořadí otázek:
 
 Když "scoreChange" chybí nebo je null (appka ještě nemá dva snímky k porovnání), vrať "thesis_change_note" jako null. Nevymýšlej si změnu, která se nestala.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází — VŽDY napiš KONKRÉTNÍ datum eventu přesně tak, jak je v "upcomingEvents" ["date"], např. "5. srpna", NIKDY vágní/domýšlenou relativní frázi jako "příští týden" nebo "brzy": appka živě zachytila chybu, kdy si model spočítal vzdálenost dnů špatně a nadcházející event v tomhle týdnu označil jako "příští týden" — datum máš v datech hotové, nepočítej ho, jen ho opiš), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
 
 const AGENDA_PROMPT = `${SHARED_CONTEXT}
 
