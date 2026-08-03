@@ -18,6 +18,18 @@ import { computeTopOpportunity } from "./top-opportunity.mjs";
 // Fx-Analyzeru (fund .42/cot .45/sent .11/sea .02), s přerozdělenou sezónností (chybí pilíř).
 const BLEND_WEIGHTS = { fund: 0.43, cot: 0.46, retail: 0.11 };
 
+// "Den eventu" appka počítá podle pražského (uživatelova) místního času, ne podle UTC — živě
+// nahlášená chyba (NZD, audit 2026-08-03): event v 22:45 UTC je 4.8. v UTC, ale 5.8. i v Praze
+// (krátce po půlnoci) i v místě publikace (NZ, UTC+12/13, dopoledne 5.8.). Čistý UTC datum tak
+// systematicky posouval pozdně-večerní UTC eventy (typicky NZ/Asie-Pacifik) o den dřív, než je
+// uživatel reálně vidí — jak na ForexFactory ve vlastní časové zóně, tak na hodinkách.
+// sv-SE (švédská lokalizace) formátuje datum jako YYYY-MM-DD, takže jde použít rovnou jako ISO
+// datum bez ruční skladby — jediný spolehlivý trik na "lokální datum v jiné časové zóně" bez
+// externí knihovny (Intl.DateTimeFormat je součást Node, žádná nová závislost).
+function pragueDateString(date) {
+  return date.toLocaleDateString("sv-SE", { timeZone: "Europe/Prague" });
+}
+
 // Jediný driver, u kterého jde v okamžiku klasifikace dohledat KONKRÉTNÍ dnešní event (na
 // rozdíl od cot/retail/cb_policy/risk_regime, což jsou agregátní čísla bez jednoho jasného
 // "zdroje") — najde dnešní event s nejvyšší váhou (matchRule) a vyplněným actual, ať
@@ -25,7 +37,7 @@ const BLEND_WEIGHTS = { fund: 0.43, cot: 0.46, retail: 0.11 };
 // Vrací null, když dnes u téhle měny žádný takový event nepřišel — thesis-engine pak použije
 // obecný text jako dřív.
 function todaysFundamentalEventLabel(currencyCode, allEvents) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = pragueDateString(new Date());
   let best = null;
   let bestWeight = 0;
   for (const ev of allEvents) {
@@ -163,9 +175,9 @@ export async function fetchWeek(offsetDays) {
       const eventTime = dateline ? new Date(dateline) : null;
       const dayDateline = day.dateline ? Number(day.dateline) * 1000 : null;
       const eventDay = eventTime
-        ? eventTime.toISOString().slice(0, 10)
+        ? pragueDateString(eventTime)
         : dayDateline
-          ? new Date(dayDateline).toISOString().slice(0, 10)
+          ? pragueDateString(new Date(dayDateline))
           : null;
       if (!eventDay) continue;
 
