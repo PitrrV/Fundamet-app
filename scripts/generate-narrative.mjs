@@ -162,7 +162,13 @@ Napiš 2-4 věty, které odpoví na tohle pořadí otázek:
 
 Když "scoreChange" chybí nebo je null (appka ještě nemá dva snímky k porovnání), vrať "thesis_change_note" jako null. Nevymýšlej si změnu, která se nestala.
 
-Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (jedna věta upozorňující na nejbližší důležitý nadcházející event a na co si dát pozor, nebo null pokud nic zajímavého nepřichází — VŽDY napiš KONKRÉTNÍ datum eventu přesně tak, jak je v "upcomingEvents" ["date"], např. "5. srpna", NIKDY vágní/domýšlenou relativní frázi jako "příští týden" nebo "brzy": appka živě zachytila chybu, kdy si model spočítal vzdálenost dnů špatně a nadcházející event v tomhle týdnu označil jako "příští týden" — datum máš v datech hotové, nepočítej ho, jen ho opiš), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
+POLE "forward_flag" — appka ho zobrazuje jako "navazující eventy", pod hlavním příběhem. VŽDY jde o jednu až dvě CELÉ VĚTY, nikdy jen holé datum nebo název eventu bez vysvětlení. Věta musí obsahovat tři věci najednou:
+1. KDY — konkrétní datum doslova podle "upcomingEvents" / "date", ve tvaru jako v příkladu "5. srpna". NIKDY vágní/domýšlenou relativní frázi jako "příští týden" nebo "brzy": appka živě zachytila chybu, kdy si model spočítal vzdálenost dnů špatně a nadcházející event v tomhle týdnu označil jako "příští týden".
+2. CO — název eventu (nebo víc eventů, pokud jich přichází víc v řadě po sobě a je mezi nimi souvislost, kterou stojí za to zmínit — proto se to pole jmenuje "navazující eventy").
+3. PROČ — na co si má trader u toho eventu dát pozor vzhledem k současné tezi, ne obecnou definici indikátoru.
+Appka živě zachytila i opačnou chybu, než tu s vágním datem: model jednou vrátil doslova jen "5. srpna" bez jediného slova vysvětlení — holé datum bez kontextu je pro čtenáře k ničemu a appka takovou odpověď zahazuje a nahrazuje záložním textem, takže ji nikdy nevracej. Vrať null jen když v "upcomingEvents" fakt není nic, na co má smysl upozorňovat.
+
+Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (viz výš, nebo null), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
 
 const AGENDA_PROMPT = `${SHARED_CONTEXT}
 
@@ -206,6 +212,52 @@ function buildFallbackOutcome(seed) {
   const dir = eventDirection({ event_title: seed.title, actual: seed.actual, estimate: seed.estimate });
   const verdict = dir > 0 ? "překonalo odhad" : dir < 0 ? "zaostalo za odhadem" : "odpovídalo konsensu";
   return `${seed.title} vyšlo na ${seed.actual} (odhad ${seed.estimate ?? "N/A"}, předchozí ${seed.previous ?? "N/A"}) — data ${verdict}.`;
+}
+
+const CZ_MONTHS_GENITIVE = [
+  "ledna", "února", "března", "dubna", "května", "června",
+  "července", "srpna", "září", "října", "listopadu", "prosince",
+];
+
+function formatCzechDate(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return `${d.getUTCDate()}. ${CZ_MONTHS_GENITIVE[d.getUTCMonth()]}`;
+}
+
+// Stejná bezpečnostní síť jako u "outcome" (viz výš), pro stejnou třídu chyby v jiném poli.
+// Živě nahlášená chyba (NZD, audit 2026-08-03): poté, co prompt začal vyžadovat doslovné datum
+// místo vágní fráze, model to vzal příliš doslovně a vrátil jako CELÝ obsah pole "forward_flag"
+// jen "5. srpna" — žádný název eventu, žádné vysvětlení, proč na to dávat pozor. Holé datum bez
+// věty je pro čtenáře stejně k ničemu jako vágní fráze, kterou to nahradilo. Prompt engineering
+// (viz NARRATIVE_PROMPT) tomu teď brání explicitně, ale stejně jako u "outcome" to negarantuje —
+// proto deterministický fallback, co poskládá větu přímo z nadcházejících eventů appky.
+const MIN_FORWARD_FLAG_WORDS = 6;
+
+function isTooShortForwardFlag(text) {
+  return !text || text.trim().split(/\s+/).length < MIN_FORWARD_FLAG_WORDS;
+}
+
+// Poskládá záložní větu z nejvýše vážených nadcházejících eventů (stejná váhová logika jako
+// u agendy — sazby/inflace/práce mají přednost). Zmíní i DRUHÝ nejbližší den, pokud existuje,
+// aby fallback pokryl i případ "napřed méně důležitý event, pak zásadní rozhodnutí", který appka
+// v UI zobrazuje jako "navazující eventy" — ne jen jeden izolovaný event bez návaznosti.
+function buildFallbackForwardFlag(upcoming) {
+  const weighted = (upcoming ?? [])
+    .map((e) => ({ ...e, _weight: agendaWeight(e.title) }))
+    .filter((e) => e._weight > 0)
+    .sort((a, b) => a.date.localeCompare(b.date) || b._weight - a._weight);
+  if (weighted.length === 0) return null;
+
+  const firstDate = weighted[0].date;
+  const sameDay = weighted.filter((e) => e.date === firstDate);
+  const laterDay = weighted.find((e) => e.date !== firstDate);
+
+  let text = `${formatCzechDate(firstDate)} vychází ${sameDay.map((e) => e.title).join(" a ")} — sleduj, jestli výsledek potvrdí, nebo zpochybní současnou tezi.`;
+  if (laterDay) {
+    text += ` Navazuje ${formatCzechDate(laterDay.date)}: ${laterDay.title}.`;
+  }
+  return text;
 }
 
 async function loadBasketContext() {
@@ -774,10 +826,19 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
 
   const audioUrl = await generateNarrativeAudio(currencyCode, narrative);
 
+  // Model vrátil forward_flag (nechtěl null), ale je moc krátký na to, aby byl použitelná věta
+  // (typicky holé datum bez kontextu — viz komentář u isTooShortForwardFlag) → nahradit
+  // deterministickým fallbackem poskládaným přímo z nadcházejících eventů appky.
+  const rawForwardFlag = normalizeNullable(narrativePart.forward_flag);
+  const forwardFlag =
+    rawForwardFlag && isTooShortForwardFlag(rawForwardFlag)
+      ? (buildFallbackForwardFlag(context.upcoming) ?? rawForwardFlag)
+      : rawForwardFlag;
+
   const { error: insErr } = await supabase.from("narratives").insert({
     currency_code: currencyCode,
     narrative,
-    forward_flag: normalizeNullable(narrativePart.forward_flag),
+    forward_flag: forwardFlag,
     conviction_note: narrativePart.conviction_note,
     // Pojistka: model občas u nullable pole vrátí string "null" i ve strict módu. A když appka
     // nemá dva snímky k porovnání, nesmí tam přistát vymyšlené vysvětlení neexistující změny.
