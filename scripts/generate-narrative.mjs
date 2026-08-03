@@ -807,13 +807,29 @@ async function main() {
     process.exit(1);
   }
 
-  const { data: allCalendarEvents, error: calErr } = await supabase
-    .from("calendar_events")
-    .select("currency_code, event_title, event_day, actual, estimate, previous, impact");
+  // PostgREST vrací max 1000 řádků na dotaz bez explicitní stránkování — calendar_events má
+  // přes 4000 řádků a bez ORDER BY navíc Postgres negarantuje, KTERÝCH 1000 se vrátí (může se
+  // lišit běh od běhu). Živě nahlášená chyba (NZD, audit 2026-08-03): Employment Change/
+  // Unemployment Rate (vysoké ID, nedávno vložené) se do prvních 1000 řádků tiše nevešly, takže
+  // appka o nich vůbec nevěděla a vypadly z agendy. Stejný problém byl už dřív opravený ve
+  // fetch-calendar.mjs (fetchAllCalendarEvents) — sem se ta oprava nikdy nedostala, protože je
+  // to nezávislý dotaz ve druhém souboru.
+  const allCalendarEvents = [];
+  {
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data: page, error: calErr } = await supabase
+        .from("calendar_events")
+        .select("currency_code, event_title, event_day, actual, estimate, previous, impact")
+        .range(from, from + pageSize - 1);
 
-  if (calErr) {
-    console.error("Nepodařilo se načíst calendar_events:", calErr.message);
-    process.exit(1);
+      if (calErr) {
+        console.error("Nepodařilo se načíst calendar_events:", calErr.message);
+        process.exit(1);
+      }
+      allCalendarEvents.push(...page);
+      if (page.length < pageSize) break;
+    }
   }
 
   const basketContext = await loadBasketContext();
