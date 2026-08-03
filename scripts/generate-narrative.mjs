@@ -660,6 +660,12 @@ async function generateAgendaPart(currencyCode, context, narrative) {
           properties: {
             scenarios: {
               type: "array",
+              // Živě nahlášená chyba (NZD, audit 2026-08-03): appka poslala modelu 6-7 seedů
+              // (scenarioSeeds), ale model dvakrát po sobě vrátil jen 1 položku — schéma to
+              // nezakazovalo, protože mělo jen strop (maxItems), žádné vynucené minimum.
+              // minItems napevno vynutí přesně tolik položek, kolik seedů appka dala (schéma se
+              // staví čerstvě na každé volání, takže scenarioSeeds.length je tu k dispozici).
+              minItems: scenarioSeeds.length,
               maxItems: MAX_AGENDA_ITEMS,
               items: {
                 type: "object",
