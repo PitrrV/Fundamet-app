@@ -12,7 +12,13 @@ import { getEventHistoryTrend, getWeight, eventDirection, matchRule } from "./fu
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+// gpt-5.6-luna — živě ověřeno (2026-08-03): funguje na strict json_schema, nepodporuje
+// temperature (viz samplingParams níž), podporuje reasoning_effort a je novější/kvalitnější
+// rodina než gpt-4o-mini při cca $0.20/$1.20 za 1M tokenů (in/out) — o něco dražší na token
+// než gpt-4o-mini ($0.15/$0.60), ale při objemu appky (řádově desítky volání denně) je rozdíl
+// v absolutních dolarech zanedbatelný a appka tím řeší reálný požadavek na kvalitu (konzistence
+// jazyka, méně halucinací), ne primárně cenu.
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.6-luna";
 
 const truthy = (v) => /^(1|true|yes|on)$/i.test((v ?? "").trim());
 
@@ -119,7 +125,7 @@ const GLOSSARY = `ZÁVAZNÁ TERMINOLOGIE — appka tyhle výrazy používá v UI
 - beat / miss → "překonal odhad" / "zaostal za odhadem"
 - driver → "driver" (běžně se v češtině v tomhle oboru nepřekládá)
 
-Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná.`;
+Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná. Piš VÝHRADNĚ latinkou s českou diakritikou — appka živě zachytila případ, kdy se v jinak českém textu objevila azbuka; žádné jiné písmo (cyrilice, řečtina, CJK znaky...) se do odpovědi nesmí dostat ani omylem.`;
 
 const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
@@ -657,6 +663,108 @@ async function generateNarrativeAudio(currencyCode, text) {
   }
 }
 
+// ── Volání OpenAI: sdílený jádrový kód pro oba kroky ────────────────────────────────────
+// Modelová rodina GPT-5.x je "reasoning" model — nepodporuje temperature (appka si to živě
+// ověřila: 400 "Unsupported value: 'temperature' does not support 0.4 with this model. Only
+// the default (1) value is supported."), místo toho má reasoning_effort (none/low/medium/
+// high/xhigh). Starší modely (gpt-4o-mini apod.) naopak reasoning_effort neznají, ale
+// temperature ano. Appka musí umět běžet na obojí, protože OPENAI_MODEL je repo secret, ne
+// konstanta — proto se parametr vybírá podle prefixu jména modelu, ne natvrdo.
+const REASONING_MODEL_PREFIXES = ["gpt-5", "o1", "o3", "o4"];
+
+function isReasoningModel(model) {
+  return REASONING_MODEL_PREFIXES.some((p) => model.startsWith(p));
+}
+
+// "low" necháme modelu malý prostor si to "rozmyslet" před odpovědí (appka věří, že to omezí
+// halucinace/prohození faktů), ale zůstává to v levném/rychlém pásmu modelu (na rozdíl od
+// medium/high/xhigh) — Luna je navržená jako rychlá/levná vrstva, ne na hloubkové uvažování.
+function samplingParams(model) {
+  return isReasoningModel(model) ? { reasoning_effort: "low" } : { temperature: 0.4 };
+}
+
+// Appka živě zachytila případ, kdy se v jinak českém textu objevila azbuka (typický artefakt
+// token kolize u LLM, ne úmysl modelu) — v produkčním textu je to nepřehlédnutelně rušivé a
+// vypadá to jako rozbitá appka. Rozsahy pokrývají písma, co v gramaticky správné češtině nemají
+// co dělat (cyrilice, řečtina, hebrejština, arabština, dévanágarí, thajština, CJK, hangul);
+// latinka vč. české diakritiky, čísla a běžná interpunkce/symboly jsou v pořádku.
+const FOREIGN_SCRIPT_RANGES = [
+  "\\u0370-\\u03FF", // řečtina
+  "\\u0400-\\u04FF\\u0500-\\u052F", // cyrilice (+ doplněk)
+  "\\u0590-\\u05FF", // hebrejština
+  "\\u0600-\\u06FF", // arabština
+  "\\u0900-\\u097F", // dévanágarí
+  "\\u0E00-\\u0E7F", // thajština
+  "\\u3040-\\u30FF", // hiragana/katakana
+  "\\u3400-\\u4DBF\\u4E00-\\u9FFF", // CJK ideogramy
+  "\\uAC00-\\uD7A3", // hangul
+].join("");
+const FOREIGN_SCRIPT_RE = new RegExp(`[${FOREIGN_SCRIPT_RANGES}]`, "u");
+
+// Projde celou strukturu odpovědi a vrátí cesty ke všem textovým polím s cizím písmem — appka
+// pak přesně ví, KTERÉ pole je špatně (pro log i pro to, aby šlo případně cíleně opakovat).
+function findForeignScript(value, path = "$") {
+  if (typeof value === "string") {
+    return FOREIGN_SCRIPT_RE.test(value) ? [path] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => findForeignScript(v, `${path}[${i}]`));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([k, v]) => findForeignScript(v, `${path}.${k}`));
+  }
+  return [];
+}
+
+// Sdílené jádro obou kroků (dřív byl `openai.chat.completions.create` duplikovaný v
+// generateNarrativePart i generateAgendaPart se stejnou strukturou, jen jiným promptem/
+// schématem). Navíc bezpečnostní síť na cizí písmo: při zásahu appka JEDNOU zopakuje dotaz s
+// explicitním upozorněním na chybu, než výsledek přijme — stejný princip "prompt engineering
+// snižuje pravděpodobnost, kód garantuje" jako u ostatních pojistek v souboru (isTooShortOutcome,
+// forwardFlagCitesFlaggedEvent...), jen tady řešíme celou odpověď najednou, ne jedno pole.
+async function callStructuredCompletion({ currencyCode, label, systemPrompt, payload, schemaName, schema }) {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: JSON.stringify(payload) },
+  ];
+
+  const runOnce = async (msgs) => {
+    const completion = await openai.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: msgs,
+      ...samplingParams(OPENAI_MODEL),
+      response_format: { type: "json_schema", json_schema: { name: schemaName, strict: true, schema } },
+    });
+    return JSON.parse(completion.choices[0].message.content);
+  };
+
+  let result = await runOnce(messages);
+  let badPaths = findForeignScript(result);
+
+  if (badPaths.length > 0) {
+    console.warn(`[${currencyCode}] ${label}: cizí písmo v poli(ích) ${badPaths.join(", ")} — opakuji dotaz.`);
+    result = await runOnce([
+      ...messages,
+      { role: "assistant", content: JSON.stringify(result) },
+      {
+        role: "user",
+        content:
+          "Tvoje odpověď obsahovala znaky mimo latinku (např. azbuku) — to je chyba. Přepiš CELOU odpověď znovu, čistě spisovnou češtinou, jen latinka a česká diakritika.",
+      },
+    ]);
+    badPaths = findForeignScript(result);
+    if (badPaths.length > 0) {
+      console.error(
+        `[${currencyCode}] ${label}: cizí písmo přetrvává i po opakování v poli(ích) ${badPaths.join(", ")} — ukládám i tak, appka to zaloguje pro ruční kontrolu.`
+      );
+    } else {
+      console.log(`[${currencyCode}] ${label}: opakování dotazu cizí písmo opravilo.`);
+    }
+  }
+
+  return result;
+}
+
 // Krok 1 — shrnutí příběhu. Krátká odpověď, dostane široký kontext (koš měn, oba proudy eventů).
 async function generateNarrativePart(currencyCode, context) {
   const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent, flaggedEvents } = context;
@@ -677,33 +785,24 @@ async function generateNarrativePart(currencyCode, context) {
     flaggedEvents,
   };
 
-  const completion = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: NARRATIVE_PROMPT },
-      { role: "user", content: JSON.stringify(payload) },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "fx_narrative",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            narrative: { type: "string" },
-            forward_flag: { type: ["string", "null"] },
-            conviction_note: { type: "string" },
-            thesis_change_note: { type: ["string", "null"] },
-          },
-          required: ["narrative", "forward_flag", "conviction_note", "thesis_change_note"],
-          additionalProperties: false,
-        },
+  return callStructuredCompletion({
+    currencyCode,
+    label: "shrnutí",
+    systemPrompt: NARRATIVE_PROMPT,
+    payload,
+    schemaName: "fx_narrative",
+    schema: {
+      type: "object",
+      properties: {
+        narrative: { type: "string" },
+        forward_flag: { type: ["string", "null"] },
+        conviction_note: { type: "string" },
+        thesis_change_note: { type: ["string", "null"] },
       },
+      required: ["narrative", "forward_flag", "conviction_note", "thesis_change_note"],
+      additionalProperties: false,
     },
   });
-
-  return JSON.parse(completion.choices[0].message.content);
 }
 
 // Krok 2 — makro agenda. Samostatné volání ze dvou důvodů: (1) v jedné odpovědi s narrativem se
@@ -727,65 +826,58 @@ async function generateAgendaPart(currencyCode, context, narrative) {
     scenarioSeeds,
   };
 
-  const completion = await openai.chat.completions.create({
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: AGENDA_PROMPT },
-      { role: "user", content: JSON.stringify(payload) },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "fx_agenda",
-        strict: true,
-        schema: {
-          type: "object",
-          properties: {
-            scenarios: {
-              type: "array",
-              // Živě nahlášená chyba (NZD, audit 2026-08-03): appka poslala modelu 6-7 seedů
-              // (scenarioSeeds), ale model dvakrát po sobě vrátil jen 1 položku — schéma to
-              // nezakazovalo, protože mělo jen strop (maxItems), žádné vynucené minimum.
-              // minItems napevno vynutí přesně tolik položek, kolik seedů appka dala (schéma se
-              // staví čerstvě na každé volání, takže scenarioSeeds.length je tu k dispozici).
-              minItems: scenarioSeeds.length,
-              maxItems: MAX_AGENDA_ITEMS,
-              items: {
-                type: "object",
-                properties: {
-                  event: { type: "string" },
-                  date: { type: "string" },
-                  tier: { type: "string", enum: ["klíčový", "druhořadý", "kontext"] },
-                  why_it_matters: { type: "string" },
-                  market_expectation: { type: "string" },
-                  thesis_test: { type: "string" },
-                  reaction: { type: "string", enum: ["silná", "omezená", "asymetrická"] },
-                  reaction_note: { type: "string" },
-                  outcome: { type: ["string", "null"] },
-                },
-                required: [
-                  "event",
-                  "date",
-                  "tier",
-                  "why_it_matters",
-                  "market_expectation",
-                  "thesis_test",
-                  "reaction",
-                  "reaction_note",
-                  "outcome",
-                ],
-                additionalProperties: false,
-              },
+  const result = await callStructuredCompletion({
+    currencyCode,
+    label: "agenda",
+    systemPrompt: AGENDA_PROMPT,
+    payload,
+    schemaName: "fx_agenda",
+    schema: {
+      type: "object",
+      properties: {
+        scenarios: {
+          type: "array",
+          // Živě nahlášená chyba (NZD, audit 2026-08-03): appka poslala modelu 6-7 seedů
+          // (scenarioSeeds), ale model dvakrát po sobě vrátil jen 1 položku — schéma to
+          // nezakazovalo, protože mělo jen strop (maxItems), žádné vynucené minimum.
+          // minItems napevno vynutí přesně tolik položek, kolik seedů appka dala (schéma se
+          // staví čerstvě na každé volání, takže scenarioSeeds.length je tu k dispozici).
+          minItems: scenarioSeeds.length,
+          maxItems: MAX_AGENDA_ITEMS,
+          items: {
+            type: "object",
+            properties: {
+              event: { type: "string" },
+              date: { type: "string" },
+              tier: { type: "string", enum: ["klíčový", "druhořadý", "kontext"] },
+              why_it_matters: { type: "string" },
+              market_expectation: { type: "string" },
+              thesis_test: { type: "string" },
+              reaction: { type: "string", enum: ["silná", "omezená", "asymetrická"] },
+              reaction_note: { type: "string" },
+              outcome: { type: ["string", "null"] },
             },
+            required: [
+              "event",
+              "date",
+              "tier",
+              "why_it_matters",
+              "market_expectation",
+              "thesis_test",
+              "reaction",
+              "reaction_note",
+              "outcome",
+            ],
+            additionalProperties: false,
           },
-          required: ["scenarios"],
-          additionalProperties: false,
         },
       },
+      required: ["scenarios"],
+      additionalProperties: false,
     },
   });
 
-  return JSON.parse(completion.choices[0].message.content).scenarios ?? [];
+  return result.scenarios ?? [];
 }
 
 // Modely i ve "strict" json_schema módu občas vrátí doslovný string "null" místo opravdového
