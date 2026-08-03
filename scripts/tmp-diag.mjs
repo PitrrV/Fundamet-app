@@ -1,45 +1,73 @@
-// DOČASNÝ diagnostický skript — smazat po použití.
-// 1) Ověří, že NZD eventy mají teď opravené datum. 2) Zkontroluje, jestli změna date-bucketingu
-// nevytvořila duplicity (stejná měna+název, datum jen o 1 den jinam — starý UTC řádek vedle
-// nového pražského).
+// DOČASNÝ jednorázový úklid — smazat po použití.
+// Přechod na pražské datum (viz commit "fix: počítat den eventu podle pražského času") nechal
+// v DB staré řádky pod původním (UTC) event_day vedle nově scrapnutých pod správným datem.
+// Pro každý řádek s event_time přepočítá správný pražský den; když se neshoduje s uloženým
+// event_day:
+//   - existuje-li už "správný" sourozenec (stejná měna+název+správný den) → smaže tenhle starý,
+//   - jinak → tenhle řádek rovnou opraví na správné datum (šetří data, co ještě nikdo znovu
+//     nescrapl, typicky mimo aktuální 9týdenní scrape okno).
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const { data: nzd } = await supabase
-  .from("calendar_events")
-  .select("event_title, event_day, event_time, actual, estimate")
-  .eq("currency_code", "NZD")
-  .in("event_title", ["Employment Change q/q", "Unemployment Rate"])
-  .order("event_day", { ascending: true });
-console.log("NZD Employment/Unemployment radky:", JSON.stringify(nzd, null, 2));
-
-// Duplicity: stejná měna+název s dvěma různými event_day v rozmezí posledních ~30 dní.
-const { data: all } = await supabase
-  .from("calendar_events")
-  .select("currency_code, event_title, event_day")
-  .gte("event_day", "2026-07-01");
-
-const groups = new Map();
-for (const ev of all ?? []) {
-  const key = `${ev.currency_code}|${ev.event_title}`;
-  if (!groups.has(key)) groups.set(key, new Set());
-  groups.get(key).add(ev.event_day);
+function pragueDateString(date) {
+  return date.toLocaleDateString("sv-SE", { timeZone: "Europe/Prague" });
 }
-let dupCount = 0;
-for (const [key, days] of groups) {
-  if (days.size > 1) {
-    const sorted = [...days].sort();
-    // Zajímají nás jen sousední dny (potenciální timezone duplicity), ne legitimně opakující
-    // se eventy (týdenní/měsíční data se stejným názvem přirozeně mají víc různých dnů).
-    for (let i = 1; i < sorted.length; i++) {
-      const d1 = new Date(sorted[i - 1]);
-      const d2 = new Date(sorted[i]);
-      if ((d2 - d1) / 86400000 === 1) {
-        console.log(`MOŽNÁ DUPLICITA: ${key} — ${sorted[i - 1]} a ${sorted[i]}`);
-        dupCount++;
-      }
-    }
+
+const PAGE_SIZE = 1000;
+const rows = [];
+for (let from = 0; ; from += PAGE_SIZE) {
+  const { data: page, error } = await supabase
+    .from("calendar_events")
+    .select("id, currency_code, event_title, event_day, event_time")
+    .order("id", { ascending: true })
+    .range(from, from + PAGE_SIZE - 1);
+  if (error) {
+    console.error("Chyba čtení:", error.message);
+    process.exit(1);
+  }
+  rows.push(...page);
+  if (page.length < PAGE_SIZE) break;
+}
+console.log(`Načteno ${rows.length} řádků celkem.`);
+
+const existingKeys = new Set(rows.map((r) => `${r.currency_code}|${r.event_title}|${r.event_day}`));
+
+let toDelete = [];
+let toUpdate = [];
+
+for (const r of rows) {
+  if (!r.event_time) continue;
+  const correctDay = pragueDateString(new Date(r.event_time));
+  if (correctDay === r.event_day) continue;
+
+  const correctKey = `${r.currency_code}|${r.event_title}|${correctDay}`;
+  if (existingKeys.has(correctKey)) {
+    toDelete.push(r.id);
+  } else {
+    toUpdate.push({ id: r.id, correctDay });
+    existingKeys.add(correctKey); // ať se dva staré duplikáty stejného eventu nepřepíšou na stejný den
   }
 }
-console.log(`Nalezeno ${dupCount} podezřelých sousedních-dnů párů.`);
+
+console.log(`Ke smazání (má už správného sourozence): ${toDelete.length}`);
+console.log(`K opravě na místě (žádný sourozenec): ${toUpdate.length}`);
+
+for (const { id, correctDay } of toUpdate) {
+  const { error } = await supabase.from("calendar_events").update({ event_day: correctDay }).eq("id", id);
+  if (error) console.error(`Chyba update id=${id}:`, error.message);
+}
+
+const BATCH = 500;
+let deleted = 0;
+for (let i = 0; i < toDelete.length; i += BATCH) {
+  const batch = toDelete.slice(i, i + BATCH);
+  const { error, count } = await supabase.from("calendar_events").delete({ count: "exact" }).in("id", batch);
+  if (error) {
+    console.error("Chyba mazání dávky:", error.message);
+    process.exit(1);
+  }
+  deleted += count ?? batch.length;
+}
+
+console.log(`Hotovo. Smazáno ${deleted}, opraveno na místě ${toUpdate.length}.`);
