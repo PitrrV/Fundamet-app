@@ -162,11 +162,13 @@ Napiš 2-4 věty, které odpoví na tohle pořadí otázek:
 
 Když "scoreChange" chybí nebo je null (appka ještě nemá dva snímky k porovnání), vrať "thesis_change_note" jako null. Nevymýšlej si změnu, která se nestala.
 
-POLE "forward_flag" — appka ho zobrazuje jako "navazující eventy", pod hlavním příběhem. VŽDY jde o jednu až dvě CELÉ VĚTY, nikdy jen holé datum nebo název eventu bez vysvětlení. Věta musí obsahovat tři věci najednou:
-1. KDY — konkrétní datum doslova podle "upcomingEvents" / "date", ve tvaru jako v příkladu "5. srpna". NIKDY vágní/domýšlenou relativní frázi jako "příští týden" nebo "brzy": appka živě zachytila chybu, kdy si model spočítal vzdálenost dnů špatně a nadcházející event v tomhle týdnu označil jako "příští týden".
-2. CO — název eventu (nebo víc eventů, pokud jich přichází víc v řadě po sobě a je mezi nimi souvislost, kterou stojí za to zmínit — proto se to pole jmenuje "navazující eventy").
+POLE "forward_flag" — appka ho zobrazuje jako "navazující eventy", pod hlavním příběhem. Dostaneš k tomu "flaggedEvents" — appka ti TAM UŽ VYBRALA, které nadcházející eventy jsou důležité (podle stejné váhové logiky jako makro agenda: sazby/inflace/práce mají přednost před vedlejšími printy typu komoditní indexy). VÝBĚR EVENTŮ NENÍ TVOJE ROZHODNUTÍ — "forward_flag" smí mluvit JEN o eventech z "flaggedEvents", nikdy o jiném (i kdyby byl chronologicky blíž). Živě nahlášená chyba: model bez týhle pojistky vzal nejbližší nadcházející event (nízkovážený mléčný cenový index hned zítra) místo skutečně důležitého Employment Change/Unemployment Rate o den později, které appka jinde v agendě sama označuje jako "klíčový" — appka teď posílá jen tu důležitou množinu, takže si nic nepleteš.
+
+Napiš JEDNU AŽ DVĚ CELÉ VĚTY (nikdy jen holé datum nebo název eventu bez vysvětlení), které obsahují tři věci najednou:
+1. KDY — konkrétní datum doslova podle "flaggedEvents" / "date", ve tvaru jako v příkladu "5. srpna". NIKDY vágní/domýšlenou relativní frázi jako "příští týden" nebo "brzy".
+2. CO — název eventu/eventů z "flaggedEvents" (pokud jich je v seznamu víc a jsou v řadě po sobě, klidně zmiň víc než jeden — proto se pole jmenuje "navazující eventy").
 3. PROČ — na co si má trader u toho eventu dát pozor vzhledem k současné tezi, ne obecnou definici indikátoru.
-Appka živě zachytila i opačnou chybu, než tu s vágním datem: model jednou vrátil doslova jen "5. srpna" bez jediného slova vysvětlení — holé datum bez kontextu je pro čtenáře k ničemu a appka takovou odpověď zahazuje a nahrazuje záložním textem, takže ji nikdy nevracej. Vrať null jen když v "upcomingEvents" fakt není nic, na co má smysl upozorňovat.
+Appka živě zachytila i opačnou chybu, než tu s vágním datem: model jednou vrátil doslova jen "5. srpna" bez jediného slova vysvětlení — holé datum bez kontextu je pro čtenáře k ničemu a appka takovou odpověď zahazuje a nahrazuje záložním textem, takže ji nikdy nevracej. Vrať null jen když je "flaggedEvents" prázdné pole.
 
 Odpověz strukturovaným JSON: "narrative" (hlavní příběh, 3-6 vět), "forward_flag" (viz výš, nebo null), "conviction_note" (jedna až dvě věty vysvětlující, jak moc si má trader být jistý tímhle čtením a proč — zmiň konvikci, pokud je nízká), "thesis_change_note" (viz výš, nebo null).`;
 
@@ -238,20 +240,27 @@ function isTooShortForwardFlag(text) {
   return !text || text.trim().split(/\s+/).length < MIN_FORWARD_FLAG_WORDS;
 }
 
-// Poskládá záložní větu z nejvýše vážených nadcházejících eventů (stejná váhová logika jako
-// u agendy — sazby/inflace/práce mají přednost). Zmíní i DRUHÝ nejbližší den, pokud existuje,
-// aby fallback pokryl i případ "napřed méně důležitý event, pak zásadní rozhodnutí", který appka
-// v UI zobrazuje jako "navazující eventy" — ne jen jeden izolovaný event bez návaznosti.
-function buildFallbackForwardFlag(upcoming) {
-  const weighted = (upcoming ?? [])
-    .map((e) => ({ ...e, _weight: agendaWeight(e.title) }))
-    .filter((e) => e._weight > 0)
-    .sort((a, b) => a.date.localeCompare(b.date) || b._weight - a._weight);
-  if (weighted.length === 0) return null;
+// Druhá bezpečnostní síť pro stejné pole, pro tu skutečnou třídu chyby, co appka živě nahlásila:
+// model nepsal moc krátce, psal PLYNULOU větu, ale o ŠPATNÉM eventu (nejbližší chronologicky
+// mléčný cenový index místo skutečně důležitého Employment Change/Unemployment Rate o den
+// později). Kontrola délky by tohle nikdy nechytila — proto ověřujeme, že text doslova obsahuje
+// datum aspoň jednoho z "flaggedEvents" (appkou předvybraných podle důležitosti).
+function forwardFlagCitesFlaggedEvent(text, flaggedEvents) {
+  if (!text || !flaggedEvents || flaggedEvents.length === 0) return false;
+  return flaggedEvents.some((e) => text.includes(formatCzechDate(e.date)));
+}
 
-  const firstDate = weighted[0].date;
-  const sameDay = weighted.filter((e) => e.date === firstDate);
-  const laterDay = weighted.find((e) => e.date !== firstDate);
+// Poskládá záložní větu přímo z "flaggedEvents" (viz selectFlaggedEvents níž — appka je tam už
+// vybrala podle důležitosti, ne chronologické blízkosti, a chronologicky seřadila). Zmíní i
+// DRUHÝ nejbližší den, pokud existuje, aby fallback pokryl i případ "napřed méně důležitý event,
+// pak zásadní rozhodnutí", který appka v UI zobrazuje jako "navazující eventy" — ne jen jeden
+// izolovaný event bez návaznosti.
+function buildFallbackForwardFlag(flaggedEvents) {
+  if (!flaggedEvents || flaggedEvents.length === 0) return null;
+
+  const firstDate = flaggedEvents[0].date;
+  const sameDay = flaggedEvents.filter((e) => e.date === firstDate);
+  const laterDay = flaggedEvents.find((e) => e.date !== firstDate);
 
   let text = `${formatCzechDate(firstDate)} vychází ${sameDay.map((e) => e.title).join(" a ")} — sleduj, jestli výsledek potvrdí, nebo zpochybní současnou tezi.`;
   if (laterDay) {
@@ -325,6 +334,25 @@ function selectScenarioSeeds(candidates) {
   // Chronologicky — agenda se čte jako časová osa "co nás čeká", ne jako žebříček vah.
   return seeds
     .map(({ _weight, _cat, ...ev }) => ev)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+const MAX_FLAGGED_EVENTS = 3;
+
+// Vybere, na které konkrétní eventy smí "forward_flag" upozornit — čistě podle důležitosti
+// (stejná agendaWeight jako u agendy), NE podle chronologické blízkosti. Živě nahlášená chyba
+// (NZD, audit 2026-08-03): model bez týhle pojistky vzal nejbližší nadcházející event (GDT Price
+// Index, nízkovážený mléčný index, hned zítra) místo skutečně důležitého Employment Change/
+// Unemployment Rate o den později, které appka sama v agendě označuje jako "klíčový". Model má
+// psát PROČ na to dávat pozor, ale KTERÉ eventy jsou hodny zmínky je fakt, ne jeho úsudek —
+// stejný princip jako beatImplication/resolvedVerdict výš v souboru.
+function selectFlaggedEvents(upcoming, max = MAX_FLAGGED_EVENTS) {
+  return upcoming
+    .map((ev) => ({ ...ev, _weight: agendaWeight(ev.title) }))
+    .filter((ev) => ev._weight > 0)
+    .sort((a, b) => b._weight - a._weight || a.date.localeCompare(b.date))
+    .slice(0, max)
+    .map(({ _weight, ...ev }) => ev)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -562,6 +590,7 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
     }));
 
   const scenarioSeeds = selectScenarioSeeds(scenarioCandidates);
+  const flaggedEvents = selectFlaggedEvents(upcoming);
 
   const cot = cotRow
     ? {
@@ -593,6 +622,7 @@ async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContex
     upcoming,
     recent,
     scenarioSeeds,
+    flaggedEvents,
   };
 }
 
@@ -629,7 +659,7 @@ async function generateNarrativeAudio(currencyCode, text) {
 
 // Krok 1 — shrnutí příběhu. Krátká odpověď, dostane široký kontext (koš měn, oba proudy eventů).
 async function generateNarrativePart(currencyCode, context) {
-  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent } = context;
+  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent, flaggedEvents } = context;
 
   const payload = {
     currency: currencyCode,
@@ -644,6 +674,7 @@ async function generateNarrativePart(currencyCode, context) {
     basketContext,
     upcomingEvents: upcoming,
     recentEvents: recent,
+    flaggedEvents,
   };
 
   const completion = await openai.chat.completions.create({
@@ -826,14 +857,17 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
 
   const audioUrl = await generateNarrativeAudio(currencyCode, narrative);
 
-  // Model vrátil forward_flag (nechtěl null), ale je moc krátký na to, aby byl použitelná věta
-  // (typicky holé datum bez kontextu — viz komentář u isTooShortForwardFlag) → nahradit
-  // deterministickým fallbackem poskládaným přímo z nadcházejících eventů appky.
+  // Model vrátil forward_flag (nechtěl null), ale buď je moc krátký na použitelnou větu, nebo
+  // mluví o eventu mimo appkou předvybrané "flaggedEvents" (viz isTooShortForwardFlag a
+  // forwardFlagCitesFlaggedEvent výš) → nahradit deterministickým fallbackem.
   const rawForwardFlag = normalizeNullable(narrativePart.forward_flag);
-  const forwardFlag =
-    rawForwardFlag && isTooShortForwardFlag(rawForwardFlag)
-      ? (buildFallbackForwardFlag(context.upcoming) ?? rawForwardFlag)
-      : rawForwardFlag;
+  const forwardFlagNeedsFallback =
+    rawForwardFlag &&
+    context.flaggedEvents?.length > 0 &&
+    (isTooShortForwardFlag(rawForwardFlag) || !forwardFlagCitesFlaggedEvent(rawForwardFlag, context.flaggedEvents));
+  const forwardFlag = forwardFlagNeedsFallback
+    ? (buildFallbackForwardFlag(context.flaggedEvents) ?? rawForwardFlag)
+    : rawForwardFlag;
 
   const { error: insErr } = await supabase.from("narratives").insert({
     currency_code: currencyCode,
