@@ -9,6 +9,10 @@ on:
         description: "Vynutit přegenerování všech měn i beze změny vstupů"
         type: boolean
         default: false
+      only_currencies:
+        description: "Omezit na tyhle měny (čárkou oddělené kódy, např. NZD,GBP) — prázdné = všechny. Používá ho hlavně automatický trigger z fetch-calendar.mjs, aby se nákladné LLM/TTS volání netočilo pro měny, co se vůbec nezměnily."
+        type: string
+        default: ""
 
 jobs:
   generate:
@@ -31,3 +35,4 @@ jobs:
           # (Settings → Variables) a appka se okamžitě vrátí k původnímu "generuj vždy
           # všechno" — bez revertu kódu a bez nasazování.
           DISABLE_INPUT_HASH: ${{ vars.DISABLE_INPUT_HASH }}
+          ONLY_CURRENCIES: ${{ inputs.only_currencies }}

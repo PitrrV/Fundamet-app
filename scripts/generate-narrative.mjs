@@ -32,6 +32,15 @@ const DISABLE_INPUT_HASH = truthy(process.env.DISABLE_INPUT_HASH);
 // zbytečně přegeneruje i audio pro všech 8 měn pokaždé. SKIP_AUDIO nechá text/agendu beze změny,
 // jen vynechá TTS krok — pro běžný denní cron zůstává vypnuté (audio se generuje jako dřív).
 const SKIP_AUDIO = truthy(process.env.SKIP_AUDIO);
+// Nákladový audit (2026-08-05): fetch-calendar.mjs teď posílá tohle při automatickém triggeru,
+// aby appka nepřegenerovala všech 8 měn, když se skutečně změnila jen jedna (živě naměřeno:
+// bez tohohle omezení appka dispatchovala tenhle workflow ~7×/24h a KAŽDÝ běh zasáhl 7-8 z 8
+// měn — desítky USD/měsíc navíc na LLM i TTS). Prázdné/nenastavené = beze změny chování
+// (denní cron i ruční force dál běží přes všechny měny).
+const ONLY_CURRENCIES = (process.env.ONLY_CURRENCIES ?? "")
+  .split(",")
+  .map((c) => c.trim().toUpperCase())
+  .filter(Boolean);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Chybí SUPABASE_URL nebo SUPABASE_SERVICE_KEY v prostředí.");
@@ -1069,9 +1078,15 @@ async function main() {
   if (DISABLE_INPUT_HASH) console.log("DISABLE_INPUT_HASH=1 → detekce změn vypnutá, generuji všechny měny.");
   else if (FORCE_REGENERATE) console.log("FORCE_REGENERATE=1 → vynucené přegenerování všech měn.");
 
+  const targetCurrencies =
+    ONLY_CURRENCIES.length > 0 ? (currencies ?? []).filter((c) => ONLY_CURRENCIES.includes(c.code)) : currencies ?? [];
+  if (ONLY_CURRENCIES.length > 0) {
+    console.log(`ONLY_CURRENCIES=${ONLY_CURRENCIES.join(",")} → omezeno na ${targetCurrencies.length} měn(u/y).`);
+  }
+
   let ok = 0;
   let skipped = 0;
-  for (const { code } of currencies ?? []) {
+  for (const { code } of targetCurrencies) {
     const context = await loadCurrencyContext(code, allCalendarEvents ?? [], basketContext, marketRegime);
     const fingerprint = buildInputFingerprint(context);
     const changed = changedSections(fingerprintByCode.get(code), fingerprint);
@@ -1096,7 +1111,7 @@ async function main() {
   }
 
   console.log(
-    `\nHotovo: ${ok} vygenerováno, ${skipped} přeskočeno beze změny (z ${currencies?.length ?? 0} měn).`
+    `\nHotovo: ${ok} vygenerováno, ${skipped} přeskočeno beze změny (z ${targetCurrencies.length} měn${ONLY_CURRENCIES.length > 0 ? `, celkem aktivních ${currencies?.length ?? 0}` : ""}).`
   );
 }
 

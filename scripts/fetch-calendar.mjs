@@ -217,8 +217,12 @@ export async function mergeUpsert(events) {
   let count = 0;
   // Jestli během tohohle běhu přibyl actual u eventu, na kterém appce záleží (má váhu v
   // EVENT_RULES) — pokud ano, stojí za to hned po přepočtu spustit generate-narrative.yml,
-  // ne čekat na jeho jednou-denní cron (viz triggerNarrativeRegeneration níže).
-  let materialActualArrived = false;
+  // ne čekat na jeho jednou-denní cron (viz triggerNarrativeRegeneration níže). Sleduje se PO
+  // MĚNĚ (Set), ne jako jeden globální boolean — nákladový audit (2026-08-05) živě odhalil, že
+  // appka na jediný "něco se změnilo" signál pravidelně přegenerovala všech 8 měn místo té
+  // jedné, co skutečně dostala nový tisk (7-8× denně, ne 1× — desítky USD/měsíc navíc na LLM
+  // i TTS). Auto-trigger teď appce řekne PŘESNĚ které měny, ne "spusť to znovu a zkontroluj si to sám".
+  const materialCurrencies = new Set();
 
   for (const ev of events) {
     const { data: existingRows, error: selErr } = await supabase
@@ -237,7 +241,7 @@ export async function mergeUpsert(events) {
     const existing = existingRows?.[0];
 
     if (!existing?.actual && ev.actual && (matchRule(ev.event_title)?.w ?? 0) > 0) {
-      materialActualArrived = true;
+      materialCurrencies.add(ev.currency_code);
     }
 
     const merged = {
@@ -259,13 +263,20 @@ export async function mergeUpsert(events) {
     }
     count++;
   }
-  return { count, materialActualArrived };
+  return { count, materialCurrencies };
 }
 
 // Spustí generate-narrative.yml přes GitHub API místo čekání na jeho denní cron — potřebuje
 // actions:write oprávnění GITHUB_TOKEN (nastaveno ve fetch-calendar.yml) a běží jen uvnitř
 // GitHub Actions (GITHUB_TOKEN/GITHUB_REPOSITORY/GITHUB_REF_NAME appka nastavuje automaticky).
-async function triggerNarrativeRegeneration(reason) {
+//
+// `currencyCodes` (nepovinné) appku omezí jen na tyhle měny přes input "only_currencies" —
+// nákladový audit (2026-08-05) živě odhalil, že appka bez tohohle omezení dispatchovala tenhle
+// workflow v průměru 7× za 24h a KAŽDÝ běh přegeneroval 7-8 z 8 měn (ne jen tu jednu, co měla
+// nový tisk) — fingerprint appky totiž reaguje i na drobný drift skóre (VIX režim, time-decay),
+// ne jen na skutečně relevantní změnu. Bez explicitního omezení appka radši přegeneruje víc, ne
+// míň (chybějící/prázdné `currencyCodes` = starý plošný běh, viz volání níž u forceNarrative).
+async function triggerNarrativeRegeneration(reason, currencyCodes) {
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_REPOSITORY;
   const ref = process.env.GITHUB_REF_NAME;
@@ -275,6 +286,12 @@ async function triggerNarrativeRegeneration(reason) {
     return;
   }
 
+  // currencyCodes je Set (ne pole) — .size, ne .length! Bez tyhle poznámky je to nenápadná
+  // past: Set.length je undefined, takže by se podmínka tiše vždycky vyhodnotila jako false a
+  // celé omezení na měny by nikdy nic neposlalo (přesně ta drahá "beze změny" cesta, co appka
+  // řeší).
+  const onlyCurrencies = currencyCodes && currencyCodes.size > 0 ? [...currencyCodes].join(",") : "";
+
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/generate-narrative.yml/dispatches`, {
       method: "POST",
@@ -283,10 +300,12 @@ async function triggerNarrativeRegeneration(reason) {
         Accept: "application/vnd.github+json",
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ref }),
+      body: JSON.stringify({ ref, inputs: { only_currencies: onlyCurrencies } }),
     });
     if (res.ok) {
-      console.log(`Spuštěn okamžitý přepočet narrativu (${reason}).`);
+      console.log(
+        `Spuštěn okamžitý přepočet narrativu (${reason})${onlyCurrencies ? ` — omezeno na: ${onlyCurrencies}` : " — bez omezení měn"}.`
+      );
     } else {
       console.error(`Nepodařilo se spustit generate-narrative.yml: HTTP ${res.status} ${await res.text()}`);
     }
@@ -381,9 +400,11 @@ export async function recomputeScores() {
   }
 
   // Druhý, nezávislý spouštěč přegenerování narrativu (viz komentář u runThesisEngineForCurrency
-  // v thesis-engine.mjs) — na rozdíl od materialActualArrived (scrape-diff, per-event) tohle
-  // sleduje, jestli se u NĚKTERÉ měny reálně pohnul stav teze (nová teze, obrat, watching...).
-  let thesisSignal = false;
+  // v thesis-engine.mjs) — na rozdíl od materialCurrencies (scrape-diff, per-event) tohle
+  // sleduje, u KTERÝCH měn se reálně pohnul stav teze (nová teze, obrat, watching...). Set, ne
+  // boolean — viz komentář u triggerNarrativeRegeneration, appka musí vědět KTERÉ měny, ne jen že
+  // "něco, někde".
+  const thesisSignalCurrencies = new Set();
 
   for (const currencyCode of SCORED_CURRENCIES) {
     const result = computeFundamentalScore(currencyCode, allEvents ?? []);
@@ -548,7 +569,7 @@ export async function recomputeScores() {
           retailScore,
           fundamentalEventLabel: todaysFundamentalEventLabel(currencyCode, allEvents ?? []),
         });
-        if (thesisChanged) thesisSignal = true;
+        if (thesisChanged) thesisSignalCurrencies.add(currencyCode);
       } catch (thesisErr) {
         console.error(`[${currencyCode}] thesis-engine selhal (nekriticky, scoring pokračuje):`, thesisErr.message);
       }
@@ -579,7 +600,7 @@ export async function recomputeScores() {
     console.error("top-opportunity selhal (nekriticky):", topErr.message);
   }
 
-  return thesisSignal;
+  return thesisSignalCurrencies;
 }
 
 async function main() {
@@ -604,27 +625,35 @@ async function main() {
     process.exit(1);
   }
 
-  const { count, materialActualArrived } = await mergeUpsert(deduped);
+  const { count, materialCurrencies } = await mergeUpsert(deduped);
   console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
 
-  const thesisSignal = await recomputeScores();
+  const thesisSignalCurrencies = await recomputeScores();
 
   // FORCE_NARRATIVE_REGEN přichází z workflow_dispatch inputs.force_narrative — appka ho
   // nastaví, když admin ručně přepíše "actual" v kalendáři (EditActualField.tsx přes Edge
   // Function trigger-recompute). Ruční zásah scraper sám o sobě nevidí jako "nový actual"
-  // (v DB už existuje, jen ho nezapsal on), proto se materialActualArrived samo nenastaví.
+  // (v DB už existuje, jen ho nezapsal on), proto se materialCurrencies samo nenaplní. Appka
+  // nezná KTEROU měnu admin upravil (trigger-recompute appce ID měny nepředává), takže tenhle
+  // případ zůstává plošný běh přes všech 8 — je to vzácná ruční akce, ne 15minutový cron, takže
+  // cenu neovlivňuje.
   //
-  // thesisSignal je druhý, nezávislý spouštěč (viz runThesisEngineForCurrency) — chrání proti
-  // tomu, že materialActualArrived (scrape-diff) může minout skutečnou změnu, když dva běhy
+  // thesisSignalCurrencies je druhý, nezávislý spouštěč (viz runThesisEngineForCurrency) — chrání
+  // proti tomu, že materialCurrencies (scrape-diff) může minout skutečnou změnu, když dva běhy
   // scraperu proběhnou blízko sebe (živě zachyceno 30.7.2026 u GBP — viz git historie).
   const forceNarrative = process.env.FORCE_NARRATIVE_REGEN === "true";
-  if (materialActualArrived || thesisSignal || forceNarrative) {
+  const changedCurrencies = new Set([...materialCurrencies, ...thesisSignalCurrencies]);
+
+  if (changedCurrencies.size > 0 || forceNarrative) {
     await triggerNarrativeRegeneration(
       forceNarrative
         ? "ruční úprava actual administrátorem"
-        : thesisSignal && !materialActualArrived
+        : materialCurrencies.size === 0
           ? "změnil se stav teze (nová/obrat/watching)"
-          : "nový actual u důležitého eventu"
+          : "nový actual u důležitého eventu",
+      // Plošný běh (bez omezení) jen u ruční admin úpravy, kde appka neví, kterou měnu má na
+      // mysli — automatické spouštěče vždy omezí jen na měny, co se SKUTEČNĚ změnily.
+      forceNarrative ? null : changedCurrencies
     );
   }
 }
