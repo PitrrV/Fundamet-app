@@ -57,7 +57,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
 const UPCOMING_DAYS = 21;
-const RECENT_DAYS = 90;
+// Nákladový audit (2026-08-06): recentEvents s RECENT_DAYS=90 tvořilo 60 % vstupních tokenů
+// narrative kroku (změřeno na produkčním payloadu: 8052 z 13323 tok.), přestože prompt modelu
+// výslovně říká hledat "ten konkrétní print, který skóre pohnul" — model cituje jen pár
+// nejnovějších printů, ne 90 dní historie. 30 dní + strop MAX_RECENT_EVENTS pokrývá tenhle
+// use-case beze změny chování (nejnovější napřed zůstává zachováno).
+const RECENT_DAYS = 30;
+const MAX_RECENT_EVENTS = 15;
 // 8 položek, ne 3 — agenda má pokrýt VŠECHNY kategorie, co reálně hýbou tezí (sazby, inflace/PCE,
 // nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod = 7 kategorií z EVENT_RULES) + jeden
 // slot navíc. Se starým limitem 3 a čistě váhovým výběrem se PMI/maloobchod/HDP do agendy
@@ -447,14 +453,23 @@ function round1(n) {
   return typeof n === "number" ? Math.round(n * 10) / 10 : null;
 }
 
+// Hrubší krok (0.5) pro fundamentálně odvozená pole otisku — po přechodu na exponenciální
+// rozpad (viz fundamental-scoring.mjs, 2026-08-06) se fundamental_score/overall_score mění
+// SPOJITĚ s časem, i beze změny dat (starý event dnes váží nepatrně méně než včera). round1
+// by tohle vídal jako "změnu" prakticky každý den u každé měny; round05 potřebuje desetkrát
+// větší posun, tedy skutečnou novinku, ne jen plynutí času.
+function round05(n) {
+  return typeof n === "number" ? Math.round(n * 2) / 2 : null;
+}
+
 function buildInputFingerprint(context) {
   const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, scenarioSeeds } = context;
 
   return {
     scores: sectionHash({
       cot: round1(cot?.cotScore),
-      overall: round1(cot?.overallScore),
-      fundamental: round1(fundamental?.fundamental_score),
+      overall: round05(cot?.overallScore),
+      fundamental: round05(fundamental?.fundamental_score),
       stars: cot?.convictionStars ?? null,
       positioning: cot?.positioningLabel ?? null,
       percentile: cot?.cotPercentile ?? null,
@@ -565,6 +580,10 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     // !e.actual je klíčové — bez něj by dnešní JIŽ VYŠLÝ event (event_day === today) zůstal
     // mezi "nadcházejícími" jen s odhadem/předchozí hodnotou a model by ho psal jako budoucí,
     // i když skutečný výsledek už dávno existuje (viz `recent` níže, kam patří).
+    // Bez "historicalTrend" — appka ho dřív počítala pro VŠECHNY nadcházející eventy (i těch
+    // ~40), přestože ho žádný z promptů jmenovitě nevyužívá; teď se dopočítá jen pro
+    // `flaggedEvents` níž (max 3), kde na něm skutečně může záležet. Nákladový audit
+    // (2026-08-06): tohle samo bylo 27 % vstupních tokenů narrative kroku.
     .filter((e) => e.event_day >= today && e.event_day <= upcomingCutoff && !e.actual)
     .sort((a, b) => a.event_day.localeCompare(b.event_day))
     .map((e) => ({
@@ -573,13 +592,16 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
       impact: e.impact,
       estimate: e.estimate,
       previous: e.previous,
-      historicalTrend: getEventHistoryTrend(e.event_title, currencyCode, allCalendarEvents),
     }));
 
   const recent = currencyEvents
     // <= today (ne jen < today) — dnešní už vyšlý event patří sem, ne do "upcoming" (viz výš).
     .filter((e) => e.event_day <= today && e.event_day >= recentCutoff && e.actual)
     .sort((a, b) => b.event_day.localeCompare(a.event_day))
+    // Strop navíc k oknu dní — u frekventovaných měn (USD) i 30 dní dá desítky řádků; model
+    // podle promptu cituje jen pár nejnovějších, takže o obsah nepřicházíme (viz komentář u
+    // RECENT_DAYS), jen o balast za ním.
+    .slice(0, MAX_RECENT_EVENTS)
     .map((e) => ({
       date: e.event_day,
       title: e.event_title,
@@ -612,7 +634,14 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     }));
 
   const scenarioSeeds = selectScenarioSeeds(scenarioCandidates);
-  const flaggedEvents = selectFlaggedEvents(upcoming);
+  // historicalTrend se dopočítá až TADY, jen pro těch max MAX_FLAGGED_EVENTS vybraných eventů
+  // — ne pro celé `upcoming` pole (viz komentář výš). forward_flag ho může využít k tomu, na
+  // co si dát pozor podle historie podobných printů, aniž by appka platila tokeny za trend
+  // desítek eventů, o kterých forward_flag nikdy nemluví.
+  const flaggedEvents = selectFlaggedEvents(upcoming).map((e) => ({
+    ...e,
+    historicalTrend: getEventHistoryTrend(e.title, currencyCode, allCalendarEvents),
+  }));
 
   const cot = cotRow
     ? {
