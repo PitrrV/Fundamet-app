@@ -27,11 +27,13 @@ const FORCE_REGENERATE = truthy(process.env.FORCE_REGENERATE);
 // Trvalý vypínač celé detekce změn (repo variable). Návrat k původnímu chování "generuj vždy
 // všechno" bez revertu kódu — kdyby se přeskakování chovalo nečekaně.
 const DISABLE_INPUT_HASH = truthy(process.env.DISABLE_INPUT_HASH);
-// Nákladový audit (2026-08-03): tts-1 stojí $15 za 1M znaků — na jedno volání malé peníze, ale
-// při ladění, kdy se force=true pouští opakovaně jen kvůli ověření TEXTU jedné měny, appka
-// zbytečně přegeneruje i audio pro všech 8 měn pokaždé. SKIP_AUDIO nechá text/agendu beze změny,
-// jen vynechá TTS krok — pro běžný denní cron zůstává vypnuté (audio se generuje jako dřív).
-const SKIP_AUDIO = truthy(process.env.SKIP_AUDIO);
+// Nákladový audit (2026-08-06): TTS (tts-1, $15/1M znaků) byl 66 % celkových AI nákladů appky
+// při hodnotě, kterou reálně nikdo nevyužíval — appka generovala audio ke KAŽDÉMU narrativu bez
+// ohledu na to, jestli si ho někdo poslechne. Voice AI zatím z workflow úplně vypnutá (viz
+// generateForCurrency níž — žádné volání openai.audio.speech.create se už nedělá) — appka běží
+// jen textově. `audio_url` sloupec v DB zůstává (staré řádky ho mají vyplněný), nové řádky ho
+// prostě nechají null. Vrátit se dá kdykoli přidáním zpět TTS kroku, žádná ztráta dat.
+//
 // Nákladový audit (2026-08-05): fetch-calendar.mjs teď posílá tohle při automatickém triggeru,
 // aby appka nepřegenerovala všech 8 měn, když se skutečně změnila jen jedna (živě naměřeno:
 // bez tohohle omezení appka dispatchovala tenhle workflow ~7×/24h a KAŽDÝ běh zasáhl 7-8 z 8
@@ -646,37 +648,6 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
   };
 }
 
-// Předčítání shrnutí příběhu (tlačítko se zvukovou ikonou u SHRNUTÍ PŘÍBĚHU ve frontendu).
-// Fixní cesta per měna (ne per generování) — nová verze audia přepíše starou, žádné
-// hromadění osiřelých souborů ve storage. Nekritické: selhání TTS/uploadu nikdy nesmí
-// zablokovat uložení textového narrativu, který je hlavní věc.
-async function generateNarrativeAudio(currencyCode, text) {
-  try {
-    const speech = await openai.audio.speech.create({
-      model: "tts-1",
-      voice: "onyx",
-      input: text,
-      response_format: "mp3",
-    });
-    const buffer = Buffer.from(await speech.arrayBuffer());
-    const path = `${currencyCode.toLowerCase()}.mp3`;
-
-    const { error: uploadErr } = await supabase.storage
-      .from("narrative-audio")
-      .upload(path, buffer, { contentType: "audio/mpeg", upsert: true });
-    if (uploadErr) {
-      console.error(`[${currencyCode}] chyba nahrání audia do storage:`, uploadErr.message);
-      return null;
-    }
-
-    const { data } = supabase.storage.from("narrative-audio").getPublicUrl(path);
-    return data?.publicUrl ? `${data.publicUrl}?v=${Date.now()}` : null;
-  } catch (err) {
-    console.error(`[${currencyCode}] TTS generování selhalo (nekriticky, text narrative pokračuje):`, err.message);
-    return null;
-  }
-}
-
 // ── Volání OpenAI: sdílený jádrový kód pro oba kroky ────────────────────────────────────
 // Modelová rodina GPT-5.x je "reasoning" model — nepodporuje temperature (appka si to živě
 // ověřila: 400 "Unsupported value: 'temperature' does not support 0.4 with this model. Only
@@ -984,8 +955,6 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     console.error(`[${currencyCode}] generování agendy selhalo (shrnutí se uloží i tak):`, err.message);
   }
 
-  const audioUrl = SKIP_AUDIO ? null : await generateNarrativeAudio(currencyCode, narrative);
-
   // Model vrátil forward_flag (nechtěl null), ale buď je moc krátký na použitelnou větu, nebo
   // mluví o eventu mimo appkou předvybrané "flaggedEvents" (viz isTooShortForwardFlag a
   // forwardFlagCitesFlaggedEvent výš) → nahradit deterministickým fallbackem.
@@ -1008,7 +977,6 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     thesis_change_note: context.scoreChange ? normalizeNullable(narrativePart.thesis_change_note) : null,
     scenarios: agenda,
     model: OPENAI_MODEL,
-    audio_url: audioUrl,
     input_fingerprint: inputFingerprint ?? null,
   });
 
@@ -1017,9 +985,7 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     return false;
   }
 
-  console.log(
-    `[${currencyCode}] OK — ${narrative.length} znaků shrnutí, ${agenda.length} položek agendy, audio: ${audioUrl ? "ano" : "ne"}.`
-  );
+  console.log(`[${currencyCode}] OK — ${narrative.length} znaků shrnutí, ${agenda.length} položek agendy.`);
   return true;
 }
 

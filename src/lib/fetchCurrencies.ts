@@ -42,7 +42,6 @@ interface LatestNarrativeRow {
   forward_flag: string | null;
   conviction_note: string | null;
   scenarios: ScenarioRow[] | null;
-  audio_url: string | null;
   thesis_change_note: string | null;
 }
 
@@ -202,7 +201,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       withTimeout(
         supabase
           .from("latest_narratives")
-          .select("currency_code, narrative, forward_flag, conviction_note, scenarios, audio_url, thesis_change_note"),
+          .select("currency_code, narrative, forward_flag, conviction_note, scenarios, thesis_change_note"),
         FETCH_TIMEOUT_MS
       ),
       withTimeout(
@@ -359,7 +358,6 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       score: row.overall_score,
       convictionLabel: row.conviction_label,
       summary: narrative?.narrative ?? row.summary ?? "",
-      summaryAudioUrl: narrative?.audio_url ?? null,
       cotPositioning: row.cot_positioning_label ?? "Neznámé",
       pricedIn: cbPolicy?.pricedIn.label ?? null,
       longTermBias: cbPolicy?.policyLabel ?? null,

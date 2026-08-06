@@ -6,7 +6,6 @@ import { ConvictionMeter } from "./components/ConvictionMeter";
 import { RichText } from "./components/RichText";
 import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
-import { NarrativeAudioButton } from "./components/NarrativeAudioButton";
 import { convictionColor } from "./utils";
 import { fetchCurrencies, fetchTopOpportunity } from "./lib/fetchCurrencies";
 import { supabase } from "./lib/supabaseClient";
@@ -730,7 +729,6 @@ export default function App() {
                 <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
                   Shrnutí příběhu
                 </span>
-                <NarrativeAudioButton audioUrl={currency.summaryAudioUrl} />
               </div>
               <RichText text={currency.summary} className="text-[15px] leading-[1.75] text-ink/90" />
 
