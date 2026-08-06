@@ -484,6 +484,54 @@ export default function App() {
           </Card>
         )}
 
+        {/* KDE JE DNES SIGNÁL — UX audit 2026-08-06: appka měla flow "vyber měnu → 12 sekcí",
+            ale většina měn je většinu času neutrální s nízkou konvikcí — uživatel musel
+            proklikat všech 8, aby zjistil, které z nich vůbec stojí za pozornost. Tenhle pruh
+            odpovídá na otázku, se kterou do appky trader přichází, hned za pár vteřin: kde je
+            dnes síla skóre podložená shodou signálů, ne abecedně první měna. Řadí, neskrývá —
+            zbytek appky (CurrencyTabs níž) je pořád po ruce beze změny. */}
+        {currencies && currencies.length > 0 && (
+          <Card tone="raised" className="p-4 sm:p-5">
+            <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
+              Kde je dnes signál
+            </span>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {[...currencies]
+                .map((c) => ({ ...c, _weight: Math.abs(c.score) * (c.convictionStars ?? 0) }))
+                .sort((a, b) => b._weight - a._weight)
+                .slice(0, 4)
+                .map((c) => {
+                  const dotColor = c.score > 0.05 ? "bg-pos" : c.score < -0.05 ? "bg-neg" : "bg-muted";
+                  return (
+                    <button
+                      key={c.code}
+                      onClick={() => setCurrencyCode(c.code)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-colors duration-200 ${
+                        c.code === currency?.code
+                          ? "bg-accent/[.14] border-accent/50"
+                          : "border-line hover:border-line2 hover:bg-surface2"
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
+                      <span className="text-sm font-bold text-ink">{c.code}</span>
+                      <span className="font-mono text-xs text-muted">
+                        {c.score > 0 ? "+" : ""}
+                        {c.score.toFixed(1)}
+                      </span>
+                      <span className={`text-[10px] tracking-wide ${convictionColor(c.convictionLabel)}`}>
+                        {c.convictionStars ?? 0}/5
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+            <p className="text-[11px] text-faint italic mt-3">
+              Seřazeno podle síly skóre × konvikce (shody nezávislých signálů) — kde má appka
+              nejvíc co říct právě teď, ne abecedně.
+            </p>
+          </Card>
+        )}
+
         {/* TOP PŘÍLEŽITOST — pruh napříč měnami, patří nad výběr měny, protože se ho netýká. */}
         {topOpportunity && !topOpportunity.insufficientData && (
           <Card tone="raised" className={`p-4 sm:p-5 ${topOpportunityTierMeta(topOpportunity.confidenceTier).frame}`}>
