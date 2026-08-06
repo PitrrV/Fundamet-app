@@ -37,19 +37,23 @@ const FF_CONF_MONTHS = 15;
 const FF_FUND_DAMP = 0.4;
 
 // Historický backfill (viz commit "rozšíření CB Policy historie") zvedl počet relevantních
-// eventů z řádově desítek (původní ~56denní okno, pro které byl níže uvedený ±10 rozsah
-// navržen) na stovky za rok. Neomezený součet přes celou historii pak u většiny měn narazil
-// do ±10 stropu jen objemem dat, ne silou signálu — živě ověřeno (audit 2026-07-29): 7 z 8
-// měn saturovaných, ztráta schopnosti rozlišit sílu mezi měnami. Čtyři nezávislé pokusy omezit
-// příspěvek PO KATEGORII (normalizace na maximum, top-N nejrozhodnějších eventů, průměr ×
-// zastropovaný počet, tvrdý strop ±10/15/20 na kategorii) tuhle saturaci sice opravily, ale
-// všechny čtyři shodně otočily znaménko u GBP (kde reálný, konzistentní cyklus snižování BoE
-// vychází ze dvou datově bohatých kategorií — Inflation, Labor) — kategorie s NEJVÍC důkazy
-// pro svůj směr dostávaly nejtvrdší zásah, což je ekonomicky obráceně.
-// Řešení: JEDEN kladný tlumící faktor na CELÝ součet (ne po kategoriích) — kladné číslo krát
-// kladná konstanta nikdy nezmění znaménko, takže tohle nemůže nikdy vyrobit stejnou chybu.
-// Pod REFERENCE_EVENT_COUNT je výstup identický s výpočtem bez tlumení (dampingFactor=1).
-const REFERENCE_EVENT_COUNT = 60;
+// eventů z řádově desítek (původní ~56denní okno) na stovky za rok. Neomezený součet přes
+// celou historii pak u většiny měn narazil do ±10 stropu jen objemem dat, ne silou signálu —
+// živě ověřeno (audit 2026-07-29): 7 z 8 měn saturovaných. Čtyři nezávislé pokusy omezit
+// příspěvek PO KATEGORII (normalizace na maximum, top-N, průměr × zastropovaný počet, tvrdý
+// strop na kategorii) tuhle saturaci opravily, ale všechny čtyři otočily znaménko u GBP
+// (kategorie s NEJVÍC důkazy pro svůj směr dostávaly nejtvrdší zásah — ekonomicky obráceně).
+// Prozatímní záplata (REFERENCE_EVENT_COUNT/dampingFactor, JEDEN kladný faktor na CELÝ
+// součet) saturaci zmírnila, ale nezbavila se jí — druhý audit (2026-08-06) živě ověřil, že
+// EUR/AUD/NZD zůstávaly saturované i s ní (rawScore přesně na ±10 stropu, nulová reakce na
+// nové silné překvapení).
+//
+// Definitivní oprava (2026-08-06): VÁŽENÝ PRŮMĚR místo sumy — Σ(příspěvky)/Σ(vah) místo
+// Σ(příspěvky)×tlumící faktor. Matematicky nemůže saturovat objemem dat (průměr ohraničených
+// čísel je vždy ve stejném rozsahu jako ty čísla, bez ohledu na jejich počet) a pořád je to
+// JEDEN kladný faktor na celý součet (dělení kladným Σ(vah) nikdy neotočí znaménko) — splňuje
+// stejné omezení, které čtyři dřívější per-kategorie pokusy porušily.
+const FUND_SCALE = 3; // přeškáluje vážený průměr (max ±1.6, viz surpriseStrength) na ±4.8 — strop je teď dosažitelný jen při skoro jednotném, silném signálu, ne objemem dat
 
 export function matchRule(title) {
   const lower = (title || "").toLowerCase();
@@ -97,11 +101,20 @@ export function surpriseStrength(ev) {
   return 1 + Math.min(0.6, (Math.abs(a - e) / Math.max(Math.abs(e), 1)) * 8);
 }
 
+// Exponenciální rozpad místo dřívější schodovité funkce (1.8/1.4/1.0/0.7 na hranicích
+// 90/180/365 dní). Schodovitá verze měla dvě vady, obě živě zachycené: (1) event, co
+// PRÁVĚ překročil hranici (89 → 91 dní), skokově srazil skóre BEZ jediného nového datového
+// bodu — to skóre dělá nepravdivé (vypadá jako reakce na novinku) a zbytečně spouští
+// přegenerování narrativu; (2) události starší 365 dní zůstávaly navždy na plné 0.7 váze
+// místo aby jejich vliv skutečně vyprchal. Poločas 45 dní: event dnes má stejnou špičkovou
+// váhu jako dřív (1.8), ale odtud hladce mizí — v 45 dnech na polovinu, v 90 dnech na
+// čtvrtinu, prakticky nulový po roce (~0.003×). Žádné skoky, žádná věčná podlaha.
+const RECENCY_PEAK = 1.8;
+const RECENCY_HALF_LIFE_DAYS = 45;
+
 export function recency(daysAgo) {
-  if (daysAgo <= 90) return 1.8;
-  if (daysAgo <= 180) return 1.4;
-  if (daysAgo <= 365) return 1.0;
-  return 0.7;
+  if (daysAgo < 0) return 0; // budoucí event by sem neměl dojít, ale pro jistotu
+  return RECENCY_PEAK * Math.exp((-Math.LN2 * daysAgo) / RECENCY_HALF_LIFE_DAYS);
 }
 
 export function eventRelevance(currencyCode, ev) {
@@ -132,8 +145,8 @@ export function ffConfidence(relevantEvents) {
  */
 export function computeFundamentalScore(currencyCode, calendarEvents, now = new Date()) {
   const relevant = [];
-  let rawSum = 0;
-  let signedEventCount = 0;
+  let weightedSum = 0;
+  let weightTotal = 0;
 
   for (const ev of calendarEvents) {
     const relevance = eventRelevance(currencyCode, ev);
@@ -151,19 +164,22 @@ export function computeFundamentalScore(currencyCode, calendarEvents, now = new 
     const daysAgo = (now.getTime() - new Date(ev.event_day).getTime()) / 86400000;
     if (daysAgo < 0) continue; // budoucí event bez actual by sem neměl dojít, ale pro jistotu
 
-    const contribution = dir * rule.w * surpriseStrength(ev) * recency(daysAgo) * relevance.factor;
-    rawSum += contribution;
-    signedEventCount++;
+    // Váha (vždy kladná) a příspěvek (se znaménkem) se počítají zvlášť — dělíme jedním
+    // druhým, ne sčítáme s tlumící konstantou (viz FUND_SCALE výš).
+    const weight = rule.w * recency(daysAgo) * relevance.factor;
+    weightedSum += dir * surpriseStrength(ev) * weight;
+    weightTotal += weight;
   }
 
-  const dampingFactor = signedEventCount > 0 ? Math.min(1, REFERENCE_EVENT_COUNT / signedEventCount) : 1;
-  const rawScore = Math.max(-10, Math.min(10, rawSum * dampingFactor));
+  // Vážený průměr dir×surpriseStrength je vždy v [-1.6, 1.6] bez ohledu na počet eventů
+  // (surpriseStrength ∈ [1, 1.6], dir ∈ {-1,1}) — FUND_SCALE ho přeškáluje na ±4.8, takže
+  // clamp tady je jen defenzivní pojistka, ne aktivní strop.
+  const rawScore = weightTotal > 0 ? Math.max(-5, Math.min(5, (weightedSum / weightTotal) * FUND_SCALE)) : 0;
   const { confidence, historyMonths } = ffConfidence(relevant);
-  const scaledRaw = rawScore / 2; // -10..10 -> -5..5, stejný rozsah jako cot_score
-  const fundamentalScore = Math.round(Math.max(-5, Math.min(5, scaledRaw * confidence)) * 10) / 10;
+  const fundamentalScore = Math.round(Math.max(-5, Math.min(5, rawScore * confidence)) * 10) / 10;
 
   return {
-    rawScore: Math.round(scaledRaw * 10) / 10,
+    rawScore: Math.round(rawScore * 10) / 10,
     confidence: Math.round(confidence * 100) / 100,
     fundamentalScore,
     historyMonths: Math.round(historyMonths * 10) / 10,
@@ -172,8 +188,8 @@ export function computeFundamentalScore(currencyCode, calendarEvents, now = new 
 
 // Nezávislý indikátor "možná se mění fundamentální režim" — NEBLENDUJE se do
 // fundamentalScore, jen ho staví vedle sebe s krátkodobým přepočtem stejnou funkcí (žádná
-// duplicitní logika kategorií/vah). 90 dní odpovídá nejvyšší recency() bandě (≤90 dní = 1.8×
-// váha) — stejný, už existující práh, ne nové svévolné číslo.
+// duplicitní logika kategorií/vah). 90 dní = jeden RECENCY_HALF_LIFE_DAYS (45) plus rezerva,
+// tedy okno, kde recency() ještě dává eventům citelnou váhu (≥25 % špičky).
 const REGIME_SHIFT_SHORT_TERM_DAYS = 90;
 const REGIME_SHIFT_ALERT_THRESHOLD = 2.0; // na škále -5..5, stejná jako fundamentalScore
 
