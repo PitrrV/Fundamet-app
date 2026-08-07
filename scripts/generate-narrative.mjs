@@ -158,7 +158,7 @@ const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš str
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
 
-KRITICKÉ — názvy polí v uvozovkách/závorkách (recentEvents, scenarioSeeds, recentLedger, flaggedEvents, basketContext, components, verdict a podobné) jsou instrukce PRO TEBE, odkud brát informace — NIKDY je neopisuj doslova do vlastní odpovědi. Živě nahlášená chyba: model v "thesis_change_note" napsal "v poskytnutých recentEvents ani ve scenarioSeeds však není jediný zřejmý katalyzátor... recentLedger uvádí invalidaci fundamentálního driveru" — pro čtenáře to vypadá jako uniklý kód, ne text od analytika. Obsah vždy popiš přirozenou češtinou ("z nedávno vyšlých dat", "z plánovaných eventů", "z historie potvrzení a zpochybnění teze"), nikdy anglickým názvem interní proměnné.
+KRITICKÉ — názvy polí v uvozovkách/závorkách (recentEvents, scenarioSeeds, recentLedger, flaggedEvents, basketContext, components, verdict a podobné) jsou instrukce PRO TEBE, odkud brát informace — NIKDY je neopisuj doslova do vlastní odpovědi. Živě nahlášená chyba: model v "thesis_change_note" napsal "v poskytnutých recentEvents ani ve scenarioSeeds však není jediný zřejmý katalyzátor... recentLedger uvádí invalidaci fundamentálního driveru" — pro čtenáře to vypadá jako uniklý kód, ne text od analytika. Obsah vždy popiš přirozenou češtinou ("z nedávno vyšlých dat", "z plánovaných eventů", "z historie potvrzení a zpochybnění teze"), nikdy anglickým názvem interní proměnné. STEJNÉ PRAVIDLO platí pro klasifikační hodnoty uvnitř "recentLedger" ("confirms", "challenges", "invalidates_driver", "closed", "opened") — živě nahlášená chyba: model napsal "recentLedger uvádí invalidates_driver u fundamentálních dat a následně closed i opened" a jinde "recentLedger obsahuje pouze „confirms" pro COT driver". Správně: "driver byl podruhé zpochybněn a odebrán z teze", "teze byla uzavřena a otevřena nová", "driver zůstává potvrzen" — vlastními slovy, nikdy anglickým kódem klasifikace.
 
 Důležité ohraničení role: tvůj úkol je vysvětlit PROČ — makro kontext, důvody, souvislosti mezi pilíři. NIKDY nepiš přímé obchodní doporučení ("kup", "prodej", "vstup", "vystup", konkrétní cenové úrovně, stop-loss/take-profit) — appka neřeší timing, risk management ani technickou konfluenci na grafu, to je úloha samostatného nástroje (Fx Analyzer). Piš jako institucionální analytik, co vysvětluje kontext šéfovi, ne jako signál generátor.
 
@@ -746,6 +746,13 @@ function findForeignScript(value, path = "$") {
 // ale stejně jako u cizího písma: prompt engineering snižuje pravděpodobnost, tenhle known-list
 // kódovou pojistkou garantuje. Jména jsou camelCase anglické identifikátory, co se v gramaticky
 // správné české větě nikdy nemají objevit — nízké riziko falešného zásahu.
+//
+// Rozšířeno (2026-08-07, plný audit všech 8 měn): stejná třída chyby se ukázala i u SYROVÝCH
+// HODNOT enum klasifikace z thesis ledgeru, ne jen u názvu pole "recentLedger" samotného — model
+// u JPY napsal "recentLedger uvádí invalidates_driver... a následně closed i opened", u NZD
+// "recentLedger obsahuje pouze „confirms" pro COT driver". "invalidates_driver"/"confirms"/
+// "challenges"/"closed"/"opened" jsou interní kódy z classifyThesisUpdate() (thesis-engine.mjs),
+// ne slova, která mají skončit v textu pro čtenáře.
 const LEAKED_FIELD_NAMES = [
   "recentEvents",
   "scenarioSeeds",
@@ -761,8 +768,13 @@ const LEAKED_FIELD_NAMES = [
   "cotPercentile",
   "convictionStars",
   "convictionReasons",
+  "invalidates_driver",
+  "confirms",
+  "challenges",
+  "closed",
+  "opened",
 ];
-const LEAKED_FIELD_RE = new RegExp(LEAKED_FIELD_NAMES.join("|"));
+const LEAKED_FIELD_RE = new RegExp(LEAKED_FIELD_NAMES.map((n) => `\\b${n}\\b`).join("|"));
 
 function findLeakedFieldNames(value, path = "$") {
   if (typeof value === "string") {
