@@ -1028,20 +1028,18 @@ function normalizeAgenda(currencyCode, scenarios, scenarioSeeds) {
   return items;
 }
 
-async function generateForCurrency(currencyCode, context, inputFingerprint) {
-  const { cot, fundamental, upcoming, recent, scenarioSeeds } = context;
-
-  if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
-    console.log(`[${currencyCode}] žádná data — přeskočeno.`);
-    return false;
-  }
+// Jeden pokus o vygenerování narrativu + agendy + forward_flag pro danou měnu z DANÉHO
+// kontextu. Vytažené z generateForCurrency, aby ho šlo zavolat podruhé s čerstvým kontextem,
+// když freshness-check níž zjistí, že se skóre mezitím posunulo (viz komentář tam).
+async function runGenerationAttempt(currencyCode, context) {
+  const { scenarioSeeds } = context;
 
   let narrativePart;
   try {
     narrativePart = await generateNarrativePart(currencyCode, context);
   } catch (err) {
     console.error(`[${currencyCode}] generování shrnutí selhalo:`, err.message);
-    return false;
+    return null;
   }
 
   const narrative = narrativePart.narrative;
@@ -1068,17 +1066,114 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     ? (buildFallbackForwardFlag(context.flaggedEvents) ?? rawForwardFlag)
     : rawForwardFlag;
 
-  const { error: insErr } = await supabase.from("narratives").insert({
-    currency_code: currencyCode,
+  return {
     narrative,
-    forward_flag: forwardFlag,
-    conviction_note: narrativePart.conviction_note,
+    forwardFlag,
+    convictionNote: narrativePart.conviction_note,
     // Pojistka: model občas u nullable pole vrátí string "null" i ve strict módu. A když appka
     // nemá dva snímky k porovnání, nesmí tam přistát vymyšlené vysvětlení neexistující změny.
-    thesis_change_note: context.scoreChange ? normalizeNullable(narrativePart.thesis_change_note) : null,
-    scenarios: agenda,
+    thesisChangeNote: context.scoreChange ? normalizeNullable(narrativePart.thesis_change_note) : null,
+    agenda,
+  };
+}
+
+// Práh "materiálně jiná hodnota" — stejná citlivost jako round05 u fingerprintu scores.overall
+// (viz buildInputFingerprint výš): drobný šum ze zaokrouhlení se nepočítá jako neshoda.
+const FRESHNESS_EPSILON = 0.05;
+
+// Skóre POUŽITÉ v promptu (z kontextu, který šel do OpenAI) — tohle appka porovnává s tím, co je
+// PRÁVĚ TEĎ v DB, aby zjistila, jestli text ještě odpovídá tomu, co UI zobrazuje v gauge.
+function contextScoreSnapshot(context) {
+  return {
+    overall_score: context.cot?.overallScore ?? null,
+    fundamental_score: context.fundamental?.fundamental_score ?? null,
+    cot_score: context.cot?.cotScore ?? null,
+    retail_score: context.retailSentiment?.score ?? null,
+  };
+}
+
+// Živé skóre přímo z DB — samostatný, minimální dotaz (ne celý loadCurrencyContext), aby byl
+// freshness-check rychlý a nezatěžoval appku zbytečnými joiny na kalendář/tezi/ledger.
+async function readLiveScoreSnapshot(currencyCode) {
+  const [{ data: cotRows }, { data: fundRows }] = await Promise.all([
+    supabase
+      .from("latest_confluence_scores")
+      .select("overall_score, cot_score, retail_score")
+      .eq("currency_code", currencyCode)
+      .limit(1),
+    supabase.from("latest_fundamental_scores").select("fundamental_score").eq("currency_code", currencyCode).limit(1),
+  ]);
+  return {
+    overall_score: cotRows?.[0]?.overall_score ?? null,
+    cot_score: cotRows?.[0]?.cot_score ?? null,
+    retail_score: cotRows?.[0]?.retail_score ?? null,
+    fundamental_score: fundRows?.[0]?.fundamental_score ?? null,
+  };
+}
+
+// null vs. číslo se počítá jako neshoda (appka radši jednou navíc přegeneruje, než aby tiše
+// nechala projít stav, kdy pilíř mezitím zmizel nebo nově přibyl).
+function scoresDiffer(used, live) {
+  return ["overall_score", "fundamental_score", "cot_score", "retail_score"].some((key) => {
+    const a = used[key];
+    const b = live[key];
+    if (a === null || b === null) return a !== b;
+    return Math.abs(a - b) > FRESHNESS_EPSILON;
+  });
+}
+
+// `reloadContext` je async funkce bez argumentů — main() ji zavře nad currencyCode/
+// allCalendarEvents/basketContext/marketRegime, ať tahle funkce nemusí znát nic z volajícího
+// kontextu kromě toho, co dostane jako parametr.
+async function generateForCurrency(currencyCode, context, inputFingerprint, reloadContext) {
+  const { cot, fundamental, upcoming, recent } = context;
+
+  if (!cot && !fundamental && upcoming.length === 0 && recent.length === 0) {
+    console.log(`[${currencyCode}] žádná data — přeskočeno.`);
+    return false;
+  }
+
+  let workingContext = context;
+  let workingFingerprint = inputFingerprint;
+  let attempt = await runGenerationAttempt(currencyCode, workingContext);
+  if (!attempt) return false;
+
+  // Appka živě zachytila (2026-08-07): jedno volání OpenAI trvá desítky vteřin a fetch-calendar.mjs
+  // běží nezávisle každých 15 minut — pokud mezitím přepíše skóre TÉTO měny, uložil by se text
+  // platný "před chvílí", ne text odpovídající tomu, co gauge v UI zrovna ukazuje. Pojistka:
+  // porovnat skóre POUŽITÉ v promptu s tím, co je PRÁVĚ TEĎ v DB, a při neshodě jednou (kvůli
+  // nákladům jen jednou) načíst čerstvý kontext a přegenerovat.
+  let live = await readLiveScoreSnapshot(currencyCode);
+  if (scoresDiffer(contextScoreSnapshot(workingContext), live)) {
+    console.warn(`[${currencyCode}] skóre se během generování posunulo (${JSON.stringify(contextScoreSnapshot(workingContext))} → ${JSON.stringify(live)}) — načítám čerstvý kontext a generuji znovu.`);
+    workingContext = await reloadContext();
+    workingFingerprint = buildInputFingerprint(workingContext);
+    const retryAttempt = await runGenerationAttempt(currencyCode, workingContext);
+    if (retryAttempt) {
+      attempt = retryAttempt;
+      live = await readLiveScoreSnapshot(currencyCode);
+      if (scoresDiffer(contextScoreSnapshot(workingContext), live)) {
+        console.error(`[${currencyCode}] skóre se měnilo i po druhém pokusu — ukládám i tak (appka to loguje pro ruční kontrolu, viz i scripts/check-narrative-freshness.mjs).`);
+      } else {
+        console.log(`[${currencyCode}] po opakování je text znovu v souladu s aktuálním skóre.`);
+      }
+    } else {
+      console.error(`[${currencyCode}] přegenerování po zjištěné neshodě selhalo — ukládám původní (mírně zastaralý) text místo žádného.`);
+    }
+  }
+
+  const { error: insErr } = await supabase.from("narratives").insert({
+    currency_code: currencyCode,
+    narrative: attempt.narrative,
+    forward_flag: attempt.forwardFlag,
+    conviction_note: attempt.convictionNote,
+    thesis_change_note: attempt.thesisChangeNote,
+    scenarios: attempt.agenda,
     model: OPENAI_MODEL,
-    input_fingerprint: inputFingerprint ?? null,
+    input_fingerprint: workingFingerprint ?? null,
+    // Snímek skóre POUŽITÉHO v textu — základ pro scripts/check-narrative-freshness.mjs, aby šlo
+    // i zpětně (ne jen v okamžiku generování) ověřit, že text odpovídá tomu, co appka zobrazuje.
+    score_snapshot: contextScoreSnapshot(workingContext),
   });
 
   if (insErr) {
@@ -1086,7 +1181,7 @@ async function generateForCurrency(currencyCode, context, inputFingerprint) {
     return false;
   }
 
-  console.log(`[${currencyCode}] OK — ${narrative.length} znaků shrnutí, ${agenda.length} položek agendy.`);
+  console.log(`[${currencyCode}] OK — ${attempt.narrative.length} znaků shrnutí, ${attempt.agenda.length} položek agendy.`);
   return true;
 }
 
@@ -1173,7 +1268,12 @@ async function main() {
         : `změna: ${changed.map((k) => SECTION_LABELS[k] ?? k).join(", ")}`;
     console.log(`[${code}] generuji — ${reason}.`);
 
-    const success = await generateForCurrency(code, context, fingerprint);
+    // Uzavírá code/allCalendarEvents/basketContext/marketRegime — freshness-check v
+    // generateForCurrency ji zavolá jen když zjistí, že se skóre mezitím posunulo, ne při
+    // každém běhu (opětovné čtení calendar_events by bylo zbytečně drahé).
+    const reloadContext = () => loadCurrencyContext(code, allCalendarEvents ?? [], basketContext, marketRegime);
+
+    const success = await generateForCurrency(code, context, fingerprint, reloadContext);
     if (success) ok++;
   }
 

@@ -1,0 +1,23 @@
+name: Check Narrative Freshness
+
+# Automatický test konzistence mezi textem narrativu a živým skóre (viz
+# scripts/check-narrative-freshness.mjs). Žádné volání OpenAI, jen čtení z DB — bezpečné
+# spouštět hodinově jako lehký health-check, ne jen ručně.
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '25 * * * *'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/check-narrative-freshness.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

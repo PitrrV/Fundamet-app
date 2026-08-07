@@ -36,3 +36,13 @@ jobs:
           # všechno" — bez revertu kódu a bez nasazování.
           DISABLE_INPUT_HASH: ${{ vars.DISABLE_INPUT_HASH }}
           ONLY_CURRENCIES: ${{ inputs.only_currencies }}
+      # Automatický test konzistence: ověří, že skóre uložené v narrativu odpovídá živému
+      # skóre. continue-on-error, protože runtime pojistka v generate-narrative.mjs už jednou
+      # přegenerovala při zjištěné neshodě — pokud se skóre posune AŽ MEZI dokončením tohodle
+      # jobu a tímhle krokem (další samostatný cron fetch-calendar.yml), nejde o chybu tohodle
+      # běhu; krok to i tak viditelně zaloguje do Actions, jen nesrazí celý job do červena.
+      - run: node scripts/check-narrative-freshness.mjs
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
