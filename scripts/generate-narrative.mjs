@@ -389,8 +389,15 @@ function selectFlaggedEvents(upcoming, max = MAX_FLAGGED_EVENTS) {
 // ── Změna skóre ─────────────────────────────────────────────────────────────────────────
 // Atribuce je čistá aritmetika nad dvěma uloženými snímky, ne úsudek. Model dostane hotové
 // delty a smí je jen převyprávět — tím je vyloučené, že by si "co pohnulo skóre" domyslel.
+// Label u fundamental_score_adj byl dřív "Fundament + CB politika / real yield" — skoro
+// identický s DRIVER_LABELS.cb_policy ("CB politika / real yield" v thesis-engine.mjs), který
+// ale ukazuje JEN cbPolicyAdj+realYieldAdj samotné, ne součet s fundamentem. Živě nahlášené
+// zmatení (2026-08-07, GBP): text nad kartou tvrdil "0,99", driver chip pod ním "CB politika /
+// real yield +0,49" — čtenáři to vypadalo jako rozpor, přestože matematicky sedí (fundament 0,5
+// + CB/real yield 0,49 = 0,99). "Upravený" na začátku labelu teď dělá ten součet vizuálně
+// zjevný a odlišuje ho od standalone driver chipu.
 const SCORE_COMPONENTS = [
-  { key: "fundamental_score_adj", label: "Fundament + CB politika / real yield" },
+  { key: "fundamental_score_adj", label: "Fundament vč. CB politiky/real yieldu" },
   { key: "cot_score", label: "COT pozicování" },
   { key: "retail_score", label: "Retail sentiment" },
   { key: "risk_adj", label: "Risk režim" },
