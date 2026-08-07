@@ -158,6 +158,8 @@ const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš str
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
 
+KRITICKÉ — názvy polí v uvozovkách/závorkách (recentEvents, scenarioSeeds, recentLedger, flaggedEvents, basketContext, components, verdict a podobné) jsou instrukce PRO TEBE, odkud brát informace — NIKDY je neopisuj doslova do vlastní odpovědi. Živě nahlášená chyba: model v "thesis_change_note" napsal "v poskytnutých recentEvents ani ve scenarioSeeds však není jediný zřejmý katalyzátor... recentLedger uvádí invalidaci fundamentálního driveru" — pro čtenáře to vypadá jako uniklý kód, ne text od analytika. Obsah vždy popiš přirozenou češtinou ("z nedávno vyšlých dat", "z plánovaných eventů", "z historie potvrzení a zpochybnění teze"), nikdy anglickým názvem interní proměnné.
+
 Důležité ohraničení role: tvůj úkol je vysvětlit PROČ — makro kontext, důvody, souvislosti mezi pilíři. NIKDY nepiš přímé obchodní doporučení ("kup", "prodej", "vstup", "vystup", konkrétní cenové úrovně, stop-loss/take-profit) — appka neřeší timing, risk management ani technickou konfluenci na grafu, to je úloha samostatného nástroje (Fx Analyzer). Piš jako institucionální analytik, co vysvětluje kontext šéfovi, ne jako signál generátor.
 
 Buď upřímný ohledně nejistoty: pokud jsou signály smíšené, je málo historických dat, nebo "zaceněnost" vychází jen z konsensu posledního rozhodnutí (ne z reálných tržních dat), řekni to — nepředstírej jistotu, kterou data nemají.
@@ -730,6 +732,44 @@ function findForeignScript(value, path = "$") {
   return [];
 }
 
+// Appka živě zachytila (2026-08-07): model v "thesis_change_note" doslova ocitoval NÁZVY
+// interních JSON polí z promptu — "v poskytnutých recentEvents ani ve scenarioSeeds však není
+// jediný zřejmý katalyzátor... recentLedger uvádí invalidaci fundamentálního driveru" — místo
+// aby obsah popsal přirozenou češtinou. Prompt je teď proti tomu posílený (viz SHARED_CONTEXT),
+// ale stejně jako u cizího písma: prompt engineering snižuje pravděpodobnost, tenhle known-list
+// kódovou pojistkou garantuje. Jména jsou camelCase anglické identifikátory, co se v gramaticky
+// správné české větě nikdy nemají objevit — nízké riziko falešného zásahu.
+const LEAKED_FIELD_NAMES = [
+  "recentEvents",
+  "scenarioSeeds",
+  "recentLedger",
+  "flaggedEvents",
+  "basketContext",
+  "upcomingEvents",
+  "beatImplication",
+  "resolvedVerdict",
+  "scoreChange",
+  "cbPolicy",
+  "retailSentiment",
+  "cotPercentile",
+  "convictionStars",
+  "convictionReasons",
+];
+const LEAKED_FIELD_RE = new RegExp(LEAKED_FIELD_NAMES.join("|"));
+
+function findLeakedFieldNames(value, path = "$") {
+  if (typeof value === "string") {
+    return LEAKED_FIELD_RE.test(value) ? [path] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => findLeakedFieldNames(v, `${path}[${i}]`));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([k, v]) => findLeakedFieldNames(v, `${path}.${k}`));
+  }
+  return [];
+}
+
 // Sdílené jádro obou kroků (dřív byl `openai.chat.completions.create` duplikovaný v
 // generateNarrativePart i generateAgendaPart se stejnou strukturou, jen jiným promptem/
 // schématem). Navíc bezpečnostní síť na cizí písmo: při zásahu appka JEDNOU zopakuje dotaz s
@@ -767,27 +807,40 @@ export async function callStructuredCompletion({
     return JSON.parse(completion.choices[0].message.content);
   };
 
-  let result = await runOnce(messages);
-  let badPaths = findForeignScript(result);
+  // Obě kontroly běží nad stejnou odpovědí najednou — jeden retry pass řeší, ať selže
+  // kterákoli (nebo obě zároveň), stejný princip jako u ostatních pojistek v souboru.
+  const checkResult = (r) => ({
+    foreignScript: findForeignScript(r),
+    leakedFields: findLeakedFieldNames(r),
+  });
 
-  if (badPaths.length > 0) {
-    console.warn(`[${currencyCode}] ${label}: cizí písmo v poli(ích) ${badPaths.join(", ")} — opakuji dotaz.`);
+  let result = await runOnce(messages);
+  let issues = checkResult(result);
+
+  if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0) {
+    const notes = [];
+    if (issues.foreignScript.length > 0) {
+      console.warn(`[${currencyCode}] ${label}: cizí písmo v poli(ích) ${issues.foreignScript.join(", ")} — opakuji dotaz.`);
+      notes.push("Tvoje odpověď obsahovala znaky mimo latinku (např. azbuku) — to je chyba.");
+    }
+    if (issues.leakedFields.length > 0) {
+      console.warn(`[${currencyCode}] ${label}: uniklý název interního pole v poli(ích) ${issues.leakedFields.join(", ")} — opakuji dotaz.`);
+      notes.push(
+        "Tvoje odpověď doslova citovala název interního JSON pole z promptu (např. recentEvents, scenarioSeeds, recentLedger) místo přirozeného českého popisu — to je chyba."
+      );
+    }
     result = await runOnce([
       ...messages,
       { role: "assistant", content: JSON.stringify(result) },
-      {
-        role: "user",
-        content:
-          "Tvoje odpověď obsahovala znaky mimo latinku (např. azbuku) — to je chyba. Přepiš CELOU odpověď znovu, čistě spisovnou češtinou, jen latinka a česká diakritika.",
-      },
+      { role: "user", content: `${notes.join(" ")} Přepiš CELOU odpověď znovu, čistě spisovnou češtinou, jen latinka a česká diakritika, bez doslovných názvů interních polí.` },
     ]);
-    badPaths = findForeignScript(result);
-    if (badPaths.length > 0) {
+    issues = checkResult(result);
+    if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0) {
       console.error(
-        `[${currencyCode}] ${label}: cizí písmo přetrvává i po opakování v poli(ích) ${badPaths.join(", ")} — ukládám i tak, appka to zaloguje pro ruční kontrolu.`
+        `[${currencyCode}] ${label}: problém přetrvává i po opakování (cizí písmo: ${issues.foreignScript.join(", ") || "žádné"}, uniklá pole: ${issues.leakedFields.join(", ") || "žádné"}) — ukládám i tak, appka to zaloguje pro ruční kontrolu.`
       );
     } else {
-      console.log(`[${currencyCode}] ${label}: opakování dotazu cizí písmo opravilo.`);
+      console.log(`[${currencyCode}] ${label}: opakování dotazu problém opravilo.`);
     }
   }
 
