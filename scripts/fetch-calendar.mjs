@@ -533,22 +533,31 @@ export async function recomputeScores() {
       );
 
       // Porovnání s tím, co cituje POSLEDNÍ uložený text (viz komentář u staleTextCurrencies výš).
-      // Nekritické — chyba čtení narrativu nesmí shodit zbytek přepočtu skóre.
+      // Nekritické — chyba čtení narrativu nesmí shodit zbytek přepočtu skóre. POZOR: supabase-js
+      // chybu VRACÍ v poli "error", nevyhazuje ji — bez explicitní kontroly by selhání dotazu
+      // tiše prošlo jako "snap == null" a appka by o něm vůbec nevěděla (živě nahlášená past,
+      // 2026-08-08: AUD skočilo z 0,5 na 1,9 a kontrola to bez tohodle logu nezachytila).
       try {
-        const { data: lastNarrative } = await supabase
+        const { data: lastNarrative, error: snapReadErr } = await supabase
           .from("latest_narratives")
           .select("score_snapshot")
           .eq("currency_code", currencyCode)
           .limit(1);
-        const snap = lastNarrative?.[0]?.score_snapshot;
-        if (snap) {
-          const overallDrift = Math.abs(Number(snap.overall_score) - overallScore);
-          const fundDrift = Math.abs(Number(snap.fundamental_score) - result.fundamentalScore);
-          if (overallDrift > STALE_TEXT_EPSILON || fundDrift > STALE_TEXT_EPSILON) {
-            staleTextCurrencies.add(currencyCode);
-            console.log(
-              `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, fund text=${snap.fundamental_score} živé=${result.fundamentalScore}) — přidáno k přegenerování.`
-            );
+        if (snapReadErr) {
+          console.error(`[${currencyCode}] kontrola stáří textu: čtení score_snapshot selhalo:`, snapReadErr.message);
+        } else {
+          const snap = lastNarrative?.[0]?.score_snapshot;
+          if (!snap) {
+            console.log(`[${currencyCode}] kontrola stáří textu: žádný score_snapshot u posledního narrativu (starší řádek) — přeskočeno.`);
+          } else {
+            const overallDrift = Math.abs(Number(snap.overall_score) - overallScore);
+            const fundDrift = Math.abs(Number(snap.fundamental_score) - result.fundamentalScore);
+            if (overallDrift > STALE_TEXT_EPSILON || fundDrift > STALE_TEXT_EPSILON) {
+              staleTextCurrencies.add(currencyCode);
+              console.log(
+                `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, fund text=${snap.fundamental_score} živé=${result.fundamentalScore}) — přidáno k přegenerování.`
+              );
+            }
           }
         }
       } catch (staleErr) {
