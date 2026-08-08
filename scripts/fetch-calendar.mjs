@@ -406,6 +406,18 @@ export async function recomputeScores() {
   // "něco, někde".
   const thesisSignalCurrencies = new Set();
 
+  // Třetí, nezávislý spouštěč přegenerování narrativu (2026-08-08): materialCurrencies a
+  // thesisSignalCurrencies chytí NOVÁ data/tezi, ale žádný z nich nesleduje, jestli text, co už
+  // je uložený, pořád odpovídá aktuálnímu skóre — a to se hýbe i BEZ nové teze/eventu (VIX risk
+  // režim, plynulý time-decay recency). Živě zachyceno check-narrative-freshness.mjs: text GBP
+  // vygenerovaný v 10:30 tvrdil overall_score 1,2, o 80 minut později appka reálně ukazovala 1,5
+  // — nic to netriggerovalo, dokud si toho nevšiml automatický test. Řešení: porovnat aktuálně
+  // spočítané skóre s tím, co je uložené v score_snapshot POSLEDNÍHO narrativu té měny (stejný
+  // sloupec, co čte scripts/check-narrative-freshness.mjs) — a při odchylce nad práh přidat měnu
+  // do stejného scoped triggeru jako ostatní dva mechanismy, ne přegenerovat všech 8.
+  const staleTextCurrencies = new Set();
+  const STALE_TEXT_EPSILON = 0.05; // stejný práh jako FRESHNESS_EPSILON v generate-narrative.mjs
+
   for (const currencyCode of SCORED_CURRENCIES) {
     const result = computeFundamentalScore(currencyCode, allEvents ?? []);
 
@@ -520,6 +532,29 @@ export async function recomputeScores() {
           `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
       );
 
+      // Porovnání s tím, co cituje POSLEDNÍ uložený text (viz komentář u staleTextCurrencies výš).
+      // Nekritické — chyba čtení narrativu nesmí shodit zbytek přepočtu skóre.
+      try {
+        const { data: lastNarrative } = await supabase
+          .from("latest_narratives")
+          .select("score_snapshot")
+          .eq("currency_code", currencyCode)
+          .limit(1);
+        const snap = lastNarrative?.[0]?.score_snapshot;
+        if (snap) {
+          const overallDrift = Math.abs(Number(snap.overall_score) - overallScore);
+          const fundDrift = Math.abs(Number(snap.fundamental_score) - result.fundamentalScore);
+          if (overallDrift > STALE_TEXT_EPSILON || fundDrift > STALE_TEXT_EPSILON) {
+            staleTextCurrencies.add(currencyCode);
+            console.log(
+              `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, fund text=${snap.fundamental_score} živé=${result.fundamentalScore}) — přidáno k přegenerování.`
+            );
+          }
+        }
+      } catch (staleErr) {
+        console.error(`[${currencyCode}] kontrola stáří textu selhala (nekriticky):`, staleErr.message);
+      }
+
       // Snímek skóre do historie — jen když se overall_score SKUTEČNĚ pohnulo. Zapisovat každých
       // 15 minut i beze změny by tabulku zaplnilo identickými řádky a "poslední změna" by pak
       // ukazovala delta 0 z doby před pár minutami místo skutečného posledního pohybu.
@@ -600,7 +635,7 @@ export async function recomputeScores() {
     console.error("top-opportunity selhal (nekriticky):", topErr.message);
   }
 
-  return thesisSignalCurrencies;
+  return { thesisSignalCurrencies, staleTextCurrencies };
 }
 
 async function main() {
@@ -628,7 +663,7 @@ async function main() {
   const { count, materialCurrencies } = await mergeUpsert(deduped);
   console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
 
-  const thesisSignalCurrencies = await recomputeScores();
+  const { thesisSignalCurrencies, staleTextCurrencies } = await recomputeScores();
 
   // FORCE_NARRATIVE_REGEN přichází z workflow_dispatch inputs.force_narrative — appka ho
   // nastaví, když admin ručně přepíše "actual" v kalendáři (EditActualField.tsx přes Edge
@@ -641,16 +676,22 @@ async function main() {
   // thesisSignalCurrencies je druhý, nezávislý spouštěč (viz runThesisEngineForCurrency) — chrání
   // proti tomu, že materialCurrencies (scrape-diff) může minout skutečnou změnu, když dva běhy
   // scraperu proběhnou blízko sebe (živě zachyceno 30.7.2026 u GBP — viz git historie).
+  //
+  // staleTextCurrencies je třetí, nezávislý spouštěč (viz komentář v recomputeScores) — chrání
+  // proti tomu, že text zůstane citovat starší skóre, než appka právě zobrazuje, i když nedošlo
+  // k žádné nové tezi ani novému eventu (jen plynulý time-decay/VIX posun).
   const forceNarrative = process.env.FORCE_NARRATIVE_REGEN === "true";
-  const changedCurrencies = new Set([...materialCurrencies, ...thesisSignalCurrencies]);
+  const changedCurrencies = new Set([...materialCurrencies, ...thesisSignalCurrencies, ...staleTextCurrencies]);
 
   if (changedCurrencies.size > 0 || forceNarrative) {
     await triggerNarrativeRegeneration(
       forceNarrative
         ? "ruční úprava actual administrátorem"
-        : materialCurrencies.size === 0
-          ? "změnil se stav teze (nová/obrat/watching)"
-          : "nový actual u důležitého eventu",
+        : materialCurrencies.size === 0 && thesisSignalCurrencies.size === 0
+          ? "text neodpovídá aktuálnímu skóre"
+          : materialCurrencies.size === 0
+            ? "změnil se stav teze (nová/obrat/watching)"
+            : "nový actual u důležitého eventu",
       // Plošný běh (bez omezení) jen u ruční admin úpravy, kde appka neví, kterou měnu má na
       // mysli — automatické spouštěče vždy omezí jen na měny, co se SKUTEČNĚ změnily.
       forceNarrative ? null : changedCurrencies
