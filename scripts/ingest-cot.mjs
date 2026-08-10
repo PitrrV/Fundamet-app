@@ -151,6 +151,31 @@ async function processCurrency(currency) {
     }),
   };
 
+  // Pojistka proti "kruhovému" resetu skóre: tenhle upsert běží i v pondělní 14:00 UTC
+  // pojistce pro svátky posunuté vydání (viz ingest-cot.yml), která typicky trefí STEJNÝ
+  // report_date, co už sobotní běh — a bez týhle kontroly by přepsala overall_score/data_tier
+  // zpátky na syrové "jen COT" hodnoty, i když fetch-calendar.mjs mezitím řádek už dávno
+  // nablendoval přes všechny pilíře. Appka pak na pár minut (do dalšího 15minutového cronu)
+  // ukazuje všem 8 měnám najednou jiné, nesprávné skóre — živě nahlášeno uživatelem 10.8.2026.
+  // Když už existující řádek NENÍ 'cot_only' (=byl nablendovaný), zachovej jeho overall_score
+  // a conviction pole — jen COT-specifická pole (cot_score, zscore, retail_score, ...) se smí
+  // přepsat čerstvými daty.
+  const { data: existingRow } = await supabase
+    .from("confluence_scores")
+    .select("overall_score, data_tier, conviction_stars, conviction_reasons, conviction_label")
+    .eq("currency_code", currency.code)
+    .eq("report_date", result.reportDate)
+    .limit(1);
+
+  const existing = existingRow?.[0];
+  if (existing && existing.data_tier !== "cot_only") {
+    scoreRow.overall_score = existing.overall_score;
+    scoreRow.data_tier = existing.data_tier;
+    scoreRow.conviction_stars = existing.conviction_stars;
+    scoreRow.conviction_reasons = existing.conviction_reasons;
+    scoreRow.conviction_label = existing.conviction_label;
+  }
+
   const { error: scoreErr } = await supabase
     .from("confluence_scores")
     .upsert(scoreRow, { onConflict: "currency_code,report_date" });
@@ -163,7 +188,10 @@ async function processCurrency(currency) {
   console.log(
     `[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} zscore=${result.zscore} ` +
       `retail_score=${scoreRow.retail_score ?? "N/A"}${retail ? ` (${retail.pctLong}% long)` : ""} ` +
-      `cot_percentile=${percentile ?? "N/A"}`
+      `cot_percentile=${percentile ?? "N/A"}` +
+      (existing && existing.data_tier !== "cot_only"
+        ? ` (overall_score ${existing.overall_score} zachováno — už bylo nablendované)`
+        : "")
   );
   return { code: currency.code, ok: true };
 }
@@ -186,6 +214,42 @@ async function healthCheck() {
       cause = cause.cause;
       depth++;
     }
+  }
+}
+
+// Po dokončení ingestu okamžitě odpálí fetch-calendar.yml, aby se nablendované overall_score
+// (přes fundament/CB politiku/retail/risk pilíře) obnovilo co nejdřív — jinak by appka až do
+// dalšího 15minutového cronu ukazovala syrové "jen COT" skóre všem měnám najednou (viz komentář
+// u zachování existujícího overall_score výš). Stejný vzor jako triggerNarrativeRegeneration
+// ve fetch-calendar.mjs. Nekritické — bez GITHUB_TOKEN/GITHUB_REPOSITORY/GITHUB_REF_NAME (mimo
+// Actions, např. lokální spuštění) se jen přeskočí.
+async function triggerFetchCalendarRecompute() {
+  const token = process.env.GITHUB_TOKEN;
+  const repo = process.env.GITHUB_REPOSITORY;
+  const ref = process.env.GITHUB_REF_NAME;
+
+  if (!token || !repo || !ref) {
+    console.warn("Přeskakuji okamžitý trigger fetch-calendar.yml — chybí GITHUB_TOKEN/GITHUB_REPOSITORY/GITHUB_REF_NAME.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/fetch-calendar.yml/dispatches`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref, inputs: {} }),
+    });
+    if (res.ok) {
+      console.log("Spuštěn okamžitý fetch-calendar.yml (obnova nablendovaného overall_score po COT ingestu).");
+    } else {
+      console.error(`Nepodařilo se spustit fetch-calendar.yml: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error("Trigger fetch-calendar.yml selhal:", err.message);
   }
 }
 
@@ -218,6 +282,10 @@ async function main() {
   console.log(`\nHotovo: ${results.length - failed.length}/${results.length} měn úspěšně zpracováno.`);
   if (failed.length > 0) {
     console.warn(`Neúspěšné: ${failed.map((f) => f.code).join(", ")}`);
+  }
+
+  if (results.some((r) => r.ok)) {
+    await triggerFetchCalendarRecompute();
   }
 
   // Neselhat tvrdě kvůli jednotlivým měnám (např. neověřený USD/ICE kontrakt) —

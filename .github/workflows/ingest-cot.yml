@@ -6,6 +6,11 @@ on:
     - cron: '0 14 * * 1'  # pondělí 14:00 UTC — pojistka pro svátky posunuté vydání
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+  actions: write  # potřeba, aby skript mohl po ingestu hned odpálit fetch-calendar.yml
+                  # (obnova nablendovaného overall_score, viz komentář u triggerFetchCalendarRecompute)
+
 jobs:
   ingest:
     runs-on: ubuntu-latest
@@ -20,3 +25,6 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CFTC_APP_TOKEN: ${{ secrets.CFTC_APP_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
