@@ -10,6 +10,7 @@ async function fetchAllCalendarEvents() {
     const { data, error } = await supabase
       .from("calendar_events")
       .select("id, currency_code, event_title, event_day, actual, estimate, previous")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) throw error;
     rows.push(...(data ?? []));
@@ -19,7 +20,8 @@ async function fetchAllCalendarEvents() {
 }
 
 const allEvents = await fetchAllCalendarEvents();
-console.log(`Celkem calendar_events: ${allEvents.length}`);
+console.log(`Celkem calendar_events: ${allEvents.length} (unikátních id: ${new Set(allEvents.map((e) => e.id)).size})`);
+console.log(`id=690 (NFP 7.8.) přítomno:`, allEvents.some((e) => e.id === 690));
 
 const now = new Date();
 const CODE = "USD";

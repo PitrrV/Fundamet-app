@@ -363,6 +363,16 @@ function convictionLabelFromStars(stars) {
 // PostgREST vrací max 1000 řádků na dotaz bez explicitní stránkování — od backfillu historie
 // (3000+ řádků v calendar_events) by neomezený .select() tiše ořezal část měn/historie
 // použité pro fundamentální i CB Policy scoring. Stránkuje po 1000, dokud nedojdou řádky.
+//
+// KRITICKÉ: .range() bez .order() negarantuje stabilní pořadí mezi jednotlivými stránkami —
+// bez ORDER BY Postgres nemá povinnost vracet řádky ve stejném pořadí napříč samostatnými
+// dotazy, a calendar_events navíc dostává souběžné zápisy z 15minutového cronu (nové eventy,
+// doplňování "actual"). Živě zachyceno 11.8.2026: USD mělo fundamentální skóre uvízlé na 0.0
+// přes 24 hodin, protože Non-Farm Employment Change ze 7.8. (obří miss -23K vs. 85K, zdaleka
+// nejsilnější nedávný signál) se do fetchnutých řádků vůbec nedostal — ne jen s nízkou váhou,
+// ÚPLNĚ chyběl. Stejný problém byl už dřív diagnostikován pro generate-narrative.mjs (NZD,
+// 3.8.2026) s komentářem, že tahle funkce už má opravu — omyl, .order() tu nikdy nebyl. Teď
+// opraveno na obou místech: explicitní `order by id` dělá stránkování deterministické.
 async function fetchAllCalendarEvents() {
   const pageSize = 1000;
   const rows = [];
@@ -370,6 +380,7 @@ async function fetchAllCalendarEvents() {
     const { data, error } = await supabase
       .from("calendar_events")
       .select("id, currency_code, event_title, event_day, actual, estimate, previous")
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) return { data: null, error };
     rows.push(...(data ?? []));

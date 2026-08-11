@@ -1197,9 +1197,15 @@ async function main() {
   // přes 4000 řádků a bez ORDER BY navíc Postgres negarantuje, KTERÝCH 1000 se vrátí (může se
   // lišit běh od běhu). Živě nahlášená chyba (NZD, audit 2026-08-03): Employment Change/
   // Unemployment Rate (vysoké ID, nedávno vložené) se do prvních 1000 řádků tiše nevešly, takže
-  // appka o nich vůbec nevěděla a vypadly z agendy. Stejný problém byl už dřív opravený ve
-  // fetch-calendar.mjs (fetchAllCalendarEvents) — sem se ta oprava nikdy nedostala, protože je
-  // to nezávislý dotaz ve druhém souboru.
+  // appka o nich vůbec nevěděla a vypadly z agendy.
+  //
+  // POZOR, druhá živá lekce (11.8.2026): tenhle komentář dřív tvrdil, že stejný problém byl
+  // "už dřív opravený ve fetch-calendar.mjs" a stačí ho sem doportovat — byl to omyl, `.order()`
+  // ve fetch-calendar.mjs NIKDY nebyl. Důsledek: USD fundamentální skóre uvízlo na 0.0 přes
+  // 24 hodin, protože Non-Farm Employment Change ze 7.8. (miss -23K vs. 85K, zdaleka nejsilnější
+  // nedávný signál) se do stránkovaného fetche vůbec nedostal. Teď opraveno na OBOU místech
+  // (tady i ve fetch-calendar.mjs/fetchAllCalendarEvents) explicitním `order by id` — příště
+  // při "oprava je jinde" ověřit diffem, ne důvěřovat starému komentáři.
   const allCalendarEvents = [];
   {
     const pageSize = 1000;
@@ -1207,6 +1213,7 @@ async function main() {
       const { data: page, error: calErr } = await supabase
         .from("calendar_events")
         .select("currency_code, event_title, event_day, actual, estimate, previous, impact")
+        .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
 
       if (calErr) {
