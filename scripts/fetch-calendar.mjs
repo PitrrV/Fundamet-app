@@ -314,6 +314,33 @@ async function triggerNarrativeRegeneration(reason, currencyCodes) {
   }
 }
 
+// Práh pro Telegram alert na skokovou změnu skóre — nezávislý na SCORE_SNAPSHOT logice
+// (ta loguje od 0.05, aby "poslední změna" nikdy neukazovala zastaralou hodnotu); alert je
+// užší filtr NAD ní, jen na pohyby, co stojí za upozornění.
+const SCORE_ALERT_THRESHOLD = 0.2;
+
+// Pošle zprávu do Telegramu přes Bot API. Volitelné — bez TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
+// (secrets ve fetch-calendar.yml) se jen tiše přeskočí, ať appka funguje i bez nastaveného
+// bota. Nesmí shodit zbytek přepočtu, kdyby Telegram API selhalo — vlastní try/catch.
+async function sendTelegramAlert(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+    if (!res.ok) {
+      console.error(`Telegram alert selhal: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error("Telegram alert selhal:", err.message);
+  }
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -603,6 +630,13 @@ export async function recomputeScores() {
           else if (previous !== null) {
             const d = Math.round((overallScore - Number(previous)) * 100) / 100;
             console.log(`[${currencyCode}] skóre se pohnulo: ${previous} -> ${overallScore} (${d > 0 ? "+" : ""}${d})`);
+            if (Math.abs(d) >= SCORE_ALERT_THRESHOLD) {
+              const arrow = d > 0 ? "📈" : "📉";
+              await sendTelegramAlert(
+                `${arrow} <b>${currencyCode}</b> skóre: ${previous} → <b>${overallScore}</b> (${d > 0 ? "+" : ""}${d})\n` +
+                  `Konvikce: ${conviction.stars}/5 hvězd`
+              );
+            }
           }
         }
       } catch (snapErr) {
