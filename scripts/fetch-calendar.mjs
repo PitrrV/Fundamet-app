@@ -444,6 +444,11 @@ export async function recomputeScores() {
   // "něco, někde".
   const thesisSignalCurrencies = new Set();
 
+  // Telegram alert na skok skóre — jen SESBÍRAT přes celou smyčku měn, ne posílat rovnou.
+  // Zpráva chce i "nejsilnější/nejslabší měna", což potřebuje přehled VŠECH měn najednou —
+  // ten je hotový až po computeTopOpportunity() níž, po skončení smyčky.
+  const pendingScoreAlerts = [];
+
   // Třetí, nezávislý spouštěč přegenerování narrativu (2026-08-08): materialCurrencies a
   // thesisSignalCurrencies chytí NOVÁ data/tezi, ale žádný z nich nesleduje, jestli text, co už
   // je uložený, pořád odpovídá aktuálnímu skóre — a to se hýbe i BEZ nové teze/eventu (VIX risk
@@ -631,11 +636,7 @@ export async function recomputeScores() {
             const d = Math.round((overallScore - Number(previous)) * 100) / 100;
             console.log(`[${currencyCode}] skóre se pohnulo: ${previous} -> ${overallScore} (${d > 0 ? "+" : ""}${d})`);
             if (Math.abs(d) >= SCORE_ALERT_THRESHOLD) {
-              const arrow = d > 0 ? "📈" : "📉";
-              await sendTelegramAlert(
-                `${arrow} <b>${currencyCode}</b> skóre: ${previous} → <b>${overallScore}</b> (${d > 0 ? "+" : ""}${d})\n` +
-                  `Konvikce: ${conviction.stars}/5 hvězd`
-              );
+              pendingScoreAlerts.push({ currencyCode, delta: d, overallScore });
             }
           }
         }
@@ -682,11 +683,29 @@ export async function recomputeScores() {
   }
 
   // "Top Fundamentální příležitosti týdne" — potřebuje přehled VŠECH měn najednou, proto se
-  // volá jednou tady, ne uvnitř smyčky per měna.
+  // volá jednou tady, ne uvnitř smyčky per měna. Vrácené strongest/weakest se zároveň hodí
+  // do Telegram alertů níž — ať appka pro to samé kolo nepočítá "nejsilnější/nejslabší"
+  // podruhé vlastním dotazem.
+  let topOpportunity = null;
   try {
-    await computeTopOpportunity();
+    topOpportunity = await computeTopOpportunity();
   } catch (topErr) {
     console.error("top-opportunity selhal (nekriticky):", topErr.message);
+  }
+
+  // Telegram alerty na skok skóre — posílané až tady, po dopočtení celého kola, aby zpráva
+  // mohla vedle konkrétního pohybu ukázat i "nejsilnější/nejslabší měna právě teď" (viz
+  // pendingScoreAlerts výš).
+  for (const alert of pendingScoreAlerts) {
+    const arrow = alert.delta > 0 ? "📈" : "📉";
+    const fmt = (n) => `${n > 0 ? "+" : ""}${n}`;
+    let text = `${arrow} <b>${alert.currencyCode}</b> ${fmt(alert.delta)} bodu → celkem <b>${fmt(alert.overallScore)}</b>`;
+    if (topOpportunity) {
+      text +=
+        `\n\nNejsilnější: ${topOpportunity.strongest.currencyCode} (${fmt(topOpportunity.strongest.overallScore)})` +
+        `\nNejslabší: ${topOpportunity.weakest.currencyCode} (${fmt(topOpportunity.weakest.overallScore)})`;
+    }
+    await sendTelegramAlert(text);
   }
 
   return { thesisSignalCurrencies, staleTextCurrencies };

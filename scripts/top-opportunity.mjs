@@ -56,10 +56,13 @@ function buildRationale(strongest, weakest, tier) {
   return `${base} Obě teze jsou podpořené více nezávislými signály a kvalita dat u obou není nízká.`;
 }
 
+// Vrací { strongest, weakest } (stejné objekty, co se ukládají do weekly_top_opportunity),
+// aby si volající (fetch-calendar.mjs — Telegram alert na skok skóre) nemusel stejná data
+// tahat znovu vlastním dotazem. null, když není co srovnat / DB není dostupná.
 export async function computeTopOpportunity() {
   if (!supabase) {
     console.warn("top-opportunity přeskočen — chybí Supabase env.");
-    return;
+    return null;
   }
 
   const [{ data: scores, error: scoresErr }, { data: theses, error: thesesErr }, { data: quality, error: qualityErr }] =
@@ -71,7 +74,7 @@ export async function computeTopOpportunity() {
 
   if (scoresErr || thesesErr || qualityErr) {
     console.error("top-opportunity chyba čtení:", scoresErr?.message, thesesErr?.message, qualityErr?.message);
-    return;
+    return null;
   }
 
   const thesisByCode = new Map((theses ?? []).map((t) => [t.currency_code, t]));
@@ -112,7 +115,7 @@ export async function computeTopOpportunity() {
     );
     if (error) console.error("top-opportunity chyba upsertu (insufficient_data):", error.message);
     else console.log(`top-opportunity: méně než 2 měny mají spočítané skóre (${candidates.length}) — zatím není co srovnat.`);
-    return;
+    return null;
   }
 
   const sorted = candidates.slice().sort((a, b) => b.overallScore - a.overallScore);
@@ -140,10 +143,12 @@ export async function computeTopOpportunity() {
 
   if (upsertErr) {
     console.error("top-opportunity chyba upsertu:", upsertErr.message);
-    return;
+    return null;
   }
 
   console.log(
     `top-opportunity: nejsilnější=${strongest.currencyCode} (${strongest.overallScore}), nejslabší=${weakest.currencyCode} (${weakest.overallScore}), tier=${tier}.`
   );
+
+  return { strongest, weakest };
 }
