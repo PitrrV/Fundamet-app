@@ -1260,7 +1260,18 @@ async function main() {
     const fingerprint = buildInputFingerprint(context);
     const changed = changedSections(fingerprintByCode.get(code), fingerprint);
 
-    if (changed.length === 0 && !FORCE_REGENERATE && !DISABLE_INPUT_HASH) {
+    // ONLY_CURRENCIES.length > 0 znamená, že tenhle běh je CÍLENĚ omezený fetch-calendar.mjs
+    // (scrape-diff, thesis signál, nebo staleTextCurrencies) — volající už rozhodl, že tahle
+    // měna regeneraci potřebuje, z konkrétního a přesného důvodu. Otisk vstupů (round05 na
+    // skóre, viz buildInputFingerprint) je záměrně hrubší (potřebuje posun ≥0.5), aby
+    // neplýtval na denní časový rozpad — ale to je STEJNÝ práh, co dokáže zamaskovat přesně tu
+    // situaci, kterou staleTextCurrencies hlásí (posun 0.05–0.5, zachycený PŘESNĚJŠÍM
+    // porovnáním se score_snapshotem, ne hrubým otiskem). Živě zachyceno 13.8.2026: CAD/CHF
+    // se dostaly do only_currencies kvůli staleTextCurrencies, ale otisk vstupů se nezměnil
+    // (round05 posun pod 0.5), takže se text tiše nepřegeneroval — freshness-check pak
+    // KAŽDÝ běh znovu nahlásil stejnou neshodu, donekonečna. Cílený běh proto otisk vždycky
+    // respektuje jako "generuj" — dedup slouží jen nescopovanému dennímu běhu přes všech 8.
+    if (changed.length === 0 && !FORCE_REGENERATE && !DISABLE_INPUT_HASH && ONLY_CURRENCIES.length === 0) {
       // Žádný zápis do DB — uložený narrativ (včetně textu, agendy i audia) zůstává platný
       // a frontend ho dál čte z latest_narratives beze změny.
       console.log(`[${code}] beze změny vstupů → přeskočeno, platí uložený narrativ.`);
@@ -1272,7 +1283,9 @@ async function main() {
       ? "detekce změn vypnutá"
       : FORCE_REGENERATE
         ? "vynuceno přepínačem"
-        : `změna: ${changed.map((k) => SECTION_LABELS[k] ?? k).join(", ")}`;
+        : changed.length === 0
+          ? "cílený běh (ONLY_CURRENCIES) — otisk vstupů beze změny, ale volající regeneraci vyžádal"
+          : `změna: ${changed.map((k) => SECTION_LABELS[k] ?? k).join(", ")}`;
     console.log(`[${code}] generuji — ${reason}.`);
 
     // Uzavírá code/allCalendarEvents/basketContext/marketRegime — freshness-check v
