@@ -7,7 +7,7 @@ import { RichText } from "./components/RichText";
 import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
 import { convictionColor } from "./utils";
-import { fetchCurrencies, fetchTopOpportunity } from "./lib/fetchCurrencies";
+import { fetchCurrencies, fetchTopOpportunity, isAuthError } from "./lib/fetchCurrencies";
 import { supabase } from "./lib/supabaseClient";
 import { ADMIN_EMAIL, signOut } from "./lib/auth";
 import type { AgendaReaction, AgendaTier, CurrencyData, LedgerEntry, TopOpportunity } from "./types";
@@ -379,6 +379,10 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionChecked, setSessionChecked] = useState(false);
   const [topOpportunity, setTopOpportunity] = useState<TopOpportunity | null>(null);
+  // Ruční "Zkusit znovu" tlačítko u chybové hlášky mění tenhle counter, což znovu nakopne
+  // efekt níž (je v jeho dependency poli) — bez toho by šel jediný způsob obnovy přes reload
+  // celé stránky.
+  const [loadRetryToken, setLoadRetryToken] = useState(0);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -394,18 +398,56 @@ export default function App() {
   // Appka teď vyžaduje přihlášení pro KOHOKOLI (DB granty na anon jsou zrušené, viz
   // schema-require-auth.sql) — data se tedy nemá cenu tahat, dokud session neexistuje, jinak
   // by to skončilo jen zbytečnou 401/403 chybou z Supabase.
+  //
+  // Živě nahlášeno 13.8.2026: přihlášený uživatel dostal "Databáze neodpověděla do 10 s." — DB
+  // granty pro authenticated roli jsou přitom ověřeně v pořádku (12/12 dotazů projde), takže šlo
+  // o přechodný síťový zádrhel na jednom z 12 souběžných dotazů. Appka na to dřív neměla žádnou
+  // pojistku — jediná záchrana byl ruční reload celé stránky. Teď: 1× tichý automatický retry po
+  // krátké pauze, a teprve když selže i ten, ukázat chybu (s ručním tlačítkem, viz níž). Pokud
+  // chyba vypadá jako vypršelá session (isAuthError), retry nemá smysl — rovnou odhlásit, ať
+  // appka ukáže přihlašovací obrazovku s jasným důvodem místo matoucí "DB neodpovídá" hlášky.
   useEffect(() => {
     if (!session) return;
-    fetchCurrencies()
-      .then((data) => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const data = await fetchCurrencies();
+        if (cancelled) return;
         setCurrencies(data);
+        setLoadError(null);
         setCurrencyCode((prev) => prev ?? data.find((c) => c.code === "EUR")?.code ?? data[0]?.code ?? null);
-      })
-      .catch((err: Error) => setLoadError(err.message));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (isAuthError(message)) {
+          if (!cancelled) setLoadError("Přihlášení vypršelo — přihlaste se prosím znovu.");
+          await signOut();
+          return;
+        }
+        // Jeden tichý pokus navíc — nezobrazí se žádná chyba, pokud se povede.
+        await new Promise((r) => setTimeout(r, 1500));
+        if (cancelled) return;
+        try {
+          const data = await fetchCurrencies();
+          if (cancelled) return;
+          setCurrencies(data);
+          setLoadError(null);
+          setCurrencyCode((prev) => prev ?? data.find((c) => c.code === "EUR")?.code ?? data[0]?.code ?? null);
+        } catch (err2) {
+          if (!cancelled) setLoadError(err2 instanceof Error ? err2.message : String(err2));
+        }
+      }
+    }
+
+    load();
     fetchTopOpportunity()
       .then(setTopOpportunity)
       .catch(() => setTopOpportunity(null));
-  }, [session]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, loadRetryToken]);
 
   const isAdmin = session?.user?.email?.toLowerCase() === ADMIN_EMAIL;
 
@@ -469,8 +511,17 @@ export default function App() {
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
         {loadError && (
-          <Card className="p-5 border-neg/40 text-sm text-neg">
-            Nepodařilo se načíst data z databáze: {loadError}
+          <Card className="p-5 border-neg/40 text-sm text-neg flex items-center justify-between gap-4 flex-wrap">
+            <span>Nepodařilo se načíst data z databáze: {loadError}</span>
+            <button
+              onClick={() => {
+                setLoadError(null);
+                setLoadRetryToken((n) => n + 1);
+              }}
+              className="shrink-0 bg-neg/10 border border-neg/40 rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-neg/20 transition-colors"
+            >
+              Zkusit znovu
+            </button>
           </Card>
         )}
 

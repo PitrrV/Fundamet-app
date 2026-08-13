@@ -157,6 +157,15 @@ function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
   ]);
 }
 
+// Odliší "vypršelo přihlášení" od skutečného výpadku/pomalé sítě — DB granty pro anon jsou
+// zrušené (schema-require-auth.sql), takže neplatná/expirovaná session končí přesně tímhle
+// druhem chyby (permission denied / JWT), ne timeoutem. App.tsx podle tohohle rozhoduje, jestli
+// nabídnout "zkusit znovu", nebo rovnou odhlásit a poslat zpátky na přihlašovací obrazovku.
+export function isAuthError(message: string): boolean {
+  const m = message.toLowerCase();
+  return m.includes("permission denied") || m.includes("jwt") || m.includes("401") || m.includes("403");
+}
+
 function groupByCurrency<T extends { currency_code: string }>(rows: T[]): Map<string, T[]> {
   const map = new Map<string, T[]>();
   for (const row of rows) {
