@@ -1,60 +1,62 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Stejný klient (anon key), stejné dotazy, stejný vzor jako src/lib/fetchCurrencies.ts —
-// cílem je reprodukovat přesně to, co dělá prohlížeč uživatele, ne server-side service-key
-// cestu (ta běží úplně jinudy a nemusí odhalit stejný problém).
-const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);
+// Service key = plný přístup, obchází RLS/granty — zjistíme skutečný stav grantů pro anon roli.
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const today = new Date().toISOString().slice(0, 10);
-const upcomingCutoff = new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10);
+const { data, error } = await supabase.rpc("pg_catalog_grants_check").catch(() => ({ data: null, error: "no rpc" }));
 
-const queries = {
-  latest_confluence_scores: () =>
-    supabase
-      .from("latest_confluence_scores")
-      .select("currency_code, cot_score, overall_score, data_tier, conviction_label, cot_positioning_label, summary, retail_score, cot_percentile, conviction_stars, conviction_reasons")
-      .order("currency_code", { ascending: true }),
-  latest_fundamental_scores: () => supabase.from("latest_fundamental_scores").select("currency_code, fundamental_score"),
-  latest_narratives: () =>
-    supabase.from("latest_narratives").select("currency_code, narrative, forward_flag, conviction_note, scenarios, thesis_change_note"),
-  calendar_events: () =>
-    supabase
-      .from("calendar_events")
-      .select("id, currency_code, event_day, event_title, impact, estimate, previous, actual")
-      .gte("event_day", today)
-      .lte("event_day", upcomingCutoff)
-      .order("event_day", { ascending: true }),
-  cb_policy_state: () =>
-    supabase.from("cb_policy_state").select("currency_code, rate, cpi, policy_score, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, priced_in"),
-  market_regime: () => supabase.from("market_regime").select("vix, vix_5d_change, regime").limit(1),
-  latest_currency_thesis: () =>
-    supabase.from("latest_currency_thesis").select("currency_code, direction, conviction, drivers, thesis_summary, status, confirm_streak, challenge_streak, opened_at"),
-  data_quality_score: () => supabase.from("data_quality_score").select("currency_code, score"),
-  data_coverage: () => supabase.from("data_coverage").select("currency_code, coverage_pct, missing"),
-  thesis_ledger_feed: () =>
-    supabase.from("thesis_ledger_feed").select("currency_code, driver_key, classification, reasoning, occurred_at").order("occurred_at", { ascending: false }).limit(200),
-  latest_score_change: () => supabase.from("latest_score_change").select("currency_code, delta, previous_score, recorded_at"),
-  regime_shift_state: () => supabase.from("regime_shift_state").select("currency_code, long_term_score, short_term_score, divergence, alert"),
-};
+// rpc pravděpodobně neexistuje — zkusíme execute_sql ekvivalent přes REST endpoint na
+// information_schema (funguje jen přes přímé SQL, ne přes .from()). Použijeme surové HTTP
+// volání na Supabase's pg-meta / SQL endpoint není dostupné přes anon klienta — zkusme
+// aspoň nepřímo: zkusit SELECT na každou tabulku SERVICE klíčem (musí projít vždy) a pak
+// stejné tabulky anon klíčem, abychom měli jistotu, že rozdíl je fakt v grantech, ne v tom,
+// že tabulka/view neexistuje.
+console.log("RPC pokus (očekávaná chyba, jen pro jistotu):", error);
 
-console.log(`=== Měřím ${Object.keys(queries).length} dotazů (anon key, stejně jako appka) — 3 kola ===`);
+const anon = createClient(process.env.SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);
 
-for (let round = 1; round <= 3; round++) {
-  console.log(`\n--- kolo ${round} ---`);
-  const start = Date.now();
-  const results = await Promise.all(
-    Object.entries(queries).map(async ([name, fn]) => {
-      const t0 = Date.now();
-      try {
-        const { error, count, data } = await fn();
-        const ms = Date.now() - t0;
-        return { name, ms, ok: !error, error: error?.message, rows: data?.length ?? count };
-      } catch (e) {
-        return { name, ms: Date.now() - t0, ok: false, error: e.message };
-      }
-    })
+const tables = [
+  "latest_confluence_scores",
+  "latest_narratives",
+  "calendar_events",
+  "latest_fundamental_scores",
+  "market_regime",
+  "cb_policy_state",
+];
+
+for (const t of tables) {
+  const [svc, anonRes] = await Promise.all([
+    supabase.from(t).select("*").limit(1),
+    anon.from(t).select("*").limit(1),
+  ]);
+  console.log(
+    `${t}: service=${svc.error ? "ERR:" + svc.error.message : "OK(" + (svc.data?.length ?? 0) + ")"} | anon=${
+      anonRes.error ? "ERR:" + anonRes.error.message : "OK(" + (anonRes.data?.length ?? 0) + ")"
+    }`
   );
-  results.sort((a, b) => b.ms - a.ms);
-  for (const r of results) console.log(`  ${r.ok ? "OK " : "FAIL"} ${r.name}: ${r.ms}ms${r.ok ? ` (${r.rows} řádků)` : ` — ${r.error}`}`);
-  console.log(`  celé kolo (Promise.all): ${Date.now() - start}ms`);
+}
+
+console.log("\nAnon key použitý v testu (prvních/posledních 8 znaků):",
+  process.env.VITE_SUPABASE_ANON_KEY?.slice(0, 8) + "..." + process.env.VITE_SUPABASE_ANON_KEY?.slice(-8),
+  "délka:", process.env.VITE_SUPABASE_ANON_KEY?.length);
+
+// Porovnat se skutečně nasazeným klíčem v GitHub Pages buildu — jestli se secret liší od
+// toho, co je reálně v běžícím JS bundlu, testujeme jiný klíč, než jaký appka doopravdy má.
+try {
+  const pagesUrl = "https://pitrrv.github.io/Fundamet-app/";
+  const html = await (await fetch(pagesUrl)).text();
+  const scriptMatch = html.match(/src="([^"]+\.js)"/);
+  console.log("\nGitHub Pages HTML fetch OK, script tag:", scriptMatch?.[1]);
+  if (scriptMatch) {
+    const scriptUrl = new URL(scriptMatch[1], pagesUrl).toString();
+    const js = await (await fetch(scriptUrl)).text();
+    const jwtMatches = [...js.matchAll(/eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/g)].map((m) => m[0]);
+    console.log("Nalezené JWT-like řetězce v bundlu:", jwtMatches.length);
+    for (const jwt of jwtMatches.slice(0, 3)) {
+      console.log("  ", jwt.slice(0, 8) + "..." + jwt.slice(-8), "délka:", jwt.length,
+        "shoduje se s GH secret VITE_SUPABASE_ANON_KEY:", jwt === process.env.VITE_SUPABASE_ANON_KEY);
+    }
+  }
+} catch (e) {
+  console.log("\nGitHub Pages fetch selhal:", e.message);
 }
