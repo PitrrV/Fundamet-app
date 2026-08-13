@@ -403,12 +403,27 @@ export default function App() {
   // granty pro authenticated roli jsou přitom ověřeně v pořádku (12/12 dotazů projde), takže šlo
   // o přechodný síťový zádrhel na jednom z 12 souběžných dotazů. Appka na to dřív neměla žádnou
   // pojistku — jediná záchrana byl ruční reload celé stránky. Teď: 1× tichý automatický retry po
-  // krátké pauze, a teprve když selže i ten, ukázat chybu (s ručním tlačítkem, viz níž). Pokud
-  // chyba vypadá jako vypršelá session (isAuthError), retry nemá smysl — rovnou odhlásit, ať
-  // appka ukáže přihlašovací obrazovku s jasným důvodem místo matoucí "DB neodpovídá" hlášky.
+  // krátké pauze, a teprve když selže i ten, ukázat chybu (s ručním tlačítkem, viz níž).
+  //
+  // Živě nahlášeno znovu 13.8.2026 (pár hodin po nasazení výše): appka uživatele sama odhlásila
+  // bez zjevného důvodu. Příčina — první verze týhle opravy: jakmile ZPRÁVA chyby jen VYPADALA
+  // jako vypršelá session (isAuthError — obsahuje "permission denied"/"jwt"/"401"/"403"),
+  // OKAMŽITĚ (bez retry) volala signOut(), aniž by ověřila, že session je fakt mrtvá. Jenže
+  // stejně vypadající 401/403 dostane i souběžný dotaz, který jen zachytil token těsně před
+  // jeho tichým obnovením na pozadí (autoRefreshToken) — to není vypršelá session, jen dotaz,
+  // co odešel o pár desítek ms dřív. Výsledkem bylo nucené odhlášení i s platnou session.
+  // Oprava: než se odhlásí, appka se sama zeptá Supabase na aktuální session (getSession() ji
+  // obnoví, pokud je potřeba a jde to) — teprve když TA potvrdí, že session je pryč, jde o
+  // skutečně vypršelé přihlášení a odhlášení dává smysl. Jinak se chyba bere jako přechodná a
+  // pokračuje se běžným tichým retry níž.
   useEffect(() => {
     if (!session) return;
     let cancelled = false;
+
+    async function isReallySignedOut(): Promise<boolean> {
+      const { data } = await supabase.auth.getSession();
+      return !data.session;
+    }
 
     async function load() {
       try {
@@ -419,7 +434,7 @@ export default function App() {
         setCurrencyCode((prev) => prev ?? data.find((c) => c.code === "EUR")?.code ?? data[0]?.code ?? null);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (isAuthError(message)) {
+        if (isAuthError(message) && (await isReallySignedOut())) {
           if (!cancelled) setLoadError("Přihlášení vypršelo — přihlaste se prosím znovu.");
           await signOut();
           return;
@@ -434,7 +449,13 @@ export default function App() {
           setLoadError(null);
           setCurrencyCode((prev) => prev ?? data.find((c) => c.code === "EUR")?.code ?? data[0]?.code ?? null);
         } catch (err2) {
-          if (!cancelled) setLoadError(err2 instanceof Error ? err2.message : String(err2));
+          const message2 = err2 instanceof Error ? err2.message : String(err2);
+          if (isAuthError(message2) && (await isReallySignedOut())) {
+            if (!cancelled) setLoadError("Přihlášení vypršelo — přihlaste se prosím znovu.");
+            await signOut();
+            return;
+          }
+          if (!cancelled) setLoadError(message2);
         }
       }
     }
