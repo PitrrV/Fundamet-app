@@ -3,16 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 // Service key = plný přístup, obchází RLS/granty — zjistíme skutečný stav grantů pro anon roli.
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-const { data, error } = await supabase.rpc("pg_catalog_grants_check").catch(() => ({ data: null, error: "no rpc" }));
-
-// rpc pravděpodobně neexistuje — zkusíme execute_sql ekvivalent přes REST endpoint na
-// information_schema (funguje jen přes přímé SQL, ne přes .from()). Použijeme surové HTTP
-// volání na Supabase's pg-meta / SQL endpoint není dostupné přes anon klienta — zkusme
-// aspoň nepřímo: zkusit SELECT na každou tabulku SERVICE klíčem (musí projít vždy) a pak
-// stejné tabulky anon klíčem, abychom měli jistotu, že rozdíl je fakt v grantech, ne v tom,
-// že tabulka/view neexistuje.
-console.log("RPC pokus (očekávaná chyba, jen pro jistotu):", error);
-
 const anon = createClient(process.env.SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY);
 
 const tables = [
