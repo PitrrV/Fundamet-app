@@ -10,9 +10,17 @@ const FRED_CSV_BASE = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=";
 
 // currency-map korekce (vzor getRiskSentimentAdj z Fx-Analyzeru), capnuto ±0.5 — polovina
 // originálních ±1.0/1.2, konzistentní s tím, že náš systém je na poloviční škále -5..+5.
-// USD/EUR/GBP nejsou v mapě záměrně — v originále taky nemají výraznou risk-on/off charakteristiku.
-const RISK_ON_MAP = { AUD: 0.4, NZD: 0.35, CAD: 0.25, JPY: -0.25, CHF: -0.15 };
-const RISK_OFF_MAP = { AUD: -0.5, NZD: -0.5, CAD: -0.3, JPY: 0.5, CHF: 0.5 };
+// USD/EUR nejsou v mapě záměrně — v originále taky nemají výraznou risk-on/off charakteristiku.
+//
+// GBP doplněno 15.8.2026 po ověření napříč nezávislými zdroji (FXStreet, Babypips, HowToTrade,
+// A1Trading aj.) — procyklická měna, posiluje v risk-on/oslabuje v risk-off, stejný směr jako
+// AUD/NZD/CAD, ale slabší síla (GBP není komoditní měna). Magnituda vychází z Fx-Analyzerova
+// vlastního auditovaného čísla pro GBP (−0,65 na jeho −10..+10 škále → −0,3 po přepočtu na
+// naši poloviční škálu). Fx-Analyzerův audit u AUD/CHF ale ověření NEPROŠEL (viz komentář u
+// riskAdjForCurrency níž) — u GBP naopak směr i řádová síla sedí s nezávislými zdroji, proto se
+// přebírá jen tahle jedna hodnota, ne celý audit napříč měnami.
+const RISK_ON_MAP = { AUD: 0.4, NZD: 0.35, CAD: 0.25, GBP: 0.3, JPY: -0.25, CHF: -0.15 };
+const RISK_OFF_MAP = { AUD: -0.5, NZD: -0.5, CAD: -0.3, GBP: -0.3, JPY: 0.5, CHF: 0.5 };
 
 export async function fetchFredSeries(seriesId) {
   const res = await fetch(`${FRED_CSV_BASE}${seriesId}`, { headers: { "User-Agent": "Mozilla/5.0" } });
@@ -89,6 +97,13 @@ async function fetchLiveVix() {
   return null;
 }
 
+// AUD/CHF směr ověřen 15.8.2026 napříč nezávislými zdroji (FXStreet, Babypips, HowToTrade,
+// A1Trading aj.) — Konfluence tu už měla konvenční, správný směr (AUD risk-on kladné, CHF
+// risk-off kladné/safe-haven). Fx-Analyzerův vlastní audit u těchhle dvou měn tvrdil opak
+// ("AUD posiluje v risk-off", "CHF v risk-off oslabuje") — nepotvrzeno, NEpřebráno. Jediná
+// zdokumentovaná výjimka je krátké okno 2022 (komoditní supercyklus po invazi na Ukrajinu),
+// kdy AUD/NZD dočasně fungovaly jako náhradní safe haven — zdroje to samy popisují jako
+// výjimku z pravidla, ne jako obecný vzorec, takže tu zůstává konvenční směr.
 export function riskAdjForCurrency(currencyCode, regime) {
   if (regime === "RISK_ON") return RISK_ON_MAP[currencyCode] ?? 0;
   if (regime === "RISK_OFF") return RISK_OFF_MAP[currencyCode] ?? 0;
