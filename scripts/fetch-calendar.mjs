@@ -593,12 +593,29 @@ export async function recomputeScores() {
           if (!snap) {
             console.log(`[${currencyCode}] kontrola stáří textu: žádný score_snapshot u posledního narrativu (starší řádek) — přeskočeno.`);
           } else {
+            // Živě zachyceno 15.8.2026: AUD/GBP prošly beze změny, i když check-narrative-
+            // freshness.mjs (kontroluje cot_score/retail_score PŘÍMO, ne přes blend) hlásil
+            // neshodu. Příčina: overall_score je VÁŽENÝ BLEND (BLEND_WEIGHTS výš) — posun v cot i
+            // retail se může v blendu z velké části vyrušit (AUD: cot +0,5×0,46 ≈ +0,23, retail
+            // −2,5×0,11 ≈ −0,28, součet ≈ −0,05, těsně pod prahem), takže overallDrift/fundDrift
+            // samotné neuvidí nic, přestože KAŽDÝ pilíř samostatně je výrazně nad prahem. Musí se
+            // proto porovnat přímo stejné 4 pole, co kontroluje check-narrative-freshness.mjs —
+            // ne jen jejich odvozený blend.
             const overallDrift = Math.abs(Number(snap.overall_score) - overallScore);
             const fundDrift = Math.abs(Number(snap.fundamental_score) - result.fundamentalScore);
-            if (overallDrift > STALE_TEXT_EPSILON || fundDrift > STALE_TEXT_EPSILON) {
+            const cotDrift = Math.abs(Number(snap.cot_score ?? 0) - cotRow.cot_score);
+            const retailDrift = Math.abs(Number(snap.retail_score ?? 0) - retailScore);
+            if (
+              overallDrift > STALE_TEXT_EPSILON ||
+              fundDrift > STALE_TEXT_EPSILON ||
+              cotDrift > STALE_TEXT_EPSILON ||
+              retailDrift > STALE_TEXT_EPSILON
+            ) {
               staleTextCurrencies.add(currencyCode);
               console.log(
-                `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, fund text=${snap.fundamental_score} živé=${result.fundamentalScore}) — přidáno k přegenerování.`
+                `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, ` +
+                  `fund text=${snap.fundamental_score} živé=${result.fundamentalScore}, ` +
+                  `cot text=${snap.cot_score ?? 0} živé=${cotRow.cot_score}, retail text=${snap.retail_score ?? 0} živé=${retailScore}) — přidáno k přegenerování.`
               );
             }
           }
