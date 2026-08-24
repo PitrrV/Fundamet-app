@@ -15,4 +15,10 @@ create or replace view thesis_ledger_feed as
   join currency_thesis ct on ct.id = tl.thesis_id
   order by tl.occurred_at desc;
 
-grant select on thesis_ledger_feed to anon, authenticated;
+-- POZOR: JEN authenticated, ne anon — appka od schema-require-auth.sql vyžaduje přihlášení
+-- pro kohokoli. Živě zachyceno 17.8.2026 (kompletní audit appky): tenhle řádek měl původně
+-- "anon, authenticated" a stejnou chybu (grant na anon po zavedení require-auth) opakoval i
+-- schema-narrative-freshness.sql u latest_narratives — tam to reálně unikalo do produkce, tady
+-- naštěstí ne (viz git historie), ale kdyby se tenhle soubor někdy znovu spustil kvůli nové
+-- migraci, otevřel by to samé.
+grant select on thesis_ledger_feed to authenticated;

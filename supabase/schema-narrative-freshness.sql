@@ -19,4 +19,10 @@ create or replace view latest_narratives as
   from narratives
   order by currency_code, generated_at desc;
 
-grant select on latest_narratives to anon, authenticated;
+-- POZOR: JEN authenticated, ne anon — schema-require-auth.sql (2026-08-06) zrušila anon SELECT
+-- na tenhle view schválně (appka nesmí naskočit bez přihlášení). Tenhle soubor to den poté
+-- (2026-08-07) omylem znovu otevřel — `create or replace view` resetuje granty na výchozí
+-- Supabase stav a tenhle řádek to pak zafixoval na "anon, authenticated" místo aby jen
+-- zopakoval revoke. Živě zachyceno a opraveno 17.8.2026 (kompletní audit appky) — mezitím
+-- kdokoli se znal veřejný anon klíč z buildu mohl číst všechny narrativy bez přihlášení.
+grant select on latest_narratives to authenticated;
