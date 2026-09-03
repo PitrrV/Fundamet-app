@@ -299,6 +299,19 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
 
   if (!thesis) {
     if (direction === "neutral") return false; // nic pojmenovaného, o čem otevírat tezi
+    // Živě nahlášeno (nezávislý audit, 3.9.2026): `direction` se počítá čistě z overallScore
+    // (mrtvá zóna ±0,3) — nezávisle na tom, jestli JEDNOTLIVÝ pilíř vůbec překračuje svůj
+    // (mnohem přísnější) DRIVER_THRESHOLDS práh. Blend může přelézt ±0,3, i když žádný pilíř
+    // samostatně nedosáhne svého prahu — appka pak otevřela tezi s `drivers: []`, ale UI ji
+    // ukazovalo jako plnokrevnou Bullish/Bearish s rostoucím "potvrzeno Nx" (viz oprava
+    // confirmStreak níž). Živě potvrzeno: 14 z 21 tezí za 42 dní mělo 0 driverů, JPY prošlo
+    // 7 tezemi za 6 týdnů s 0 drivery pokaždé. Bez pojmenovaného driveru teze nemá co nést —
+    // neotvírat ji vůbec, chovat se jako by byl směr neutrální.
+    const initialDrivers = computeInitialDrivers(direction, pillarValues, now);
+    if (initialDrivers.length === 0) {
+      console.log(`[${currencyCode}] thesis-engine: overall_score naznačuje ${direction}, ale žádný pilíř nepřekračuje driver práh — teze se neotvírá.`);
+      return false;
+    }
     const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars, null, now);
     if (newId) console.log(`[${currencyCode}] thesis-engine: otevřena nová ${direction} teze (id=${newId}).`);
     return newId != null;
@@ -308,20 +321,18 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
   // drivery by tu byla zavádějící (viz Gen2 "strukturální event vždy vynucuje review").
   if (direction !== "neutral" && thesis.direction !== "neutral" && direction !== thesis.direction) {
     await closeThesis(thesis.id, `Celkový směr se otočil z ${thesis.direction} na ${direction} — teze zrušena.`);
+    // Stejný guard jako u otevření úplně první teze výš — obrat směru starou tezi vždycky
+    // zruší (to je správně, byla to jiná teze), ale novou nahrazující tezi otevírat jen když
+    // má aspoň jeden pojmenovaný driver. Jinak měna zůstane bez teze, dokud se nějaký
+    // pilíř skutečně nepřekročí — ne "teze bez driveru" jako dřív.
+    const initialDrivers = computeInitialDrivers(direction, pillarValues, now);
+    if (initialDrivers.length === 0) {
+      console.log(`[${currencyCode}] thesis-engine: obrat směru na ${direction}, ale žádný pilíř nepřekračuje driver práh — nová teze se neotvírá.`);
+      return true;
+    }
     const newId = await openNewThesis(currencyCode, direction, pillarValues, pillars.convictionStars, thesis.id, now);
     if (newId) console.log(`[${currencyCode}] thesis-engine: obrat směru, nová ${direction} teze (id=${newId}) nahrazuje id=${thesis.id}.`);
     return true;
-  }
-
-  let recovered = false;
-  // Teze byla "watching" a signály se zase srovnaly se směrem -> návrat na active.
-  if (thesis.status === "watching" && direction === thesis.direction) {
-    const { error: recoverErr } = await supabase.from("currency_thesis").update({ status: "active" }).eq("id", thesis.id);
-    if (recoverErr) console.error(`[${currencyCode}] chyba návratu teze na active:`, recoverErr.message);
-    else recovered = true;
-    await insertLedgerEntries(thesis.id, [
-      { driver_key: null, classification: "confirms", reasoning: "Teze se stabilizovala — návrat ze stavu watching na active." },
-    ]);
   }
 
   const { nextDrivers, ledgerEntries, dominantInvalidated } = classifyThesisUpdate(thesis.drivers ?? [], direction, pillarValues, {
@@ -329,10 +340,32 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
     fundamentalEventLabel,
   });
 
+  // Živě nahlášeno (nezávislý audit, 3.9.2026): "watching -> active" se dřív vracelo jen podle
+  // shody směru, BEZ ohledu na to, jestli tezi po klasifikaci vůbec zůstal nějaký driver — teze
+  // se tak mohla "zotavit" zpátky na plnokrevnou AKTIVNÍ i s nextDrivers=[]. Teď se zotaví, jen
+  // když má po klasifikaci aspoň jeden driver — jinak zůstává (nebo se stává) "SLEDUJE SE".
+  const recovered = thesis.status === "watching" && direction === thesis.direction && nextDrivers.length > 0;
+  if (recovered) {
+    ledgerEntries.push({
+      driver_key: null,
+      classification: "confirms",
+      reasoning: "Teze se stabilizovala — návrat ze stavu watching na active.",
+    });
+  }
+
   const hasChallenge = ledgerEntries.some((e) => e.classification === "challenges" || e.classification === "invalidates_driver");
-  const confirmStreak = hasChallenge ? 0 : thesis.confirm_streak + 1;
+  const hasConfirm = ledgerEntries.some((e) => e.classification === "confirms");
+  // Streak dřív rostl při KAŽDÉM běhu, kdy nedošlo k výzvě — i s nextDrivers=[] a prázdným
+  // ledgerEntries (nic se nepotvrdilo, nic nezpochybnilo). Živě nahlášeno: JPY/CHF tak měly
+  // "potvrzeno 195×" u teze BEZ jediného driveru. Teď streak roste jen při skutečném potvrzení
+  // (aspoň jeden confirms záznam), resetuje se na výzvu, a jinak (nic se nestalo — typicky 0
+  // driverů) zůstává beze změny, ne "+1 navíc".
+  const confirmStreak = hasChallenge ? 0 : hasConfirm ? thesis.confirm_streak + 1 : thesis.confirm_streak;
   const challengeStreak = hasChallenge ? thesis.challenge_streak + 1 : 0;
-  const newStatus = dominantInvalidated ? "watching" : thesis.status === "watching" && direction === thesis.direction ? "active" : thesis.status;
+  // Stejný audit nález: teze bez jediného driveru (ať už od začátku, nebo protože jí drivery
+  // postupně vypadly, aniž by šlo o invalidaci TOHO dominantního) se dřív dál tvářila jako
+  // "active" — teď 0 driverů vždycky znamená "SLEDUJE SE", ne jen když padne dominantní driver.
+  const newStatus = dominantInvalidated || nextDrivers.length === 0 ? "watching" : recovered ? "active" : thesis.status;
 
   const { error: updErr } = await supabase
     .from("currency_thesis")
