@@ -34,10 +34,43 @@ export function extractLatestCpi(currencyCode, calendarEvents) {
     .filter((ev) => ev.currency_code === currencyCode && ev.actual && matchRule(ev.event_title)?.cat === "Inflation")
     .sort((a, b) => new Date(b.event_day) - new Date(a.event_day));
 
-  const isYoY = (title) => /y\/?o\/?y|annual|year/i.test(title || "");
-  const isMoM = (title) => /m\/?o\/?m|monthly/i.test(title || "");
+  // Živě nahlášeno (nezávislý audit, 3.9.2026): tyhle regexy nikdy netrefily skutečný formát
+  // ForexFactory titulků. `/y\/?o\/?y/` vyžaduje písmeno "o" MEZI oběma "y" (matchne "yoy",
+  // "y/o/y"), ale ForexFactory píše "y/y" — bez "o". Stejně `/m\/?o\/?m/` nikdy netrefilo "m/m".
+  // Protože isYoY nikdy nic nenašel, funkce vždycky spadla do fallbacku `!isMoM(...)` — a
+  // protože isMoM TAKY nikdy nic nenašel, `!isMoM` bylo vždycky true → fallback ve skutečnosti
+  // bral prostě PRVNÍ událost v kategorii "Inflation", bez ohledu na to, jestli je to CPI, PPI,
+  // PCE, m/m nebo y/y. Živě ověřeno: real yield appka počítala z "Core PCE Price Index m/m 0,2 %"
+  // pro USD (skutečná CPI y/y byla 3,4 %), "PPI m/m 1,6 %" pro EUR (skutečná Flash CPI y/y 3,3 %),
+  // "CPI m/m 1,0 %" pro AUD (skutečná CPI y/y 3,5 %) — tedy měsíční/jiná čísla dosazená tam, kde
+  // funkce počítá s ROČNÍ mírou (viz komentář výš) — chyba o řád, ne o desetinu procentního bodu.
+  //
+  // Oprava: vyžadovat přesně formát ForexFactory ("y/y"/"m/m", případně slovní "yoy"/"mom"), ne
+  // libovolně permisivní vzor. POZOR na past č. 2, do které jsem sám nejdřív spadl při opravě:
+  // plně nepovinné "o" (`o?` místo `o`) by matchlo i holé "mm"/"yy" schované UVNITŘ jiných slov
+  // (např. "Trimmed" nebo "Committee" obsahují "mm") — proto \b hranice slova u slovních variant
+  // a žádné "o?" bez alespoň jednoho lomítka.
+  const isYoY = (title) => /y\/y|\byoy\b|annual|\byear\b/i.test(title || "");
+  // Core/Trimmed/Median/Common y/y čísla jsou legitimní, ale headline CPI y/y je standardní
+  // referenční hodnota pro real yield — když obojí vyjde stejný den (živě zachyceno: USD
+  // 12.8.2026 mělo "CPI y/y 3,4 %" i "Core CPI y/y 2,5 %" tentýž den), preferuj headline.
+  const isCoreVariant = (title) => /\b(core|trimmed|median|common|weighted|underlying)\b/i.test(title || "");
+  // Kategorie "Inflation" v EVENT_RULES chytá klíčové slovo "ppi" — což omylem matchne i "SPPI"
+  // (services producer price index, "sppi" obsahuje "ppi" jako podřetězec). Živě zachyceno: JPY
+  // mělo "Tokyo Core CPI y/y 1,8 %" (28.8., nejčerstvější), ale protože obsahuje "core", spadl
+  // na "SPPI y/y 3,6 %" (26.8.) jako "preferovaný nekvalifikovaný" y/y — index cen producentů
+  // služeb, ne spotřebitelská inflace. Musí se explicitně vyžadovat "cpi" v názvu, ne jen
+  // "cokoli, co není core/trimmed/…".
+  const isCpiTitle = (title) => /\bcpi\b/i.test(title || "");
 
-  const candidate = inflationEvents.find((ev) => isYoY(ev.event_title)) ?? inflationEvents.find((ev) => !isMoM(ev.event_title));
+  // Živě ověřeno (stejný audit): NZD a CHF na ForexFactory NIKDY nepublikují roční CPI —
+  // NZD jen "CPI q/q"/"PPI ... q/q", CHF jen "CPI m/m"/"PPI m/m". Starý fallback `!isMoM(...)`
+  // by po opravě isMoM u NZD sáhl po "PPI Input q/q" (špatná kategorie I špatná perioda), u CHF
+  // by nenašel nic (správně null). Radši žádné číslo než číslo ze špatné periody/kategorie
+  // dosazené tam, kde výpočet počítá s roční mírou — proto ŽÁDNÝ fallback na q/q či PPI, jen
+  // skutečné y/y CPI, nebo null.
+  const yoyEvents = inflationEvents.filter((ev) => isYoY(ev.event_title) && isCpiTitle(ev.event_title));
+  const candidate = yoyEvents.find((ev) => !isCoreVariant(ev.event_title)) ?? yoyEvents[0] ?? null;
   if (!candidate) return null;
 
   const val = parseFloat(candidate.actual);
