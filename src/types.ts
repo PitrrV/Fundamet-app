@@ -46,7 +46,7 @@ export interface CbPolicy {
   cpi: number | null;
   policyLabel: string;
   policyConfidence: "HIGH" | "MEDIUM" | "LOW";
-  realYieldAdj: number;
+  realYieldAdj: number | null; // null = chybí spolehlivá roční CPI, appka si číslo nedomýšlí (viz computeRealYieldAdj)
   cbPolicyAdj: number;
   pricedIn: PricedIn;
 }

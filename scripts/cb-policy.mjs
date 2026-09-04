@@ -63,14 +63,29 @@ export function extractLatestCpi(currencyCode, calendarEvents) {
   // "cokoli, co není core/trimmed/…".
   const isCpiTitle = (title) => /\bcpi\b/i.test(title || "");
 
-  // Živě ověřeno (stejný audit): NZD a CHF na ForexFactory NIKDY nepublikují roční CPI —
-  // NZD jen "CPI q/q"/"PPI ... q/q", CHF jen "CPI m/m"/"PPI m/m". Starý fallback `!isMoM(...)`
-  // by po opravě isMoM u NZD sáhl po "PPI Input q/q" (špatná kategorie I špatná perioda), u CHF
-  // by nenašel nic (správně null). Radši žádné číslo než číslo ze špatné periody/kategorie
-  // dosazené tam, kde výpočet počítá s roční mírou — proto ŽÁDNÝ fallback na q/q či PPI, jen
-  // skutečné y/y CPI, nebo null.
+  // Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), post-fix kontrola bodu #1: CAD na
+  // ForexFactory nemá ŽÁDNÝ titul jen "CPI y/y" — jen "Trimmed CPI y/y", "Median CPI y/y",
+  // "Common CPI y/y" (tři BoC alternativní statistické konstrukty, ne "core" v obvyklém smyslu).
+  // Starší verze týhle funkce (fallback `?? yoyEvents[0]`) je tiše vydávala za CAD headline CPI
+  // — živě zachyceno: appka počítala s ~1,9-2,0 %, skutečná CAD CPI y/y (StatCan) je 3,0 %,
+  // což u real yieldu otočilo znaménko (viz computeRealYieldAdj níž).
+  //
+  // Řešení NENÍ blanket zákaz "core" fallbacku obecně — JPY na ForexFactory taky nemá žádný
+  // prostý "CPI y/y" titul, jen "Tokyo/National/BOJ Core CPI y/y", a tahle hodnota byla
+  // NEZÁVISLE OVĚŘENA jako správná (Japonsko svou "Core CPI" — bez čerstvých potravin — běžně
+  // cituje jako headline inflaci, na rozdíl od US-stylu "core" bez potravin+energií). Zákaz by
+  // JPY real yield tiše shodil na null bez důvodu, což nikdo nežádal a byla by to regrese.
+  //
+  // Proto dvouúrovňový fallback: (1) skutečný headline (bez core/trimmed/median/...), (2) JEDNA
+  // obecná "core" varianta (jako JPY) — ale NIKDY konkrétně trimmed/median/common (CAD alternativní
+  // konstrukty). Když zbydou jen ty, appka radši nemá číslo, než aby ho tiše domýšlela.
+  const isAltMeasureOnly = (title) => /\b(trimmed|median|common)\b/i.test(title || "");
+
   const yoyEvents = inflationEvents.filter((ev) => isYoY(ev.event_title) && isCpiTitle(ev.event_title));
-  const candidate = yoyEvents.find((ev) => !isCoreVariant(ev.event_title)) ?? yoyEvents[0] ?? null;
+  const candidate =
+    yoyEvents.find((ev) => !isCoreVariant(ev.event_title)) ??
+    yoyEvents.find((ev) => !isAltMeasureOnly(ev.event_title)) ??
+    null;
   if (!candidate) return null;
 
   const val = parseFloat(candidate.actual);
@@ -160,13 +175,33 @@ export function autoDetectPolicy(rateHistory) {
 // Real yield (sazba - CPI) RELATIVNĚ k průměru ostatních měn v košíku — capnuto ±1.0
 // (polovina originálních ±2 v Fx-Analyzeru, konzistentní s tím, že náš celý systém je na
 // poloviční škále -5..+5).
+//
+// Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), post-fix kontrola bodu #1 — CRITICAL:
+// `cpiByCode[c] ?? 2` dřív tiše dosazovalo 2 % za chybějící CPI (NZD/CHF nikdy nepublikují
+// roční CPI na ForexFactory — viz extractLatestCpi výš). Vlastní komentář z předchozí opravy
+// tohle popisoval jako "bezpečný fallback na průměr košíku" — byl to omyl: 2 % se dosazovalo
+// jako PŘEDPOKLÁDANÁ VLASTNÍ inflace TÉ MĚNY, ne jako průměr ostatních. Živě ověřeno spuštěním
+// skutečné funkce proti primárním zdrojům: NZD skutečná inflace 4,1 % (Stats NZ) → appka s 2 %
+// počítala real yield adj +0,14, se skutečnou inflací −0,19 — OTOČENÉ ZNAMÉNKO. CAD skutečná
+// 3,0 % (StatCan) → +0,07 vs. −0,08, taky otočené. CHF skutečná ~0,5 % → −0,34 vs. −0,04,
+// 8,5× přehnaně záporné.
+//
+// Oprava: žádný tichý default. Měna bez vlastního CPI nedostane real yield vůbec (null) —
+// nevstupuje do fundamentálního skóre, konvikce ani narrativu (viz volající místa). Měny BEZ
+// CPI se navíc vyřadí i z výpočtu průměru košíku (jinak by domyšlené číslo kontaminovalo
+// srovnání i pro měny, které svoje CPI mají).
 export function computeRealYieldAdj(currencyCode, ratesByCode, cpiByCode) {
-  const codes = Object.keys(ratesByCode);
-  if (codes.length === 0 || !(currencyCode in ratesByCode)) return 0;
+  if (cpiByCode[currencyCode] === null || cpiByCode[currencyCode] === undefined) return null;
+  if (!(currencyCode in ratesByCode)) return null;
 
-  const realYields = codes.map((c) => (ratesByCode[c] ?? 0) - (cpiByCode[c] ?? 2));
+  const codesWithCpi = Object.keys(ratesByCode).filter(
+    (c) => cpiByCode[c] !== null && cpiByCode[c] !== undefined
+  );
+  if (codesWithCpi.length === 0) return null;
+
+  const realYields = codesWithCpi.map((c) => ratesByCode[c] - cpiByCode[c]);
   const avg = realYields.reduce((a, b) => a + b, 0) / realYields.length;
-  const ry = (ratesByCode[currencyCode] ?? 0) - (cpiByCode[currencyCode] ?? 2);
+  const ry = ratesByCode[currencyCode] - cpiByCode[currencyCode];
 
   return Math.round(Math.max(-1, Math.min(1, (ry - avg) * 0.175)) * 100) / 100;
 }

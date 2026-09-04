@@ -355,7 +355,11 @@ function computeConviction(
 ) {
   if (overallScore === 0) return { stars: 0, reasons: [] };
   const dir = overallScore > 0 ? 1 : -1;
-  const signAgrees = (v) => v !== 0 && Math.sign(v) === dir;
+  // `v !== null` explicitně (ne jen spoléhat na to, že Math.sign(null) vyjde 0 a null!==0 je
+  // true) — od auditu 4.9.2026 může realYieldAdj přijít jako `null` (chybí spolehlivé CPI, viz
+  // cb-policy.mjs), a hvězda za "Real yield" se v takovém případě nesmí udělit — appka o
+  // reálném výnosu té měny prostě nic neví, to není totéž jako "neshoduje se se směrem".
+  const signAgrees = (v) => v !== null && v !== 0 && Math.sign(v) === dir;
 
   const reasons = [];
   let stars = 0;
@@ -560,7 +564,17 @@ export async function recomputeScores() {
       continue;
     }
 
-    const fundamentalScoreAdj = clamp(result.fundamentalScore + cbPolicy.realYieldAdj + cbPolicy.cbPolicyAdj, -5, 5);
+    // Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), bod #1: realYieldAdj může být teď `null`
+    // (chybí spolehlivé CPI — viz computeRealYieldAdj v cb-policy.mjs). Explicitní `?? 0`
+    // znamená "tenhle pilíř do fundamentu nic nepřidává, protože o něm nic nevíme" — jiná věc
+    // než dřívější tichý předpoklad konkrétní (a u NZD/CAD/CHF chybné) inflace uvnitř samotného
+    // realYieldAdj výpočtu. Bez tohohle `?? 0` by `number + null` sice v JS taky vyšlo jako
+    // number (null se sčítá jako 0), ale implicitně a nečitelně — a `undefined` by tiše dalo NaN.
+    const fundamentalScoreAdj = clamp(
+      result.fundamentalScore + (cbPolicy.realYieldAdj ?? 0) + cbPolicy.cbPolicyAdj,
+      -5,
+      5
+    );
     const riskAdj = regimeInfo ? riskAdjForCurrency(currencyCode, regimeInfo.regime) : 0;
     const retailScore = cotRow.retail_score ?? 0;
 

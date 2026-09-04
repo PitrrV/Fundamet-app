@@ -295,7 +295,13 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
             cpi: cbPolicyRow.cpi,
             policyLabel: cbPolicyRow.policy_label ?? "",
             policyConfidence: cbPolicyRow.policy_confidence ?? "LOW",
-            realYieldAdj: cbPolicyRow.real_yield_adj ?? 0,
+            // Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), bod #1: `?? 0` tady byl STEJNÝ
+            // druh tiché náhrady jako `cpiByCode[c] ?? 2` v cb-policy.mjs, jen o patro výš — DB
+            // teď u měn bez spolehlivé CPI (viz cb-policy.mjs) uloží `real_yield_adj = null`
+            // záměrně, a `?? 0` by to tiše překreslil na "neutrální nulu", což vypadá jako
+            // spočtená hodnota, ne jako chybějící data. Necháváme null projít až do UI
+            // (realYieldDisplay v App.tsx), kde se to zobrazí jako jasně označený chybějící stav.
+            realYieldAdj: cbPolicyRow.real_yield_adj,
             cbPolicyAdj: cbPolicyRow.cb_policy_adj ?? 0,
             pricedIn: cbPolicyRow.priced_in,
           }

@@ -105,18 +105,27 @@ function longTermBiasInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string 
 // (computeConviction, fetch-calendar.mjs). Proto u měn s nesouhlasícím znaménkem appka dřív
 // nezobrazovala vůbec nic a nešlo poznat, jestli chybí data nebo se jen nehodí do seznamu
 // shody. Tahle dlaždice je nezávislá na tom filtru — ukazuje se vždy, se třemi jasnými stavy.
+//
+// Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), post-fix kontrola bodu #1 — CRITICAL: tenhle
+// komentář dřív sám tvrdil "CPI má bezpečný výchozí odhad 2 %, takže jeho absence výpočet
+// neblokuje" — byl to omyl (viz cb-policy.mjs computeRealYieldAdj). Real yield se teď u měny
+// bez spolehlivé roční CPI (živě: CAD, CHF, NZD) vůbec nepočítá — realYieldAdj je `null`, ne
+// tiché číslo — a appka to musí ukázat jako chybějící stav, ne jako "CPI odhad 2 %".
 function realYieldDisplay(cbPolicy: CurrencyData["cbPolicy"]): { value: string; sub: string | null } {
   if (!cbPolicy) {
     return { value: "Data nejsou dostupná", sub: null };
   }
-  // cbPolicy.rate === null <=> měna vůbec nebyla zahrnuta do relativního výpočtu
-  // (computeRealYieldAdj vrací 0 jako sentinel, ne jako spočtenou hodnotu) — CPI naopak
-  // ve vzorci má bezpečný výchozí odhad 2 %, takže jeho absence výpočet neblokuje.
   if (cbPolicy.rate === null) {
     return { value: "Real yield se pro tuto měnu nevyhodnocuje", sub: "chybí zachycená úroková sazba v kalendáři" };
   }
   const adj = cbPolicy.realYieldAdj;
-  const cpiPart = cbPolicy.cpi !== null ? `CPI ${cbPolicy.cpi.toFixed(1)} %` : "CPI odhad 2 % (chybí data)";
+  if (adj === null) {
+    return {
+      value: "Real yield není dostupný",
+      sub: `sazba ${cbPolicy.rate.toFixed(2)} % · chybí spolehlivá roční CPI (appka si číslo nedomýšlí)`,
+    };
+  }
+  const cpiPart = cbPolicy.cpi !== null ? `CPI ${cbPolicy.cpi.toFixed(1)} %` : "CPI n/a";
   return {
     value: `${adj > 0 ? "+" : ""}${adj.toFixed(2)} vůči průměru koše měn`,
     sub: `sazba ${cbPolicy.rate.toFixed(2)} % · ${cpiPart}`,
