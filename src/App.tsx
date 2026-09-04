@@ -781,21 +781,44 @@ export default function App() {
                     </Badge>
                   </div>
 
-                  <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                    <span className={`text-3xl font-extrabold tracking-tight ${thesisDirectionColor(currency.thesis.direction)}`}>
-                      {thesisDirectionLabel(currency.thesis.direction)}
-                    </span>
-                    <ConvictionMeter filled={Math.round(currency.thesis.conviction)} />
-                  </div>
+                  {/* Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #3: teze bez
+                      jediného driveru (status "watching", drivers.length === 0) se dřív pořád
+                      vykreslovala jako plnohodnotná Bullish/Bearish teze — velký barevný
+                      nadpis, hvězdy (ve skutečnosti konvikce SKÓRE, ne teze — currency.thesis.
+                      conviction je pillars.convictionStars) a "potvrzeno Nx" (u starých tezí
+                      zamrzlé číslo z doby PŘED opravou 0-driver bugu, živě 200×/200×/43× u
+                      CHF/JPY/EUR). Pět prvků karty tak tvrdilo pět různých věcí najednou, i
+                      když vlastní shrnutí teze (thesisSummary, viz buildThesisSummary v
+                      thesis-engine.mjs) už poctivě říkalo "zatím žádná jasná teze". Bez
+                      driveru appka teď neukazuje směr, hvězdy ani počet potvrzení — jen ten
+                      poctivý text, prominentněji, ne jako drobná poznámka pod velkým nadpisem. */}
+                  {currency.thesis.drivers.length > 0 && (
+                    <>
+                      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                        <span className={`text-3xl font-extrabold tracking-tight ${thesisDirectionColor(currency.thesis.direction)}`}>
+                          {thesisDirectionLabel(currency.thesis.direction)}
+                        </span>
+                        <ConvictionMeter filled={Math.round(currency.thesis.conviction)} />
+                      </div>
 
-                  <div className="text-[11px] text-faint mt-2">
-                    otevřeno {new Date(currency.thesis.openedAt).toLocaleDateString("cs-CZ")} · potvrzeno{" "}
-                    {currency.thesis.confirmStreak}×
-                    {currency.thesis.challengeStreak > 0 && `, zpochybněno ${currency.thesis.challengeStreak}×`}
-                  </div>
+                      <div className="text-[11px] text-faint mt-2">
+                        otevřeno {new Date(currency.thesis.openedAt).toLocaleDateString("cs-CZ")} · potvrzeno{" "}
+                        {currency.thesis.confirmStreak}×
+                        {currency.thesis.challengeStreak > 0 && `, zpochybněno ${currency.thesis.challengeStreak}×`}
+                      </div>
+                    </>
+                  )}
 
                   {currency.thesis.thesisSummary && (
-                    <p className="text-sm text-muted mt-4 leading-relaxed">{currency.thesis.thesisSummary}</p>
+                    <p
+                      className={
+                        currency.thesis.drivers.length > 0
+                          ? "text-sm text-muted mt-4 leading-relaxed"
+                          : "text-sm text-ink/80 leading-relaxed"
+                      }
+                    >
+                      {currency.thesis.thesisSummary}
+                    </p>
                   )}
 
                   {currency.thesisChangeNote && (
