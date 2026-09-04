@@ -797,6 +797,69 @@ function findLeakedFieldNames(value, path = "$") {
   return [];
 }
 
+// Nezávislý audit (Fable, 3.9.2026), položka #6: appka posílá basketContext (skóre ostatních
+// měn v koši) a výslovně žádá relativní srovnání ("FX je vždy relativní, piš o měně i VE VZTAHU
+// k ostatním" — viz SHARED_CONTEXT), ale nic to tvrzené srovnání neověřovalo proti skutečným
+// číslům. Živě zachyceno (3.9.2026, AUD): narrativ napsal "AUD... zaostává za GBP a USD", ale
+// overall_score AUD (2.20) byl ve skutečnosti VYŠŠÍ než GBP (1.40) i USD (1.30) — přesný opak.
+// Stejná třída chyby jako beatImplication/resolvedVerdict/scoreChange verdikty výš v souboru
+// (model spoléhá na vlastní úsudek tam, kde má přebírat spočítaný fakt) — jen tahle zůstala bez
+// pojistky, protože se nedá předpočítat jako jedno pole (srovnání se může objevit kdekoli ve
+// volném textu).
+//
+// Detekce je záměrně úzká — cílí na konkrétní, opakovaně pozorovaný vzor vět ("X silnější/
+// silněji než A, B a C" / "X slabší než / zaostává za A, B a C"), který appka v promptu sama
+// vede model psát (ne obecný NLP parser volného textu). Ověřeno na všech 8 živých narrativech
+// (3.9.2026): 7 z 8 mělo tenhle typ srovnání a bylo správně, jen AUD chybně — detekce ani jednou
+// nezasáhla falešně pozitivně.
+const CURRENCY_CODE_RE = "AUD|CAD|CHF|EUR|GBP|JPY|NZD|USD";
+const CURRENCY_LIST_RE = `((?:výrazně\\s+)?(?:silnějším\\s+)?(?:${CURRENCY_CODE_RE})(?:\\s*,\\s*(?:${CURRENCY_CODE_RE}))*(?:\\s+a\\s+(?:${CURRENCY_CODE_RE}))?)`;
+const STRONGER_THAN_RE = new RegExp(`siln(?:ější|ěji)\\s+než\\s+${CURRENCY_LIST_RE}`, "g");
+const WEAKER_THAN_RE = new RegExp(`(?:slabší(?:\\s+než)?|zaostává\\s+za)\\s+${CURRENCY_LIST_RE}`, "g");
+// Stejná citlivost jako FRESHNESS_EPSILON/CONFIRM_VALUE_EPSILON jinde v appce — drobný rozdíl
+// (zaokrouhlovací šum) se nepočítá jako chybné tvrzení, jen skutečně opačné pořadí.
+const RELATIVE_COMPARISON_EPSILON = 0.05;
+
+function extractCurrencyCodes(list) {
+  return list.match(new RegExp(CURRENCY_CODE_RE, "g")) ?? [];
+}
+
+// `ownScore`/`basketContext` jsou z PAYLOADU (co appka modelu poslala), ne z odpovědi — appka
+// tak ověřuje tvrzení proti PŘESNĚ týž datům, která model dostal, ne proti nějakému nezávislému
+// zdroji, co by se mezitím mohl rozejít.
+function findRelativeComparisonErrors(value, ownScore, basketContext, path = "$") {
+  if (typeof value === "string") {
+    if (ownScore === null || !basketContext) return [];
+    const errors = [];
+    for (const m of value.matchAll(STRONGER_THAN_RE)) {
+      for (const code of extractCurrencyCodes(m[1])) {
+        const other = basketContext[code]?.overallScore;
+        if (other === null || other === undefined) continue;
+        if (ownScore - Number(other) <= RELATIVE_COMPARISON_EPSILON) {
+          errors.push(`${path}: tvrdí "silnější než ${code}", ale skóre appky (${ownScore} vs. ${code} ${other}) to nepodporuje`);
+        }
+      }
+    }
+    for (const m of value.matchAll(WEAKER_THAN_RE)) {
+      for (const code of extractCurrencyCodes(m[1])) {
+        const other = basketContext[code]?.overallScore;
+        if (other === null || other === undefined) continue;
+        if (Number(other) - ownScore <= RELATIVE_COMPARISON_EPSILON) {
+          errors.push(`${path}: tvrdí "slabší než/zaostává za ${code}", ale skóre appky (${ownScore} vs. ${code} ${other}) to nepodporuje`);
+        }
+      }
+    }
+    return errors;
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => findRelativeComparisonErrors(v, ownScore, basketContext, `${path}[${i}]`));
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value).flatMap(([k, v]) => findRelativeComparisonErrors(v, ownScore, basketContext, `${path}.${k}`));
+  }
+  return [];
+}
+
 // Sdílené jádro obou kroků (dřív byl `openai.chat.completions.create` duplikovaný v
 // generateNarrativePart i generateAgendaPart se stejnou strukturou, jen jiným promptem/
 // schématem). Navíc bezpečnostní síť na cizí písmo: při zásahu appka JEDNOU zopakuje dotaz s
@@ -834,17 +897,24 @@ export async function callStructuredCompletion({
     return JSON.parse(completion.choices[0].message.content);
   };
 
-  // Obě kontroly běží nad stejnou odpovědí najednou — jeden retry pass řeší, ať selže
-  // kterákoli (nebo obě zároveň), stejný princip jako u ostatních pojistek v souboru.
+  // Vlastní skóre appky (ne modelu) — jen pokud ho payload nese (narrativní krok ho má přes
+  // "cot.overallScore", agendový krok basketContext vůbec nedostává, takže tam relativeComparison
+  // vždy vrátí prázdno beze změny chování).
+  const ownScoreRaw = payload.cot?.overallScore;
+  const ownScore = ownScoreRaw === null || ownScoreRaw === undefined ? null : Number(ownScoreRaw);
+
+  // Všechny tři kontroly běží nad stejnou odpovědí najednou — jeden retry pass řeší, ať selže
+  // kterákoli (nebo víc naráz), stejný princip jako u ostatních pojistek v souboru.
   const checkResult = (r) => ({
     foreignScript: findForeignScript(r),
     leakedFields: findLeakedFieldNames(r),
+    relativeComparison: findRelativeComparisonErrors(r, ownScore, payload.basketContext ?? null),
   });
 
   let result = await runOnce(messages);
   let issues = checkResult(result);
 
-  if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0) {
+  if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0 || issues.relativeComparison.length > 0) {
     const notes = [];
     if (issues.foreignScript.length > 0) {
       console.warn(`[${currencyCode}] ${label}: cizí písmo v poli(ích) ${issues.foreignScript.join(", ")} — opakuji dotaz.`);
@@ -856,15 +926,21 @@ export async function callStructuredCompletion({
         "Tvoje odpověď doslova citovala název interního JSON pole z promptu (např. recentEvents, scenarioSeeds, recentLedger) místo přirozeného českého popisu — to je chyba."
       );
     }
+    if (issues.relativeComparison.length > 0) {
+      console.warn(`[${currencyCode}] ${label}: nesprávné relativní srovnání (${issues.relativeComparison.join("; ")}) — opakuji dotaz.`);
+      notes.push(
+        `Tvoje odpověď obsahovala relativní srovnání se skóre jiné měny, které neodpovídá skutečným číslům v datech, co jsi dostal (basketContext) — konkrétně: ${issues.relativeComparison.join("; ")}. To je chyba, oprav to podle skutečných hodnot.`
+      );
+    }
     result = await runOnce([
       ...messages,
       { role: "assistant", content: JSON.stringify(result) },
-      { role: "user", content: `${notes.join(" ")} Přepiš CELOU odpověď znovu, čistě spisovnou češtinou, jen latinka a česká diakritika, bez doslovných názvů interních polí.` },
+      { role: "user", content: `${notes.join(" ")} Přepiš CELOU odpověď znovu, čistě spisovnou češtinou, jen latinka a česká diakritika, bez doslovných názvů interních polí, a se správnými relativními srovnáními podle skutečných dat.` },
     ]);
     issues = checkResult(result);
-    if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0) {
+    if (issues.foreignScript.length > 0 || issues.leakedFields.length > 0 || issues.relativeComparison.length > 0) {
       console.error(
-        `[${currencyCode}] ${label}: problém přetrvává i po opakování (cizí písmo: ${issues.foreignScript.join(", ") || "žádné"}, uniklá pole: ${issues.leakedFields.join(", ") || "žádné"}) — ukládám i tak, appka to zaloguje pro ruční kontrolu.`
+        `[${currencyCode}] ${label}: problém přetrvává i po opakování (cizí písmo: ${issues.foreignScript.join(", ") || "žádné"}, uniklá pole: ${issues.leakedFields.join(", ") || "žádné"}, špatné srovnání: ${issues.relativeComparison.join("; ") || "žádné"}) — ukládám i tak, appka to zaloguje pro ruční kontrolu.`
       );
     } else {
       console.log(`[${currencyCode}] ${label}: opakování dotazu problém opravilo.`);
