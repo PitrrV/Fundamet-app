@@ -139,6 +139,33 @@ function dataQualityBadgeClasses(level: "HIGH" | "MEDIUM" | "LOW"): string {
   return "border-neg/40 text-neg bg-neg/10";
 }
 
+// Nezávislý audit (Fable, 3.9.2026), položka #3: confidenceLevel se dřív vypisoval do UI
+// syrový ("HIGH"/"MEDIUM"/"LOW" anglicky přímo v české větě) — jediné místo v appce, kde
+// zůstal anglický enum bez překladu. DATA badge (dataQualityBadgeClasses výš) je záměrná
+// výjimka — krátký kompaktní badge, ne prozaický text, stejná konvence jako "RISK-ON".
+function confidenceLevelLabel(level: "HIGH" | "MEDIUM" | "LOW"): string {
+  if (level === "HIGH") return "vysoká jistota";
+  if (level === "MEDIUM") return "střední jistota";
+  return "nízká jistota";
+}
+
+// Stejný audit, stejná položka: LedgerEntry.driverKey ("Co se změnilo?" feed) nese syrový
+// snake_case klíč z DB (thesis_ledger.driver_key nemá vlastní label, na rozdíl od
+// ThesisDriver, kde label ukládá přímo thesis-engine.mjs). Mapování musí zůstat v souladu s
+// DRIVER_LABELS ve scripts/thesis-engine.mjs — přidání nového driveru tam vyžaduje přidání i
+// sem.
+const DRIVER_KEY_LABELS: Record<string, string> = {
+  fundamental_data: "Fundamentální data",
+  cot_positioning: "COT pozicování",
+  cb_policy: "CB politika / real yield",
+  risk_regime: "Risk režim",
+  retail_sentiment: "Retail sentiment",
+};
+
+function driverKeyLabel(key: string): string {
+  return DRIVER_KEY_LABELS[key] ?? key;
+}
+
 // Pořadí je zároveň pořadím sekcí v UI — nejdřív to, co může tezí skutečně pohnout.
 const AGENDA_TIER_ORDER: AgendaTier[] = ["klíčový", "druhořadý", "kontext"];
 
@@ -829,7 +856,7 @@ export default function App() {
                           currency.cbPolicy.pricedIn.method === "yield_gap"
                             ? "2Y výnos vs. sazba (FRED)"
                             : "konsensus rozhodnutí"
-                        } · ${currency.cbPolicy.pricedIn.confidenceLevel}`
+                        } · ${confidenceLevelLabel(currency.cbPolicy.pricedIn.confidenceLevel)}`
                       : null
                   }
                 />
@@ -887,7 +914,9 @@ export default function App() {
                             <span className="text-[10px] text-faint font-mono">
                               {new Date(entry.occurredAt).toLocaleDateString("cs-CZ")}
                             </span>
-                            {entry.driverKey && <span className="text-[10px] text-faint">· {entry.driverKey}</span>}
+                            {entry.driverKey && (
+                              <span className="text-[10px] text-faint">· {driverKeyLabel(entry.driverKey)}</span>
+                            )}
                           </div>
                           <p className="text-xs text-muted leading-relaxed">{entry.reasoning}</p>
                         </div>
