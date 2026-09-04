@@ -135,6 +135,30 @@ function resolvedVerdict(ev, thesisDirection) {
   } současnou ${thesisDirection} tezi`;
 }
 
+// Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #6: appka modelu dřív posílala
+// jen syrový cotPercentile (0-100) a positioningLabel (ze z-skóre, ne z percentilu) — model si
+// "je tenhle percentil crowded a na které straně" musel domyslet sám. Živě zachyceno: EUR na 8.
+// percentilu (= extrémně NÍZKÝ percentil čisté long pozice = pozice je extrémně SHORT) napsal
+// "při 8. percentilu nepůsobí jako přeplněný long" — věcně pravda, ale zavádějící rámování,
+// protože 8. percentil JE přeplněný SHORT (podle appčina vlastního prahu ≤12, stejný jako
+// `crowdedAgainst` v computeConviction, fetch-calendar.mjs) — model kontroloval špatnou stranu.
+// Řešení stejné jako beatImplication/resolvedVerdict výš: appka "je to crowded a na které
+// straně" spočítá sama, model to jen převypráví — ne aby si domýšlel, co percentilové číslo
+// znamená pro směr pozice.
+const COT_CROWD_HIGH_PERCENTILE = 88; // musí být v souladu s crowdedAgainst v computeConviction (fetch-calendar.mjs)
+const COT_CROWD_LOW_PERCENTILE = 12;
+
+function cotCrowdingLabel(percentile) {
+  if (percentile === null || percentile === undefined) return "bez dat o extrému pozicování";
+  if (percentile >= COT_CROWD_HIGH_PERCENTILE) {
+    return `PŘEPLNĚNÝ LONG obchod (${percentile}. percentil — čistá long pozice velkých spekulantů blízko historického maxima)`;
+  }
+  if (percentile <= COT_CROWD_LOW_PERCENTILE) {
+    return `PŘEPLNĚNÝ SHORT obchod (${percentile}. percentil — čistá pozice velkých spekulantů blízko historického minima, tedy extrémně short)`;
+  }
+  return `bez extrémního přeplnění (${percentile}. percentil, mimo appčino pásmo ${COT_CROWD_LOW_PERCENTILE}-${COT_CROWD_HIGH_PERCENTILE} pro "crowded")`;
+}
+
 // Model dostává anglické názvy polí (convictionStars, pricedIn) a bez tohohle glosáře si k nim
 // vymýšlel české ekvivalenty — v jednom běhu "Konviktce", "konvicí" i "konviktivnost" pro tentýž
 // pojem napříč měnami. Sdílené oběma kroky, protože jde o vadu jazyka, ne o vadu délky odpovědi.
@@ -150,7 +174,7 @@ const GLOSSARY = `ZÁVAZNÁ TERMINOLOGIE — appka tyhle výrazy používá v UI
 Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná. Piš VÝHRADNĚ latinkou s českou diakritikou — appka živě zachytila případ, kdy se v jinak českém textu objevila azbuka; žádné jiné písmo (cyrilice, řečtina, CJK znaky...) se do odpovědi nesmí dostat ani omylem.`;
 
 const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
-- COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat.
+- COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné, a na které straně (long/short) — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG — to je protiintuitivní a appka to proto počítá za tebe.
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy).
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD.
@@ -672,6 +696,9 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
         convictionStars: cotRow.conviction_stars,
         convictionReasons: cotRow.conviction_reasons,
         cotPercentile: cotRow.cot_percentile,
+        // Viz cotCrowdingLabel výš — appka "je to crowded a na které straně" spočítá sama
+        // (stejný appčin práh ≤12/≥88 jako computeConviction), model to jen převypráví.
+        crowdingLabel: cotCrowdingLabel(cotRow.cot_percentile),
       }
     : null;
 
@@ -772,6 +799,7 @@ const LEAKED_FIELD_NAMES = [
   "upcomingEvents",
   "beatImplication",
   "resolvedVerdict",
+  "crowdingLabel",
   "scoreChange",
   "cbPolicy",
   "retailSentiment",
@@ -783,6 +811,15 @@ const LEAKED_FIELD_NAMES = [
   "challenges",
   "closed",
   "opened",
+  // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #4: riskRegime.regime
+  // ("RISK_ON"/"RISK_OFF"/"NEUTRAL", viz market_regime.regime v cb-policy.mjs) do LEAKED_FIELD_NAMES
+  // dřív nepatřilo — model ho tak mohl (a živě u 2 z 8 měn i psal) opsat doslova místo
+  // "risk-on režimu"/"risk-off režimu". Formátovaný krátký štítek "RISK-ON · VIX 14,6" v UI
+  // (dataQuality/riskRegimeLabel styl) je záměrná výjimka a tady se ho netýká — appka ho
+  // nikdy nepředává modelu jako text k přeříkání.
+  "RISK_ON",
+  "RISK_OFF",
+  "NEUTRAL",
 ];
 const LEAKED_FIELD_RE = new RegExp(LEAKED_FIELD_NAMES.map((n) => `\\b${n}\\b`).join("|"));
 

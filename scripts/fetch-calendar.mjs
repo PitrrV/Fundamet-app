@@ -345,6 +345,17 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+// Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #4: conviction_reasons dřív
+// stavěl větu přímo se syrovým enumem z market-regime.mjs ("Risk režim: RISK_ON podporuje
+// směr") — na rozdíl od zbytku appky, kde enumy do UI/textu nikdy nejdou nepřeložené (viz
+// confidenceLevelLabel/driverKeyLabel v App.tsx, položka #3 z předchozího auditu). Živě
+// zachyceno u 4 z 8 měn (AUD, CAD, CHF, GBP) přímo pod hvězdami konvikce.
+function riskRegimeReasonLabel(regime) {
+  if (regime === "RISK_ON") return "risk-on";
+  if (regime === "RISK_OFF") return "risk-off";
+  return "neutrální";
+}
+
 // Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik z 5
 // nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded,
 // risk režim) ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore
@@ -403,7 +414,7 @@ function computeConviction(
   }
   if (signAgrees(riskAdj)) {
     stars++;
-    reasons.push(`Risk režim: ${regime} podporuje směr`);
+    reasons.push(`Risk režim: ${riskRegimeReasonLabel(regime)} podporuje směr`);
   }
 
   return { stars: Math.min(5, stars), reasons };

@@ -98,10 +98,16 @@ export function cotPositioningLabel(zscore) {
   return "Neutrální";
 }
 
+// Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #5: "POUZE COT · 1/5 PILÍŘŮ"
+// byl stejný druh zastaralého textu jako dřívější věta v buildSummary() níž — appka měla v době
+// vzniku 1 pilíř, dnes jich má víc, a pevně zadrátovaný zlomek zastarává, kdykoli se počet
+// pilířů změní. Navíc tenhle label je vždycky jen PŘECHODNÝ stav: ingest-cot.mjs ho zapíše jako
+// první (viz guard tam, co ho při dalším přepočtu nahradí skutečným convictionLabelFromStars),
+// takže popisovat ho natvrdo jako "1/5" je zavádějící i v okamžiku zápisu.
 export function convictionLabel(cotScore) {
   const abs = Math.abs(cotScore);
   const base = abs >= 3 ? "VYSOKÁ" : abs >= 1 ? "STŘEDNÍ" : "NÍZKÁ";
-  return `${base} CONVICTION (POUZE COT · 1/5 PILÍŘŮ)`;
+  return `${base} CONVICTION (PŘEDBĚŽNÉ — ČEKÁ NA DOPLNĚNÍ OSTATNÍCH PILÍŘŮ)`;
 }
 
 // Nezávislý audit (Fable, 3.9.2026), položka #4: poslední věta ("Skóre vychází výhradně z COT
