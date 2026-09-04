@@ -362,7 +362,7 @@ function riskRegimeReasonLabel(regime) {
 // z Fx-Analyzeru, přizpůsobeno na naši sadu signálů.
 function computeConviction(
   overallScore,
-  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, riskAdj, regime, policyLabel }
+  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, scoreWithoutCot, riskAdj, regime, policyLabel }
 ) {
   if (overallScore === 0) return { stars: 0, reasons: [] };
   const dir = overallScore > 0 ? 1 : -1;
@@ -398,13 +398,28 @@ function computeConviction(
   // (0.90) nedosáhl prahu 1 — zatímco COT samo o sobě bylo silnější potvrzení než "Real yield"
   // pilíř, který hvězdu dostal bez jakéhokoli prahu na velikost.
   //
-  // Oprava: stejná konvence jako fundamentalScoreAdj (Math.abs(...) >= 1, stejná škála -5..5) —
-  // hvězda vyžaduje, aby COT SKÓRE SAMO souhlasilo se směrem a nebylo zanedbatelně malé, NE jen
-  // aby overall_score (kam COT už svou vahou přispělo) byl velký. "Crowded" filtr zůstává jako
-  // DODATEČNÁ podmínka navrch (viz komentář u funkce výš — pozicování je i nadále rizikový
-  // filtr, ne jen směrový signál): i genuinně souhlasící, ale přeplněná pozice hvězdu nedostane.
+  // Oprava (3.9.2026): stejná konvence jako fundamentalScoreAdj (Math.abs(...) >= 1, stejná
+  // škála -5..5) — hvězda vyžaduje, aby COT SKÓRE SAMO souhlasilo se směrem a nebylo
+  // zanedbatelně malé, NE jen aby overall_score (kam COT už svou vahou přispělo) byl velký.
+  //
+  // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2 — druhá vrstva stejného
+  // problému: `signAgrees(cotScore)` porovnávala COT proti `dir`, což je znaménko CELÉHO
+  // overall_score — a cot_score v něm má nejvyšší váhu ze všech pilířů (0.46). Živě naměřeno
+  // (155 snímků): corr(overall_score, cot_score) = 0.964, sign(overall) == sign(cot) v 95 %
+  // pozorování — COT tak "souhlasil se směrem" skoro tautologicky, protože ten směr většinou
+  // sám určil. Hvězda se z 63 % (stará chyba) posunula na 89 % (po první opravě) fire rate,
+  // aniž by měřila nezávislé potvrzení.
+  //
+  // Oprava: hvězda teď porovnává COT se směrem OSTATNÍCH pilířů BEZ COT (scoreWithoutCot —
+  // fund + retail + risk, viz volající místo), ne s celkovým skóre, do kterého COT sám
+  // přispěl. To je skutečná nezávislá shoda — souhlasí pozicování s tím, co říká zbytek
+  // systému, ne samo se sebou. "Crowded" filtr zůstává vázaný na PUBLIKOVANÝ směr tezí (dir,
+  // z overall_score) — to je správně, crowding je riziko vůči tomu, co appka fakticky tvrdí,
+  // ne vůči hypotetickému "skóre bez COT".
   const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= 88) || (dir < 0 && cotPercentile <= 12));
-  if (Math.abs(cotScore) >= 1 && signAgrees(cotScore) && !crowdedAgainst) {
+  const dirWithoutCot = scoreWithoutCot > 0 ? 1 : scoreWithoutCot < 0 ? -1 : 0;
+  const cotAgreesIndependently = cotScore !== null && cotScore !== 0 && dirWithoutCot !== 0 && Math.sign(cotScore) === dirWithoutCot;
+  if (Math.abs(cotScore) >= 1 && cotAgreesIndependently && !crowdedAgainst) {
     stars++;
     reasons.push(
       cotPercentile !== null
@@ -593,12 +608,20 @@ export async function recomputeScores() {
       fundamentalScoreAdj * BLEND_WEIGHTS.fund + cotRow.cot_score * BLEND_WEIGHTS.cot + retailScore * BLEND_WEIGHTS.retail + riskAdj;
     const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
 
+    // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2: totéž co overallRaw,
+    // ale BEZ COT komponenty — jen pro porovnání směru uvnitř computeConviction (viz komentář
+    // tam), ne jako náhrada overall_score. Nemění se BLEND_WEIGHTS ani nic, co appka ukazuje
+    // jako skóre — tohle číslo se nikam neukládá, slouží jen jako "co by si systém myslel, i
+    // kdyby COT vůbec neexistoval".
+    const scoreWithoutCot = fundamentalScoreAdj * BLEND_WEIGHTS.fund + retailScore * BLEND_WEIGHTS.retail + riskAdj;
+
     const conviction = computeConviction(overallScore, {
       cbPolicyAdj: cbPolicy.cbPolicyAdj,
       realYieldAdj: cbPolicy.realYieldAdj,
       fundamentalScoreAdj,
       cotScore: cotRow.cot_score,
       cotPercentile: cotRow.cot_percentile ?? null,
+      scoreWithoutCot,
       riskAdj,
       regime: regimeInfo?.regime ?? "NEUTRAL",
       policyLabel: cbPolicy.policyLabel,
