@@ -86,6 +86,25 @@ function pricedInInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
   return "Trh zatím nemá jednoznačné očekávání dalšího kroku.";
 }
 
+// Bod #7 post-fix auditu (ChatGPT/Cowork Opus, 4.9.2026) — appka dřív o nadcházejícím
+// sazbovém rozhodnutí mlčela úplně, i když validní tržní konsensus měla nascrapovaný (živě:
+// EUR 10.9., estimate 2,65 % proti aktuálním 2,40 %). Tahle funkce je záměrně ODDĚLENÁ od
+// longTermBiasInterpretation výš — appka nesmí "co je teď" a "co trh čeká příště" slít do
+// jedné věty, aby konsensus nevypadal jako už hotové rozhodnutí. estimateRate je OČEKÁVÁNÍ,
+// ne fakt — text to musí říct explicitně ("trh čeká", ne "bude").
+function upcomingDecisionNote(cbPolicy: CurrencyData["cbPolicy"]): string | null {
+  const d = cbPolicy?.upcomingDecision;
+  if (!d) return null;
+  const dateLabel = new Date(`${d.eventDay}T00:00:00Z`).toLocaleDateString("cs-CZ", { day: "numeric", month: "long" });
+  const bp = Math.round(Math.abs(d.diffPct) * 100);
+  if (d.direction === "hold") {
+    return `➖ Další rozhodnutí ${dateLabel}: trh čeká beze změny (konsensus ${d.estimateRate.toFixed(2)} %)`;
+  }
+  const arrow = d.direction === "hike" ? "📈" : "📉";
+  const verb = d.direction === "hike" ? "zvýšení" : "snížení";
+  return `${arrow} Další rozhodnutí ${dateLabel}: trh čeká ${verb} o ${bp} bb (konsensus ${d.estimateRate.toFixed(2)} % z ${d.currentRate.toFixed(2)} %)`;
+}
+
 function longTermBiasInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
   if (!cbPolicy || cbPolicy.policyLabel === "nedostatek dat") {
     return "Zatím nedostatek dat pro jasný dlouhodobý směr politiky.";
@@ -896,6 +915,7 @@ export default function App() {
                   label="Dlouhodobý bias (CB)"
                   interpretation={longTermBiasInterpretation(currency.cbPolicy)}
                   value={currency.longTermBias ?? "—"}
+                  sub={upcomingDecisionNote(currency.cbPolicy)}
                 />
                 <Pillar label="Real yield" {...realYieldDisplay(currency.cbPolicy)} />
                 <Pillar label="Risk režim" value={riskRegimeLabel(currency.riskRegime)} />

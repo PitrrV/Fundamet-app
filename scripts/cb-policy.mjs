@@ -258,6 +258,55 @@ export function decisionConsensusPricedIn(currencyCode, calendarEvents, policyCo
   return { method: "decision_consensus", label, confidenceLevel: policyConfidence ?? "MEDIUM" };
 }
 
+// Nezávislý návrh (ChatGPT, po konzultaci s uživatelem, 4.9.2026), bod #7 z post-fix auditu:
+// appka dosud viděla jen MINULÁ rozhodnutí (extractRateHistory vyžaduje `actual`) — nadcházející
+// rozhodnutí s validním `estimate` appka do teď úplně ignorovala, i když ta data už scrapuje.
+// Živě potvrzeno PŘED opravou: EUR má 10.9.2026 "Main Refinancing Rate" s estimate 2.65 % proti
+// aktuálním 2.40 % (validní konsensus na hike), ale appka na třech místech (policy_label, UI
+// "Dlouhodobý bias", pricedIn) mlčela / tvrdila "plateau, hold, žádný jasný směr" — 6 dní před
+// očekávaným rozhodnutím appka o něm vůbec nevěděla.
+//
+// DŮLEŽITÉ OMEZENÍ (explicitně schváleno uživatelem): tohle je ČISTĚ INFORMAČNÍ vrstva pro
+// UI/narrative, ne nový vstup do skóre. Vrácený objekt se nikde v tomhle souboru nepoužívá jako
+// vstup do policy_score/cbPolicyAdj/realYieldAdj — jen se dál předává (fetch-calendar.mjs → DB →
+// generate-narrative.mjs / App.tsx). "estimate" je KONSENSUS trhu, ne fakt — volající (UI i
+// narrativní prompt) to musí takhle explicitně označit, nikdy jako už hotové rozhodnutí.
+export function upcomingRateDecision(currencyCode, calendarEvents, currentRate) {
+  if (currentRate === null || currentRate === undefined) return null;
+
+  const candidate = calendarEvents
+    .filter(
+      (ev) =>
+        ev.currency_code === currencyCode &&
+        !ev.actual &&
+        ev.estimate &&
+        matchRule(ev.event_title)?.cat === "Interest Rates" &&
+        // Stejný guard jako extractRateHistory/decisionConsensusPricedIn výš — nadcházející
+        // "MPC Official Bank Rate Votes" má taky vyplněný estimate (formát hlasů), ne sazbu.
+        !/votes?/i.test(ev.event_title || "")
+    )
+    .sort((a, b) => new Date(a.event_day) - new Date(b.event_day))[0];
+
+  if (!candidate) return null;
+
+  const raw = String(candidate.estimate).trim();
+  if (!/^[<>~≈]?\s*-?\d+(\.\d+)?\s*%?$/.test(raw)) return null;
+  const estimateRate = parseFloat(raw.replace(/^[<>~≈\s]+/, ""));
+  if (Number.isNaN(estimateRate)) return null;
+
+  const diffPct = Math.round((estimateRate - currentRate) * 100) / 100;
+  const direction = diffPct > 0.01 ? "hike" : diffPct < -0.01 ? "cut" : "hold";
+
+  return {
+    eventTitle: candidate.event_title,
+    eventDay: candidate.event_day,
+    currentRate,
+    estimateRate: Math.round(estimateRate * 100) / 100,
+    diffPct,
+    direction,
+  };
+}
+
 /**
  * Hlavní orchestrátor — pro danou měnu spočítá kompletní CB-policy stav z calendar_events
  * VŠECH měn (potřeba pro relativní srovnání vůči průměru).
@@ -286,6 +335,9 @@ export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendar
   const realYieldAdj = computeRealYieldAdj(currencyCode, ratesByCode, cpiByCode);
   const cbPolicyAdj = computeCbPolicyAdj(currencyCode, policyByCode);
   const pricedIn = decisionConsensusPricedIn(currencyCode, allCalendarEvents, policy.confidence);
+  // Bod #7 — čistě informační, nevstupuje do policy_score/cbPolicyAdj/realYieldAdj výš (viz
+  // komentář u funkce).
+  const upcomingDecision = upcomingRateDecision(currencyCode, allCalendarEvents, ratesByCode[currencyCode] ?? null);
 
   return {
     rate: ratesByCode[currencyCode] ?? null,
@@ -296,6 +348,7 @@ export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendar
     realYieldAdj,
     cbPolicyAdj,
     pricedIn,
+    upcomingDecision,
     rateHistory: histories[currencyCode] ?? [],
   };
 }

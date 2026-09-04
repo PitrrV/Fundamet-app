@@ -176,7 +176,7 @@ Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo ta
 const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné, a na které straně (long/short) — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG — to je protiintuitivní a appka to proto počítá za tebe.
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
-- Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy).
+- Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD.
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci.
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
@@ -523,6 +523,9 @@ function buildInputFingerprint(context) {
       realYield: cbPolicy?.real_yield_adj ?? null,
       policyAdj: cbPolicy?.cb_policy_adj ?? null,
       pricedIn: cbPolicy?.priced_in?.label ?? null,
+      // Bod #7 — když se objeví/zmizí/přehodí nadcházející rozhodnutí (nebo se konsensus
+      // reviduje), appka to má poznat stejně jako každou jinou změnu v cbPolicy sekci.
+      upcomingDecision: cbPolicy?.upcoming_decision ?? null,
     }),
     // Jen REŽIM, ne surový VIX. VIX se hýbe každých 15 minut a jeho zahrnutí by otisk
     // zneplatňovalo prakticky pořád, aniž by se příběh reálně změnil.
@@ -574,7 +577,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
 
   const { data: cbRows } = await supabase
     .from("cb_policy_state")
-    .select("rate, cpi, policy_score, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, priced_in")
+    .select("rate, cpi, policy_score, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, priced_in, upcoming_decision")
     .eq("currency_code", currencyCode)
     .limit(1);
   const cbPolicy = cbRows?.[0] ?? null;
@@ -800,6 +803,7 @@ const LEAKED_FIELD_NAMES = [
   "beatImplication",
   "resolvedVerdict",
   "crowdingLabel",
+  "upcoming_decision",
   "scoreChange",
   "cbPolicy",
   "retailSentiment",

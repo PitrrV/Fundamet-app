@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, RiskRegime, Scenario, ThesisDriver, TopOpportunity } from "../types";
+import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, RiskRegime, Scenario, ThesisDriver, TopOpportunity, UpcomingRateDecision } from "../types";
 
 // Tvar, jak agendu skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -81,6 +81,7 @@ interface CbPolicyStateRow {
   real_yield_adj: number | null;
   cb_policy_adj: number | null;
   priced_in: PricedIn | null;
+  upcoming_decision: UpcomingRateDecision | null;
 }
 
 interface MarketRegimeRow {
@@ -225,7 +226,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       withTimeout(
         supabase
           .from("cb_policy_state")
-          .select("currency_code, rate, cpi, policy_score, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, priced_in"),
+          .select("currency_code, rate, cpi, policy_score, policy_label, policy_confidence, real_yield_adj, cb_policy_adj, priced_in, upcoming_decision"),
         FETCH_TIMEOUT_MS
       ),
       withTimeout(supabase.from("market_regime").select("vix, vix_5d_change, regime").limit(1), FETCH_TIMEOUT_MS),
@@ -304,6 +305,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
             realYieldAdj: cbPolicyRow.real_yield_adj,
             cbPolicyAdj: cbPolicyRow.cb_policy_adj ?? 0,
             pricedIn: cbPolicyRow.priced_in,
+            upcomingDecision: cbPolicyRow.upcoming_decision ?? null,
           }
         : null;
 

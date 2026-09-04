@@ -566,6 +566,9 @@ export async function recomputeScores() {
         real_yield_adj: cbPolicy.realYieldAdj,
         cb_policy_adj: cbPolicy.cbPolicyAdj,
         priced_in: cbPolicy.pricedIn,
+        // Bod #7 (ChatGPT/Cowork Opus, 4.9.2026) — čistě informační (viz upcomingRateDecision,
+        // cb-policy.mjs), nikam jinam v tomhle souboru se nepromítá.
+        upcoming_decision: cbPolicy.upcomingDecision,
         rate_history: cbPolicy.rateHistory,
         updated_at: new Date().toISOString(),
       },

@@ -41,6 +41,19 @@ export interface PricedIn {
   confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
 }
 
+// Nadcházející sazbové rozhodnutí s validním tržním konsensem — čistě informační (bod #7
+// post-fix auditu, 4.9.2026), nikdy nevstupuje do policyLabel/cbPolicyAdj/overall_score.
+// estimateRate je KONSENSUS/OČEKÁVÁNÍ trhu, ne fakt — UI ho musí zobrazit jasně odděleně od
+// aktuální sazby (viz upcomingDecisionDisplay v App.tsx).
+export interface UpcomingRateDecision {
+  eventTitle: string;
+  eventDay: string; // YYYY-MM-DD
+  currentRate: number;
+  estimateRate: number;
+  diffPct: number;
+  direction: "hike" | "cut" | "hold";
+}
+
 export interface CbPolicy {
   rate: number | null;
   cpi: number | null;
@@ -49,6 +62,7 @@ export interface CbPolicy {
   realYieldAdj: number | null; // null = chybí spolehlivá roční CPI, appka si číslo nedomýšlí (viz computeRealYieldAdj)
   cbPolicyAdj: number;
   pricedIn: PricedIn;
+  upcomingDecision: UpcomingRateDecision | null;
 }
 
 export interface RiskRegime {
