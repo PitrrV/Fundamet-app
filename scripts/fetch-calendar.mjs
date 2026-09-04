@@ -349,7 +349,10 @@ function clamp(value, min, max) {
 // nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded,
 // risk režim) ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore
 // z Fx-Analyzeru, přizpůsobeno na naši sadu signálů.
-function computeConviction(overallScore, { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotPercentile, riskAdj, regime, policyLabel }) {
+function computeConviction(
+  overallScore,
+  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, riskAdj, regime, policyLabel }
+) {
   if (overallScore === 0) return { stars: 0, reasons: [] };
   const dir = overallScore > 0 ? 1 : -1;
   const signAgrees = (v) => v !== 0 && Math.sign(v) === dir;
@@ -369,10 +372,30 @@ function computeConviction(overallScore, { cbPolicyAdj, realYieldAdj, fundamenta
     stars++;
     reasons.push(`Fundament/kalendář: ${fundamentalScoreAdj > 0 ? "+" : ""}${fundamentalScoreAdj}`);
   }
+  // Nezávislý audit (Fable, 3.9.2026), položka #5: tenhle blok dřív kontroloval jen "není
+  // crowded" (cotPercentile) a "Math.abs(overallScore) >= 1" — tedy magnitudu BLENDOVANÉHO
+  // skóre, ne COT vlastní hodnoty. cot_score přitom má v blendu (BLEND_WEIGHTS.cot = 0.46, viz
+  // výš) nejvyšší váhu ze všech pilířů — hvězda pro "Pozicování" tak mohla appce přiznat
+  // COT nezávislé potvrzení směru, i když COT skóre bylo ve skutečnosti NULOVÉ, NEUTRÁLNÍ, nebo
+  // dokonce v OPAČNÉM směru než overall_score (percentil sám o sobě znaménko neurčuje — 45.
+  // percentil může být lehce long i lehce short, podle toho, kde leží zbytek historie). Živě
+  // ověřeno: CAD (cot_score +1.20, jasně souhlasí) hvězdu nedostal jen proto, že overall_score
+  // (0.90) nedosáhl prahu 1 — zatímco COT samo o sobě bylo silnější potvrzení než "Real yield"
+  // pilíř, který hvězdu dostal bez jakéhokoli prahu na velikost.
+  //
+  // Oprava: stejná konvence jako fundamentalScoreAdj (Math.abs(...) >= 1, stejná škála -5..5) —
+  // hvězda vyžaduje, aby COT SKÓRE SAMO souhlasilo se směrem a nebylo zanedbatelně malé, NE jen
+  // aby overall_score (kam COT už svou vahou přispělo) byl velký. "Crowded" filtr zůstává jako
+  // DODATEČNÁ podmínka navrch (viz komentář u funkce výš — pozicování je i nadále rizikový
+  // filtr, ne jen směrový signál): i genuinně souhlasící, ale přeplněná pozice hvězdu nedostane.
   const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= 88) || (dir < 0 && cotPercentile <= 12));
-  if (!crowdedAgainst && Math.abs(overallScore) >= 1) {
+  if (Math.abs(cotScore) >= 1 && signAgrees(cotScore) && !crowdedAgainst) {
     stars++;
-    reasons.push(cotPercentile !== null ? `Pozicování: ${cotPercentile}. percentil, není crowded proti směru` : "Pozicování: bez dat o extrému");
+    reasons.push(
+      cotPercentile !== null
+        ? `Pozicování: ${cotPercentile}. percentil, souhlasí se směrem a není crowded`
+        : "Pozicování: souhlasí se směrem (bez dat o percentilu)"
+    );
   }
   if (signAgrees(riskAdj)) {
     stars++;
@@ -549,6 +572,7 @@ export async function recomputeScores() {
       cbPolicyAdj: cbPolicy.cbPolicyAdj,
       realYieldAdj: cbPolicy.realYieldAdj,
       fundamentalScoreAdj,
+      cotScore: cotRow.cot_score,
       cotPercentile: cotRow.cot_percentile ?? null,
       riskAdj,
       regime: regimeInfo?.regime ?? "NEUTRAL",
