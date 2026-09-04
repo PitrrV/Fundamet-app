@@ -194,7 +194,17 @@ export function decisionConsensusPricedIn(currencyCode, calendarEvents, policyCo
         ev.currency_code === currencyCode &&
         ev.actual &&
         ev.estimate &&
-        matchRule(ev.event_title)?.cat === "Interest Rates"
+        matchRule(ev.event_title)?.cat === "Interest Rates" &&
+        // Stejný guard jako extractRateHistory výš — GBP (a další měny s výborovým hlasováním)
+        // publikuje k rozhodnutí o sazbě samostatný event "MPC Official Bank Rate Votes" se
+        // STEJNOU kategorií "Interest Rates" a vyplněným actual i estimate (formát hlasů, např.
+        // "7-2"). Bez tohohle guardu ho tahle funkce mohla vybrat jako "poslední rozhodnutí" —
+        // parseNum("7-2") vrátí 7 (parseFloat se zastaví na "-"), takže by se hlasy tiše
+        // porovnávaly jako by šlo o sazbu v %, a `pricedIn.label` (jde přímo do promptu pro
+        // generate-narrative.mjs) by tvrdil něco jako "poslední rozhodnutí (MPC Official Bank
+        // Rate Votes) překvapilo jestřábí stranou vůči konsensu (7-2)" — nesmyslná věta o
+        // hlasování vydávaná za sazbové rozhodnutí. Živě zachyceno (nezávislý audit, 3.9.2026).
+        !/votes?/i.test(ev.event_title || "")
     )
     .sort((a, b) => new Date(b.event_day) - new Date(a.event_day))[0];
 
