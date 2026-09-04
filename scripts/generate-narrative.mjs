@@ -533,7 +533,8 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
 
   const { data: cotRows } = await supabase
     .from("latest_confluence_scores")
-    .select("cot_score, overall_score, cot_positioning_label, conviction_label, conviction_stars, conviction_reasons, retail_score, cot_percentile, data_tier, summary")
+    // summary záměrně nevybíráme — viz komentář u sestavení `cot` payloadu níž.
+    .select("cot_score, overall_score, cot_positioning_label, conviction_label, conviction_stars, conviction_reasons, retail_score, cot_percentile, data_tier")
     .eq("currency_code", currencyCode)
     .limit(1);
   const cotRow = cotRows?.[0] ?? null;
@@ -652,6 +653,14 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     historicalTrend: getEventHistoryTrend(e.title, currencyCode, allCalendarEvents),
   }));
 
+  // POZOR: cotRow.summary (confluence_scores.summary) sem záměrně NEJDE — nezávislý audit
+  // (Fable, 3.9.2026), položka #4. Ten sloupec píše výhradně ingest-cot.mjs, VŽDY znovu při
+  // každém týdenním COT ingestu, bez ohledu na to, jestli fetch-calendar.mjs mezitím měnu dávno
+  // přeblendoval přes všech 5 pilířů (na rozdíl od overall_score/conviction_*, které svou
+  // "už nablendováno" pojistku mají — viz komentář v ingest-cot.mjs). Model by tak dostával
+  // redundantní a navíc typicky zastaralý COT-only text vedle už tak úplných strukturovaných
+  // polí níž (cotScore, positioningLabel, convictionLabel/-Reasons) — nic nového by mu to
+  // neřeklo, jen riziko, že z něj bude parafrázovat zavádějící "jen COT" rámování.
   const cot = cotRow
     ? {
         cotScore: cotRow.cot_score,
@@ -661,7 +670,6 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
         convictionStars: cotRow.conviction_stars,
         convictionReasons: cotRow.conviction_reasons,
         cotPercentile: cotRow.cot_percentile,
-        summary: cotRow.summary,
       }
     : null;
 

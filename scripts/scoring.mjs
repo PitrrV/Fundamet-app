@@ -104,6 +104,21 @@ export function convictionLabel(cotScore) {
   return `${base} CONVICTION (POUZE COT · 1/5 PILÍŘŮ)`;
 }
 
+// Nezávislý audit (Fable, 3.9.2026), položka #4: poslední věta ("Skóre vychází výhradně z COT
+// pozicování — 1 z 5 plánovaných pilířů...") popisovala stav appky z DOBY, kdy fundamentální/
+// CB-policy/risk-regime/retail pilíře ještě neexistovaly. Ty dnes existují a `summary` se přesto
+// pořád píše STEJNĚ falešně u KAŽDÉHO ingestu (viz ingest-cot.mjs), i pro měny, které fetch-
+// calendar.mjs dávno přeblendoval přes všech 5 pilířů — na rozdíl od overall_score/conviction_*,
+// `summary` žádnou "už nablendováno, nepřepisuj" pojistku nemá.
+//
+// Blast radius je větší, než jen zavádějící text v promptu pro generate-narrative.mjs: pokud AI
+// shrnutí (latest_narratives.narrative) chybí nebo je stažené (viz src/types.ts komentář u
+// `summary`), appka `row.summary` ukazuje PŘÍMO uživateli jako fallback (fetchCurrencies.ts).
+// Živě zachyceno: uživatel by tak mohl vidět "sazbová očekávání, makro překvapení, sentiment a
+// sezónnost zatím nejsou zapojeny" u měny, která je dávno plně nablendovaná.
+//
+// Oprava: popsat jen to, co tahle funkce doopravdy ví (COT snímek samotný) — bez tvrzení o tom,
+// kolik pilířů appka celkově používá, což tahle funkce nemůže vědět a časem se to stejně mění.
 export function buildSummary({ levMoneyNet, zscore, wowChange, positioningLabel }) {
   const direction = levMoneyNet >= 0 ? "long" : "short";
   const wowText =
@@ -113,8 +128,6 @@ export function buildSummary({ levMoneyNet, zscore, wowChange, positioningLabel 
 
   return (
     `Leveraged funds drží čistou ${direction} pozici ${Math.abs(levMoneyNet)} kontraktů ` +
-    `(z-skóre ${zscore.toFixed(2)}, ${positioningLabel.toLowerCase()}), ${wowText}. ` +
-    `Skóre vychází výhradně z COT pozicování (1 z 5 plánovaných pilířů analýzy) — ` +
-    `sazbová očekávání, makro překvapení, sentiment a sezónnost zatím nejsou zapojeny.`
+    `(z-skóre ${zscore.toFixed(2)}, ${positioningLabel.toLowerCase()}), ${wowText}.`
   );
 }
