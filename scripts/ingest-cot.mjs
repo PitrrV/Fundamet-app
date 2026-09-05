@@ -61,22 +61,57 @@ function toRow(currencyCode, apiRow) {
 }
 
 // Kontrariánské skóre retail pozicování (vzor getSentimentScore z Fx-Analyzeru): retail dav
-// nakoupený nahoru = medvědí signál pro skóre, a naopak. Prahy jsou v procentech "long z
-// long+short", výstup -1..+1 přeškálovaný ×5 na naši -5..+5 škálu (stejnou jako cot_score).
-function retailScoreFromRow(row) {
-  if (row.nonrept_long === null || row.nonrept_short === null) return null;
-  const total = row.nonrept_long + row.nonrept_short;
-  if (total <= 0) return null;
+// nakoupený nahoru = medvědí signál pro skóre, a naopak.
+//
+// Post-audit oprava F (5.9.2026): pilíř dřív používal FIXNÍ absolutní prahy (≤20/30, ≥70/80 %)
+// stejné napříč všemi měnami — dvoufázová analýza (nejdřív změřit, pak rozhodnout, ŽÁDNÁ
+// implementace naslepo) na 4 letech historie (207 týdnů, cot_reports od 2022) ukázala:
+// (1) není to problém dat — 0 chybějících hodnot; (2) krajní pásmo (≤20/≥80, nejsilnější
+// signál ±5) se NESTALO ANI JEDNOU za 4 roky u ŽÁDNÉ měny — mrtvý kód; (3) jednotlivé měny mají
+// trvale jinou "nulovou hladinu" (EUR 53-72 %, CHF 20-58 % dlouhodobě) — fixní absolutní
+// procento proto bylo nefér: CAD/JPY 0% aktivace za 4 roky, CHF 15 %. Zúžení na jinou fixní
+// hranici (např. 40/60) tenhle problém neřeší, jen ho přesouvá (simulace: AUD/CHF/USD by
+// naopak byly nenulové PRAKTICKY VŽDY se STEJNOU hodnotou — degeneruje na statickou konstantu
+// bez týdenní informace).
+//
+// Řešení: currency-relative percentil (stejná konvence jako cot_percentile u COT pilíře) —
+// "je současné pozicování extrémní vzhledem k tomu, co je pro TUHLE měnu normální", ne vzhledem
+// k univerzálnímu číslu. Okno je EXPANDING (celá historie DO tohoto týdne, ne rolling 52/104) —
+// simulace ukázala, že strukturální posun jednotlivých měn je přes 4 roky velmi setrvalý,
+// rolling okno by jen přidalo další nezpětně otestovaný hyperparametr (proč zrovna 52 týdnů?).
+// Vyžaduje aspoň RETAIL_MIN_HISTORY_WEEKS předchozích týdnů, jinak appka o "co je normální pro
+// tuhle měnu" neví dost — vrátí null (appka pilíř pro tenhle týden vynechá, nic si nedomýšlí).
+//
+// Mapování percentilu na skóre (symetrické, předem dané — NE vybírané podle toho, co dá víc
+// signálů): p≤10 → +5, p∈(10,25] → +2,5, p∈[75,90) → −2,5, p≥90 → −5, jinak 0. Stejná výsledná
+// škála −5..+5 jako dřív, jen jinak kalibrovaný vstup.
+const RETAIL_MIN_HISTORY_WEEKS = 20;
 
-  const pctLong = (row.nonrept_long / total) * 100;
+/**
+ * @param {Array<{report_date: string, pctLong: number}>} historyAsc - vzestupně podle data,
+ *   poslední prvek = aktuální týden. Musí obsahovat i historii, ne jen aktuální řádek.
+ */
+function retailScoreFromHistory(historyAsc) {
+  if (historyAsc.length === 0) return null;
+  const latest = historyAsc[historyAsc.length - 1];
+  const prior = historyAsc.slice(0, -1);
+  if (prior.length < RETAIL_MIN_HISTORY_WEEKS) return null;
+
+  const leCount = prior.filter((r) => r.pctLong <= latest.pctLong).length;
+  const percentileRank = (100 * leCount) / prior.length;
+
   let raw;
-  if (pctLong >= 80) raw = -1;
-  else if (pctLong >= 70) raw = -0.5;
-  else if (pctLong <= 20) raw = 1;
-  else if (pctLong <= 30) raw = 0.5;
+  if (percentileRank <= 10) raw = 1;
+  else if (percentileRank <= 25) raw = 0.5;
+  else if (percentileRank >= 90) raw = -1;
+  else if (percentileRank >= 75) raw = -0.5;
   else raw = 0;
 
-  return { retailScore: Math.round(raw * 5 * 10) / 10, pctLong: Math.round(pctLong) };
+  return {
+    retailScore: Math.round(raw * 5 * 10) / 10,
+    pctLong: Math.round(latest.pctLong),
+    percentileRank: Math.round(percentileRank * 10) / 10,
+  };
 }
 
 async function processCurrency(currency) {
@@ -124,8 +159,20 @@ async function processCurrency(currency) {
     return { code: currency.code, ok: false };
   }
 
-  // rows[0] je nejnovější (CFTC API vrací DESC dle report_date).
-  const retail = retailScoreFromRow(rows[0]);
+  // Historie pctLong vzestupně podle data, pro currency-relative percentil (viz
+  // retailScoreFromHistory výš) — stejný zdroj (`rows`, čerstvě stažený z CFTC) jako historyAsc
+  // pro cot_score, jen filtrovaný na nonrept_long/short místo lev_money_long/short.
+  const retailHistoryAsc = rows
+    .map((r) => {
+      if (r.nonrept_long === null || r.nonrept_short === null) return null;
+      const total = r.nonrept_long + r.nonrept_short;
+      if (total <= 0) return null;
+      return { report_date: r.report_date, pctLong: (r.nonrept_long / total) * 100 };
+    })
+    .filter((r) => r !== null)
+    .sort((a, b) => a.report_date.localeCompare(b.report_date));
+
+  const retail = retailScoreFromHistory(retailHistoryAsc);
   const percentile = cotPercentile(historyAsc);
 
   const positioningLabel = cotPositioningLabel(result.zscore);
@@ -187,7 +234,7 @@ async function processCurrency(currency) {
 
   console.log(
     `[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} zscore=${result.zscore} ` +
-      `retail_score=${scoreRow.retail_score ?? "N/A"}${retail ? ` (${retail.pctLong}% long)` : ""} ` +
+      `retail_score=${scoreRow.retail_score ?? "N/A"}${retail ? ` (${retail.pctLong}% long, ${retail.percentileRank}. percentil)` : ""} ` +
       `cot_percentile=${percentile ?? "N/A"}` +
       (existing && existing.data_tier !== "cot_only"
         ? ` (overall_score ${existing.overall_score} zachováno — už bylo nablendované)`
