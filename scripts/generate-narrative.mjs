@@ -177,7 +177,7 @@ const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš str
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné, a na které straně (long/short) — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG — to je protiintuitivní a appka to proto počítá za tebe.
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
-- Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD.
+- Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD. Od opravy 5.9.2026 je tohle ČISTĚ tržní kontext/prostředí, NENÍ součástí číselného skóre měny — piš o něm jako o prostředí, ve kterém se měna obchoduje ("risk-on prostředí podporuje AUD/NZD"), NIKDY jako o bodovém příspěvku do skóre ("AUD získává +0,4 bodu díky risk režimu" je špatně, protože už to není pravda).
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci.
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
@@ -422,11 +422,15 @@ function selectFlaggedEvents(upcoming, max = MAX_FLAGGED_EVENTS) {
 // real yield +0,49" — čtenáři to vypadalo jako rozpor, přestože matematicky sedí (fundament 0,5
 // + CB/real yield 0,49 = 0,99). "Upravený" na začátku labelu teď dělá ten součet vizuálně
 // zjevný a odlišuje ho od standalone driver chipu.
+// Post-audit oprava B (5.9.2026): "risk_adj"/"Risk režim" tu dřív bývalo jako čtvrtá komponenta
+// — od téhle opravy ale risk režim/VIX už NENÍ součástí overall_score (viz fetch-calendar.mjs,
+// komentář u overallRaw), takže by jeho delta v týhle tabulce nesprávně naznačovala, že vysvětluje
+// část pohybu skóre, i když matematicky už na overall_score vůbec nemá vliv. Zbylé tři komponenty
+// (fund/cot/retail) jsou teď jediné, co overall_score skutečně skládají.
 const SCORE_COMPONENTS = [
   { key: "fundamental_score_adj", label: "Fundament vč. CB politiky/real yieldu" },
   { key: "cot_score", label: "COT pozicování" },
   { key: "retail_score", label: "Retail sentiment" },
-  { key: "risk_adj", label: "Risk režim" },
 ];
 
 function buildScoreChange(snapsDesc) {

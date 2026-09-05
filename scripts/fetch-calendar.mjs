@@ -319,6 +319,14 @@ async function triggerNarrativeRegeneration(reason, currencyCodes) {
 // užší filtr NAD ní, jen na pohyby, co stojí za upozornění.
 const SCORE_ALERT_THRESHOLD = 0.2;
 
+// Post-audit oprava B (5.9.2026, konzervativní varianta navržená ChatGPT po diskuzi o
+// Telegram alert stormu): kolik po sobě jdoucích úspěšných klasifikací risk režimu ze
+// STEJNÉ strany musí přijít, než se `market_regime.regime` skutečně překlopí. Prahy VIX
+// (<15/>20, viz classifyRegime v market-regime.mjs) se NEMĚNÍ — jen se debounceuje jejich
+// promítnutí do "potvrzeného" režimu, aby živý VIX kolísající 14,9→15,1→14,8 na hraně
+// prahu nezpůsobil zbytečné přepínání každých 15 minut.
+const REGIME_HYSTERESIS_CONFIRMATIONS = 2;
+
 // Pošle zprávu do Telegramu přes Bot API. Volitelné — bez TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
 // (secrets ve fetch-calendar.yml) se jen tiše přeskočí, ať appka funguje i bez nastaveného
 // bota. Nesmí shodit zbytek přepočtu, kdyby Telegram API selhalo — vlastní try/catch.
@@ -480,16 +488,75 @@ export async function recomputeScores() {
   console.log("Stahuji risk režim (VIX) a US 2Y výnos z FRED...");
   const { regimeInfo, usd2yYield } = await computeMarketRegime();
 
-  // effectiveRegimeInfo je to, co se skutečně použije níž pro riskAdj/conviction — liší se od
-  // regimeInfo jen ve fallback větvi (viz komentář u ní).
-  let effectiveRegimeInfo = regimeInfo;
+  // effectiveRegimeInfo.regime je jediná věc, co se níž skutečně použije pro riskAdj/conviction
+  // (vix/vix5dChange z market_regime čte přímo fetchCurrencies.ts pro UI, tady se jen ukládají).
+  // Vždycky POTVRZENÝ režim, nikdy syrová klasifikace z tohohle běhu — viz hystereze níž.
+  let effectiveRegimeInfo = null;
+
+  // Nejdřív přečíst dosavadní stav (potvrzený režim + rozjednaný kandidát), bez ohledu na to,
+  // jestli FRED tenhle běh uspěl — hystereze i fallback na "poslední známý" ho oba potřebují.
+  const { data: existingRegimeRow, error: existingRegimeErr } = await supabase
+    .from("market_regime")
+    .select("vix, vix_5d_change, regime, pending_regime, pending_regime_count, updated_at")
+    .eq("id", true)
+    .maybeSingle();
+  if (existingRegimeErr) console.error("Chyba čtení market_regime:", existingRegimeErr.message);
 
   if (regimeInfo) {
-    const { error: regimeErr } = await supabase
-      .from("market_regime")
-      .upsert({ id: true, vix: regimeInfo.vix, vix_5d_change: regimeInfo.vix5dChange, regime: regimeInfo.regime, updated_at: new Date().toISOString() }, { onConflict: "id" });
-    if (regimeErr) console.error("Chyba upsertu market_regime:", regimeErr.message);
-    else console.log(`Risk režim: ${regimeInfo.regime} (VIX ${regimeInfo.vix}, 5d ${regimeInfo.vix5dChange >= 0 ? "+" : ""}${regimeInfo.vix5dChange})`);
+    const rawRegime = regimeInfo.regime;
+    let confirmedRegime = rawRegime;
+    let pendingRegime = null;
+    let pendingCount = 0;
+
+    // Post-audit oprava B (5.9.2026, konzervativní varianta): syrová klasifikace z classifyRegime
+    // (prahy 15/20 beze změny) se propíše do POTVRZENÉHO regime teprve po
+    // REGIME_HYSTERESIS_CONFIRMATIONS po sobě jdoucích úspěšných bězích na STEJNÉ straně —
+    // živý VIX kolísající 14,9→15,1→14,8 na hraně prahu tak appku nenutí přepínat režim (a s ním
+    // riskAdj pro conviction) každých 15 minut. Bez předchozího řádku (první běh appky vůbec)
+    // se nová klasifikace bere rovnou jako potvrzená — nemá se s čím debouncovat.
+    if (existingRegimeRow) {
+      if (rawRegime === existingRegimeRow.regime) {
+        confirmedRegime = existingRegimeRow.regime;
+      } else if (rawRegime === existingRegimeRow.pending_regime) {
+        const newCount = (existingRegimeRow.pending_regime_count ?? 0) + 1;
+        if (newCount >= REGIME_HYSTERESIS_CONFIRMATIONS) {
+          confirmedRegime = rawRegime; // potvrzeno — překlápíme
+        } else {
+          confirmedRegime = existingRegimeRow.regime; // zůstává starý, čeká na další potvrzení
+          pendingRegime = rawRegime;
+          pendingCount = newCount;
+        }
+      } else {
+        confirmedRegime = existingRegimeRow.regime; // nový kandidát, teprve první pozorování
+        pendingRegime = rawRegime;
+        pendingCount = 1;
+      }
+    }
+
+    const { error: regimeErr } = await supabase.from("market_regime").upsert(
+      {
+        id: true,
+        vix: regimeInfo.vix,
+        vix_5d_change: regimeInfo.vix5dChange,
+        regime: confirmedRegime,
+        pending_regime: pendingRegime,
+        pending_regime_count: pendingCount,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+    if (regimeErr) {
+      console.error("Chyba upsertu market_regime:", regimeErr.message);
+      // Upsert selhal — nemáme jistotu, co je teď v DB. Radši použít dosavadní potvrzený řádek
+      // (pokud existuje), než appku nechat běžet bez risk kontextu úplně.
+      if (existingRegimeRow) effectiveRegimeInfo = { vix: existingRegimeRow.vix, vix5dChange: existingRegimeRow.vix_5d_change, regime: existingRegimeRow.regime };
+    } else {
+      effectiveRegimeInfo = { vix: regimeInfo.vix, vix5dChange: regimeInfo.vix5dChange, regime: confirmedRegime };
+      const flapNote = pendingRegime ? ` (živě: ${rawRegime}, čeká na potvrzení ${pendingCount}/${REGIME_HYSTERESIS_CONFIRMATIONS})` : "";
+      console.log(
+        `Risk režim: ${confirmedRegime} (VIX ${regimeInfo.vix}, 5d ${regimeInfo.vix5dChange >= 0 ? "+" : ""}${regimeInfo.vix5dChange})${flapNote}`
+      );
+    }
   } else {
     // Živě zachyceno 4.9. 16:07 a 5.9. 05:15 (post-fix audit, telegram alerty): FRED VIXCLS/DGS2
     // fetch občas selže na jedno kolo (transientní síťová chyba), ne že by se trh reálně stal
@@ -497,24 +564,14 @@ export async function recomputeScores() {
     // bodu u 5-6 měn NAJEDNOU (protože riskAdj je stejné napříč měnami) a spustil zbytečnou vlnu
     // Telegram alertů, než se to o 15 minut později samo vrátilo zpět. Chybějící data != "trh je
     // teď neutrální" — stejná chyba jako dřívější CPI `?? 2` bug u real yieldu. Radši použít
-    // poslední ZNÁMÝ risk režim z market_regime (může být pár minut/hodin starý, ale je to
-    // skutečné číslo, ne vymyšlený default) — a NEpřepisovat market_regime touhle chybou, ať
-    // UI/appka pořád vidí, odkdy je hodnota fakticky stará.
-    const { data: lastRegimeRow, error: lastRegimeErr } = await supabase
-      .from("market_regime")
-      .select("vix, vix_5d_change, regime, updated_at")
-      .eq("id", true)
-      .maybeSingle();
-    if (lastRegimeErr) {
-      console.error(
-        "FRED VIX fetch selhal a poslední známý risk režim se nepodařilo načíst:",
-        lastRegimeErr.message,
-        "— riskAdj=0 pro všechny měny."
-      );
-    } else if (lastRegimeRow) {
-      effectiveRegimeInfo = { vix: lastRegimeRow.vix, vix5dChange: lastRegimeRow.vix_5d_change, regime: lastRegimeRow.regime };
+    // poslední ZNÁMÝ (potvrzený) risk režim z market_regime (může být pár minut/hodin starý, ale
+    // je to skutečné číslo, ne vymyšlený default) — a NEpřepisovat market_regime touhle chybou,
+    // ať UI/appka pořád vidí, odkdy je hodnota fakticky stará. Rozjednaný pending_regime se
+    // netýká — ten se bez nové syrové klasifikace stejně nemá jak posunout.
+    if (existingRegimeRow) {
+      effectiveRegimeInfo = { vix: existingRegimeRow.vix, vix5dChange: existingRegimeRow.vix_5d_change, regime: existingRegimeRow.regime };
       console.warn(
-        `FRED VIX fetch selhal — používám poslední známý risk režim ${lastRegimeRow.regime} (VIX ${lastRegimeRow.vix}, z ${lastRegimeRow.updated_at}), NEpředstírám neutral.`
+        `FRED VIX fetch selhal — používám poslední známý risk režim ${existingRegimeRow.regime} (VIX ${existingRegimeRow.vix}, z ${existingRegimeRow.updated_at}), NEpředstírám neutral.`
       );
     } else {
       console.warn("FRED VIX fetch selhal a v market_regime není žádný předchozí záznam — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
@@ -638,16 +695,25 @@ export async function recomputeScores() {
     const riskAdj = effectiveRegimeInfo ? riskAdjForCurrency(currencyCode, effectiveRegimeInfo.regime) : 0;
     const retailScore = cotRow.retail_score ?? 0;
 
+    // Post-audit oprava B (5.9.2026, konzervativní varianta navržená ChatGPT): risk režim/VIX už
+    // NENÍ součástí overall_score — jen kontext pro UI (Pillar "Risk režim") a AI narrativ, plus
+    // pořád jeden z 5 nezávislých potvrzujících signálů v computeConviction níž. Důvod: vlastním
+    // měřením nad 647 snímky (audit + potvrzeno 5.9.2026) 21-32 % změn overall_score u AUD/CAD/
+    // CHF/GBP/JPY/NZD způsoboval čistě risk-режim flap (VIX na hraně prahu, nebo dřív i FRED
+    // výpadek), ne skutečný pohyb fundamentu/COT/retailu. BLEND_WEIGHTS se NEMĚNÍ —
+    // fund 0,43 + cot 0,46 + retail 0,11 už dnes sčítá přesně na 1,0 nezávisle na riskAdj (ten byl
+    // navíc bonus mimo tenhle součet), takže žádná renormalizace vah není potřeba.
     const overallRaw =
-      fundamentalScoreAdj * BLEND_WEIGHTS.fund + cotRow.cot_score * BLEND_WEIGHTS.cot + retailScore * BLEND_WEIGHTS.retail + riskAdj;
+      fundamentalScoreAdj * BLEND_WEIGHTS.fund + cotRow.cot_score * BLEND_WEIGHTS.cot + retailScore * BLEND_WEIGHTS.retail;
     const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
 
     // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2: totéž co overallRaw,
     // ale BEZ COT komponenty — jen pro porovnání směru uvnitř computeConviction (viz komentář
     // tam), ne jako náhrada overall_score. Nemění se BLEND_WEIGHTS ani nic, co appka ukazuje
     // jako skóre — tohle číslo se nikam neukládá, slouží jen jako "co by si systém myslel, i
-    // kdyby COT vůbec neexistoval".
-    const scoreWithoutCot = fundamentalScoreAdj * BLEND_WEIGHTS.fund + retailScore * BLEND_WEIGHTS.retail + riskAdj;
+    // kdyby COT vůbec neexistoval". Od opravy B (5.9.2026) taky BEZ riskAdj — konzistentně
+    // s overallRaw výš, jinak by "skóre bez COT" počítalo s VIX, zatímco "skóre celkem" ne.
+    const scoreWithoutCot = fundamentalScoreAdj * BLEND_WEIGHTS.fund + retailScore * BLEND_WEIGHTS.retail;
 
     const conviction = computeConviction(overallScore, {
       cbPolicyAdj: cbPolicy.cbPolicyAdj,
