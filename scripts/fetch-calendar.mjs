@@ -480,6 +480,10 @@ export async function recomputeScores() {
   console.log("Stahuji risk režim (VIX) a US 2Y výnos z FRED...");
   const { regimeInfo, usd2yYield } = await computeMarketRegime();
 
+  // effectiveRegimeInfo je to, co se skutečně použije níž pro riskAdj/conviction — liší se od
+  // regimeInfo jen ve fallback větvi (viz komentář u ní).
+  let effectiveRegimeInfo = regimeInfo;
+
   if (regimeInfo) {
     const { error: regimeErr } = await supabase
       .from("market_regime")
@@ -487,7 +491,34 @@ export async function recomputeScores() {
     if (regimeErr) console.error("Chyba upsertu market_regime:", regimeErr.message);
     else console.log(`Risk režim: ${regimeInfo.regime} (VIX ${regimeInfo.vix}, 5d ${regimeInfo.vix5dChange >= 0 ? "+" : ""}${regimeInfo.vix5dChange})`);
   } else {
-    console.warn("FRED VIX fetch selhal — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
+    // Živě zachyceno 4.9. 16:07 a 5.9. 05:15 (post-fix audit, telegram alerty): FRED VIXCLS/DGS2
+    // fetch občas selže na jedno kolo (transientní síťová chyba), ne že by se trh reálně stal
+    // neutrálním. Dřívější tichý fallback na riskAdj=0 "pro všechny měny" hodil skóre o 0,2-0,4
+    // bodu u 5-6 měn NAJEDNOU (protože riskAdj je stejné napříč měnami) a spustil zbytečnou vlnu
+    // Telegram alertů, než se to o 15 minut později samo vrátilo zpět. Chybějící data != "trh je
+    // teď neutrální" — stejná chyba jako dřívější CPI `?? 2` bug u real yieldu. Radši použít
+    // poslední ZNÁMÝ risk režim z market_regime (může být pár minut/hodin starý, ale je to
+    // skutečné číslo, ne vymyšlený default) — a NEpřepisovat market_regime touhle chybou, ať
+    // UI/appka pořád vidí, odkdy je hodnota fakticky stará.
+    const { data: lastRegimeRow, error: lastRegimeErr } = await supabase
+      .from("market_regime")
+      .select("vix, vix_5d_change, regime, updated_at")
+      .eq("id", true)
+      .maybeSingle();
+    if (lastRegimeErr) {
+      console.error(
+        "FRED VIX fetch selhal a poslední známý risk režim se nepodařilo načíst:",
+        lastRegimeErr.message,
+        "— riskAdj=0 pro všechny měny."
+      );
+    } else if (lastRegimeRow) {
+      effectiveRegimeInfo = { vix: lastRegimeRow.vix, vix5dChange: lastRegimeRow.vix_5d_change, regime: lastRegimeRow.regime };
+      console.warn(
+        `FRED VIX fetch selhal — používám poslední známý risk režim ${lastRegimeRow.regime} (VIX ${lastRegimeRow.vix}, z ${lastRegimeRow.updated_at}), NEpředstírám neutral.`
+      );
+    } else {
+      console.warn("FRED VIX fetch selhal a v market_regime není žádný předchozí záznam — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
+    }
   }
 
   // Druhý, nezávislý spouštěč přegenerování narrativu (viz komentář u runThesisEngineForCurrency
@@ -604,7 +635,7 @@ export async function recomputeScores() {
       -5,
       5
     );
-    const riskAdj = regimeInfo ? riskAdjForCurrency(currencyCode, regimeInfo.regime) : 0;
+    const riskAdj = effectiveRegimeInfo ? riskAdjForCurrency(currencyCode, effectiveRegimeInfo.regime) : 0;
     const retailScore = cotRow.retail_score ?? 0;
 
     const overallRaw =
@@ -626,7 +657,7 @@ export async function recomputeScores() {
       cotPercentile: cotRow.cot_percentile ?? null,
       scoreWithoutCot,
       riskAdj,
-      regime: regimeInfo?.regime ?? "NEUTRAL",
+      regime: effectiveRegimeInfo?.regime ?? "NEUTRAL",
       policyLabel: cbPolicy.policyLabel,
     });
 
