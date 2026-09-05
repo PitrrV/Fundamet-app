@@ -1,0 +1,35 @@
+name: Ingest Intraday Retail Sentiment
+
+# Čte veřejný data/retail_hist.json z https://github.com/PitrrV/Fx-Analyzer (appka tam má
+# vlastní 30min cron proti MyFxbook/FXSSI) a archivuje vlastní, trvalou historii do
+# retail_sentiment_intraday. Žádný vlastní MyFxbook účet, žádné nové API klíče.
+#
+# ČISTĚ SBĚR DAT — nevstupuje do overall_score/BLEND_WEIGHTS/UI. Viz scripts/
+# ingest-retail-intraday.mjs a schema-retail-sentiment-intraday.sql.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingest-retail-intraday
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Ingest intraday retail sentiment
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/ingest-retail-intraday.mjs
