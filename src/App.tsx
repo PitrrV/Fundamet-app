@@ -76,6 +76,21 @@ function riskRegimeLabel(regime: CurrencyData["riskRegime"]): string {
   return `${label} · VIX ${regime.vix.toFixed(1)} (5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
 }
 
+// Intradenní broker positioning (MyFxbook/FXSSI) — ČISTĚ informační dlaždice. Post-audit F
+// backtest (9/2026, Δ24H vs. následující denní return, 344 pozorování po opravě datové mezery
+// 31.7.) nenašel žádnou prokazatelnou predikční hodnotu — proto se tahle funkce záměrně NEDÍVÁ
+// na hodnotu (žádné "roste/klesá = bullish/bearish", žádná barva, žádný barPct). Vždycky stejná
+// neutrální poznámka, ať appka časem omylem nezačne vypadat, že tu něco predikuje.
+function retailIntradayDisplay(ri: CurrencyData["retailIntraday"]): { value: string; sub: string | null; interpretation: string } {
+  if (!ri) return { value: "Zatím nedostupné", sub: null, interpretation: "Bez prokázané predikční výhody" };
+  const deltaStr = ri.delta24h !== null ? `Δ24H ${ri.delta24h > 0 ? "+" : ""}${ri.delta24h.toFixed(1)} p.b.` : "Δ24H zatím nedostupné";
+  return {
+    value: `${ri.longPct.toFixed(0)} % long`,
+    sub: `${deltaStr} · zdroj: broker positioning (MyFxbook/FXSSI)`,
+    interpretation: "Bez prokázané predikční výhody (backtest 9/2026)",
+  };
+}
+
 // Jednověté, okamžitě čitelné shrnutí "co to znamená" nad syrová čísla pilíře — deterministicky
 // odvozené z už spočtených polí cbPolicy (žádné nové LLM volání, žádné domýšlení).
 function pricedInInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
@@ -897,6 +912,7 @@ export default function App() {
                   }
                 />
                 <Pillar label="Retail sentiment" value={retailSentimentLabel(currency.retailScore)} />
+                <Pillar label="Retail (intradenní, broker)" {...retailIntradayDisplay(currency.retailIntraday)} />
                 <Pillar
                   label="Zaceněnost"
                   interpretation={pricedInInterpretation(currency.cbPolicy)}

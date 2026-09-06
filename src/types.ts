@@ -71,6 +71,19 @@ export interface RiskRegime {
   regime: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
 }
 
+// Intradenní retail positioning z broker dat (MyFxbook/FXSSI přes veřejný feed
+// Fx-Analyzeru, ~30min vzorkování) — ČISTĚ informační kontext (post-audit F backtest,
+// 9/2026: Δ24H nemá prokázanou predikční hodnotu, korelace s návazujícím denním
+// returnem ~0). Nikdy nevstupuje do overall_score/BLEND_WEIGHTS/conviction — na rozdíl
+// od retailScore (týdenní, CFTC, viz CurrencyData.retailScore), tohle pole appka NIKDE
+// neblenduje. delta24h je null, dokud appka nemá čtení ~24h zpátky (tolerance 12-36h,
+// stejná jako v backtestu).
+export interface RetailIntraday {
+  longPct: number;
+  delta24h: number | null;
+  recordedAt: string;
+}
+
 export type AgendaTier = "klíčový" | "druhořadý" | "kontext";
 export type AgendaReaction = "silná" | "omezená" | "asymetrická";
 
@@ -172,6 +185,7 @@ export interface CurrencyData {
   convictionStars: number | null; // 0-5, kolik nezávislých signálů souhlasí se směrem overall_score
   convictionReasons: string[];
   riskRegime: RiskRegime | null;
+  retailIntraday: RetailIntraday | null; // broker positioning, čistě informační — viz komentář u typu
   scenarios: Scenario[]; // "když X, tak Y" predikce pro nejbližší klíčové eventy
   thesis: CurrencyThesis | null; // Gen2 Thesis Engine — teze s pamětí napříč dny, null dokud appka žádnou neotevřela
   dataQuality: DataQuality | null; // Gen3.5 CDQE Fáze 1 — kvalita/pokrytí vstupních dat, ne kvalita samotné teze

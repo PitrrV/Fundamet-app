@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, RiskRegime, Scenario, ThesisDriver, TopOpportunity, UpcomingRateDecision } from "../types";
+import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, RetailIntraday, RiskRegime, Scenario, ThesisDriver, TopOpportunity, UpcomingRateDecision } from "../types";
 
 // Tvar, jak agendu skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -88,6 +88,14 @@ interface MarketRegimeRow {
   vix: number;
   vix_5d_change: number;
   regime: "RISK_ON" | "NEUTRAL" | "RISK_OFF";
+}
+
+// view latest_retail_intraday — čistě informační broker positioning, viz RetailIntraday v types.ts.
+interface LatestRetailIntradayRow {
+  currency_code: string;
+  recorded_at: string;
+  long_pct: number;
+  delta_24h: number | null;
 }
 
 // Tvar, jak drivers ukládá scripts/thesis-engine.mjs (snake_case driver_key) — mapuje se na
@@ -194,6 +202,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     ledgerFeedResult,
     scoreChangeResult,
     regimeShiftResult,
+    retailIntradayResult,
   ] = await Promise.all([
       withTimeout(
         supabase
@@ -254,6 +263,10 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         supabase.from("regime_shift_state").select("currency_code, long_term_score, short_term_score, divergence, alert"),
         FETCH_TIMEOUT_MS
       ),
+      withTimeout(
+        supabase.from("latest_retail_intraday").select("currency_code, recorded_at, long_pct, delta_24h"),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -274,6 +287,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const ledgerFeedByCode = groupByCurrency((ledgerFeedResult.data ?? []) as LedgerFeedRow[]);
   const scoreChangeByCode = groupByCurrency((scoreChangeResult.data ?? []) as ScoreChangeRow[]);
   const regimeShiftByCode = groupByCurrency((regimeShiftResult.data ?? []) as RegimeShiftStateRow[]);
+  const retailIntradayByCode = groupByCurrency((retailIntradayResult.data ?? []) as LatestRetailIntradayRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -370,6 +384,11 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         occurredAt: l.occurred_at,
       }));
 
+    const retailIntradayRow = retailIntradayByCode.get(row.currency_code)?.[0] ?? null;
+    const retailIntraday: RetailIntraday | null = retailIntradayRow
+      ? { longPct: retailIntradayRow.long_pct, delta24h: retailIntradayRow.delta_24h, recordedAt: retailIntradayRow.recorded_at }
+      : null;
+
     return {
       code: row.currency_code,
       score: row.overall_score,
@@ -390,6 +409,7 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
       convictionStars: row.conviction_stars,
       convictionReasons: row.conviction_reasons ?? [],
       riskRegime,
+      retailIntraday,
       scenarios,
       thesis,
       dataQuality,
