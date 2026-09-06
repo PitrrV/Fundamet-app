@@ -1,0 +1,39 @@
+name: Ingest FX Daily Prices
+
+# Čte veřejná data/fx_daily/{PAIR}.json z https://github.com/PitrrV/Fx-Analyzer (appka tam má
+# vlastní denní cron proti Stooq/Yahoo Finance) a archivuje vlastní, trvalou historii do
+# fx_price_daily. Žádný nový cenový provider, žádné nové API klíče.
+#
+# ČISTĚ SBĚR DAT — nevstupuje do overall_score/BLEND_WEIGHTS/UI/žádný signál. Druhá polovina
+# rovnice pro budoucí backtest Retail Δ24H → následující denní return (viz
+# retail_sentiment_intraday). Viz scripts/ingest-fx-daily-prices.mjs a
+# schema-fx-price-daily.sql.
+
+on:
+  schedule:
+    # 04:30 UTC — po Fx-Analyzerově vlastním 03:00 UTC cronu, ať je zdrojový soubor
+    # v době čtení už čerstvý.
+    - cron: '30 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ingest-fx-daily-prices
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - name: Ingest FX daily prices
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/ingest-fx-daily-prices.mjs
