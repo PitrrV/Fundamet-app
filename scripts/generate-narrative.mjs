@@ -178,7 +178,7 @@ const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš str
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD. Od opravy 5.9.2026 je tohle ČISTĚ tržní kontext/prostředí, NENÍ součástí číselného skóre měny — piš o něm jako o prostředí, ve kterém se měna obchoduje ("risk-on prostředí podporuje AUD/NZD"), NIKDY jako o bodovém příspěvku do skóre ("AUD získává +0,4 bodu díky risk režimu" je špatně, protože už to není pravda).
-- Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci.
+- Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci. KRITICKÉ: basketContext je pro tvou orientaci, NIKDY z něj neopisuj konkrétní číslo skóre jiné měny do textu (svoje vlastní skóre číslem popsat smíš, cizí ne). Pole "rankingSummary" (když není null) je HOTOVÁ, appkou spočítaná věta o tom, vůči kterým měnám je tahle měna dnes silnější/slabší — jakékoli srovnání s konkrétní jinou měnou v textu smí vycházet JEN z týhle věty (klidně ji parafrázuj/zapracuj vlastními slovy), nikdy nevymýšlej vlastní srovnání navíc ani ho neobracej. Živě zachycená chyba: narativ AUD tvrdil "GBP je silnější", zatímco skutečné skóre (AUD 1,4 vs. GBP 0,8) říkalo pravý opak — takové tvrzení, co si appka nemůže ověřit proti "rankingSummary", se nesmí opakovat.
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
 
@@ -201,7 +201,7 @@ ${GLOSSARY}`;
 
 export const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
 
-Dostaneš navíc kontext zbytku koše měn (basketContext) — FX je vždy relativní, piš o měně i VE VZTAHU k ostatním, ne v izolaci — a nadcházející (upcomingEvents) i nedávno vyšlé eventy (recentEvents).
+Dostaneš navíc kontext zbytku koše měn (basketContext) a hotovou větu o pořadí vůči koši (rankingSummary, viz výš) — FX je vždy relativní, piš o měně i VE VZTAHU k ostatním, ne v izolaci, ale konkrétní srovnání s jinou měnou opírej VÝHRADNĚ o "rankingSummary" — a nadcházející (upcomingEvents) i nedávno vyšlé eventy (recentEvents).
 
 Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
 
@@ -501,6 +501,40 @@ function round05(n) {
   return typeof n === "number" ? Math.round(n * 2) / 2 : null;
 }
 
+// Sdílené s findRelativeComparisonErrors (post-check) níž v souboru i s buildRankingSummary
+// pod tímhle — stejná citlivost všude, kde appka rozhoduje "je rozdíl skutečně jiné pořadí,
+// nebo jen zaokrouhlovací šum". Stejná konvence jako FRESHNESS_EPSILON/CONFIRM_VALUE_EPSILON
+// jinde v appce.
+const RELATIVE_COMPARISON_EPSILON = 0.05;
+
+// Oprava P1 (nezávislý regresní audit, 6.9.2026, nález C1): narrativ AUD tvrdil "GBP je...
+// silnější", zatímco skutečné skóre (AUD 1,4 vs GBP 0,8) říkalo pravý opak — post-check
+// (findRelativeComparisonErrors) to nezachytil, protože jeho regex vyžadoval kód měny HNED ZA
+// "silnější než", ne kód jako podmět věty. Místo donekonečna rozšiřovat regex na další tvary
+// vět appka teď modelu srovnání se zbytkem koše rovnou NEDÁ VYMÝŠLET — dostane hotovou,
+// appkou spočítanou větu (viz "rankingSummary" v promptu) a smí ji jen převyprávět vlastními
+// slovy. Regex níž (findRelativeComparisonErrors) zůstává jako druhá, nezávislá vrstva
+// obrany, kdyby se model instrukcí přesto nedržel.
+export function buildRankingSummary(ownScore, otherCurrencies) {
+  if (ownScore === null || ownScore === undefined) return null;
+  const stronger = [];
+  const weaker = [];
+  for (const [code, v] of Object.entries(otherCurrencies ?? {})) {
+    const other = v?.overallScore;
+    if (other === null || other === undefined) continue;
+    const diff = Number(ownScore) - Number(other);
+    if (diff > RELATIVE_COMPARISON_EPSILON) stronger.push(code);
+    else if (diff < -RELATIVE_COMPARISON_EPSILON) weaker.push(code);
+  }
+  if (stronger.length === 0 && weaker.length === 0) return null;
+  stronger.sort();
+  weaker.sort();
+  const parts = [];
+  if (stronger.length > 0) parts.push(`silnější než ${stronger.join(", ")}`);
+  if (weaker.length > 0) parts.push(`slabší než ${weaker.join(", ")}`);
+  return `Podle aktuálního skóre koše je tahle měna ${parts.join(" a zároveň ")}.`;
+}
+
 function buildInputFingerprint(context) {
   const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, scenarioSeeds } = context;
 
@@ -712,6 +746,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
   const retailSentiment = cotRow?.retail_score != null ? { score: cotRow.retail_score, cotPercentile: cotRow.cot_percentile } : null;
 
   const otherCurrencies = Object.fromEntries(Object.entries(basketContext).filter(([code]) => code !== currencyCode));
+  const rankingSummary = buildRankingSummary(cotRow?.overall_score ?? null, otherCurrencies);
 
   return {
     cot,
@@ -723,6 +758,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     retailSentiment,
     riskRegime: marketRegime,
     basketContext: otherCurrencies,
+    rankingSummary,
     upcoming,
     recent,
     scenarioSeeds,
@@ -803,6 +839,7 @@ const LEAKED_FIELD_NAMES = [
   "recentLedger",
   "flaggedEvents",
   "basketContext",
+  "rankingSummary",
   "upcomingEvents",
   "beatImplication",
   "resolvedVerdict",
@@ -854,27 +891,74 @@ function findLeakedFieldNames(value, path = "$") {
 // pojistky, protože se nedá předpočítat jako jedno pole (srovnání se může objevit kdekoli ve
 // volném textu).
 //
-// Detekce je záměrně úzká — cílí na konkrétní, opakovaně pozorovaný vzor vět ("X silnější/
-// silněji než A, B a C" / "X slabší než / zaostává za A, B a C"), který appka v promptu sama
-// vede model psát (ne obecný NLP parser volného textu). Ověřeno na všech 8 živých narrativech
+// Detekce cílí na konkrétní, opakovaně pozorované vzory vět, které appka v promptu sama vede
+// model psát (ne obecný NLP parser volného textu). Ověřeno na všech 8 živých narrativech
 // (3.9.2026): 7 z 8 mělo tenhle typ srovnání a bylo správně, jen AUD chybně — detekce ani jednou
 // nezasáhla falešně pozitivně.
+//
+// Rozšíření P1 (nezávislý regresní audit, 6.9.2026, nález C1): původní STRONGER_THAN_RE/
+// WEAKER_THAN_RE chytaly jen tvar "silnější NEŽ <KÓD>" — živě zachyceno, že produkční AUD
+// narrativ napsal "GBP je podle dostupných skóre silnější" (kód JAKO PODMĚT, žádné "než").
+// BARE_STRONGER_RE/BARE_WEAKER_RE níž chytají tenhle obrácený tvar — kód je vždy porovnáván
+// vůči OWNSCORE (appka tímhle vzorem popisuje samu sebe, takže srovnání je vždy implicitně
+// "vůči mně"), s negativním lookaheadem na "než", aby se nezdvojily případy typu "CAD je
+// silnější než NZD" (srovnání dvou JINÝCH měn), které patří výhradně STRONGER_THAN_RE/
+// WEAKER_THAN_RE výš.
 const CURRENCY_CODE_RE = "AUD|CAD|CHF|EUR|GBP|JPY|NZD|USD";
 const CURRENCY_LIST_RE = `((?:výrazně\\s+)?(?:silnějším\\s+)?(?:${CURRENCY_CODE_RE})(?:\\s*,\\s*(?:${CURRENCY_CODE_RE}))*(?:\\s+a\\s+(?:${CURRENCY_CODE_RE}))?)`;
 const STRONGER_THAN_RE = new RegExp(`siln(?:ější|ěji)\\s+než\\s+${CURRENCY_LIST_RE}`, "g");
 const WEAKER_THAN_RE = new RegExp(`(?:slabší(?:\\s+než)?|zaostává\\s+za)\\s+${CURRENCY_LIST_RE}`, "g");
+// POZOR na `\b` za slovem s českou diakritikou (živě odhaleno při testu tyhle opravy): JS `\b`
+// zná jen ASCII \w, takže "í"/"ě" na konci slova NENÍ "word" znak — `\b` mezi "í" a koncem
+// věty/mezerou nikdy nesepne (obě strany vidí jako "non-word"), regex by tak nikdy nic
+// nenašel. Proto žádné `\b` hned za "silnější"/"slabší" — negativní lookahead na "než" už sám
+// o sobě stačí ohraničit, kde slovo končí.
+const BARE_STRONGER_RE = new RegExp(`\\b(${CURRENCY_CODE_RE})\\b\\s+(?:je|jsou)[^.;]{0,40}?siln(?:ější|ěji)(?![^.;]{0,15}než)`, "g");
+const BARE_WEAKER_RE = new RegExp(`\\b(${CURRENCY_CODE_RE})\\b\\s+(?:je|jsou)[^.;]{0,40}?(?:slabší|zaostávající)(?![^.;]{0,15}než)`, "g");
+// Numerická citace: appka posílá cizí měny do basketContext VÝHRADNĚ s jedním číslem
+// (overallScore) — model tak nemá žádný jiný legitimní důvod psát číslo hned vedle kódu jiné
+// měny. Nezávisí na tom, jestli je číslo správné, nebo zastaralé (F-nález regresního auditu:
+// 3/8 narrativů citovaly den staré skóre koše) — appka teď takovou citaci zakazuje úplně,
+// viz "rankingSummary" v promptu jako jediný povolený způsob srovnání.
+const DECIMAL_NUMBER_RE = "-?\\d+[.,]\\d";
+
 // Stejná citlivost jako FRESHNESS_EPSILON/CONFIRM_VALUE_EPSILON jinde v appce — drobný rozdíl
-// (zaokrouhlovací šum) se nepočítá jako chybné tvrzení, jen skutečně opačné pořadí.
-const RELATIVE_COMPARISON_EPSILON = 0.05;
+// (zaokrouhlovací šum) se nepočítá jako chybné tvrzení, jen skutečně opačné pořadí. (Konstanta
+// je sdílená s buildRankingSummary výš v souboru.)
 
 function extractCurrencyCodes(list) {
   return list.match(new RegExp(CURRENCY_CODE_RE, "g")) ?? [];
 }
 
-// `ownScore`/`basketContext` jsou z PAYLOADU (co appka modelu poslala), ne z odpovědi — appka
-// tak ověřuje tvrzení proti PŘESNĚ týž datům, která model dostal, ne proti nějakému nezávislému
-// zdroji, co by se mezitím mohl rozejít.
-function findRelativeComparisonErrors(value, ownScore, basketContext, path = "$") {
+// Vyloučit VLASTNÍ číslo appky, i když náhodou padne blízko kódu jiné měny — běžná a validní
+// věta "AUD skóre 1,4 je vyšší než u CAD, NZD..." má "1,4" (vlastní skóre) v těsné blízkosti
+// kódů CAD/NZD jen proto, že appka SÁM tenhle výčtový tvar v promptu doporučuje (viz
+// STRONGER_THAN_RE výš) — bez týhle výjimky by post-check zbytečně zasahoval i u naprosto
+// správných, dřív schválených vět (živě ověřeno na 7/8 narrativech, co tenhle tvar používaly).
+function findOtherCurrencyNumberCitations(text, ownCode, ownScore) {
+  if (!ownCode) return [];
+  const codes = CURRENCY_CODE_RE.split("|").filter((c) => c !== ownCode);
+  const hits = new Set();
+  for (const code of codes) {
+    const patterns = [
+      new RegExp(`\\b${code}\\b[^.;]{0,25}?(${DECIMAL_NUMBER_RE})`, "g"),
+      new RegExp(`(${DECIMAL_NUMBER_RE})[^.;]{0,25}?\\b${code}\\b`, "g"),
+    ];
+    for (const re of patterns) {
+      for (const m of text.matchAll(re)) {
+        const num = Number(m[1].replace(",", "."));
+        if (ownScore !== null && ownScore !== undefined && Math.abs(num - ownScore) <= RELATIVE_COMPARISON_EPSILON) continue;
+        hits.add(code);
+      }
+    }
+  }
+  return [...hits];
+}
+
+// `ownScore`/`ownCode`/`basketContext` jsou z PAYLOADU (co appka modelu poslala), ne z
+// odpovědi — appka tak ověřuje tvrzení proti PŘESNĚ týž datům, která model dostal, ne proti
+// nějakému nezávislému zdroji, co by se mezitím mohl rozejít.
+export function findRelativeComparisonErrors(value, ownScore, ownCode, basketContext, path = "$") {
   if (typeof value === "string") {
     if (ownScore === null || !basketContext) return [];
     const errors = [];
@@ -896,13 +980,35 @@ function findRelativeComparisonErrors(value, ownScore, basketContext, path = "$"
         }
       }
     }
+    // Obrácené pořadí slov (živý C1 nález) — kód jako podmět, srovnání implicitně vůči ownScore.
+    for (const m of value.matchAll(BARE_STRONGER_RE)) {
+      const code = m[1];
+      if (code === ownCode) continue;
+      const other = basketContext[code]?.overallScore;
+      if (other === null || other === undefined) continue;
+      if (Number(other) - ownScore <= RELATIVE_COMPARISON_EPSILON) {
+        errors.push(`${path}: tvrdí "${code} je silnější" (vůči vlastnímu skóre appky), ale skóre appky (${ownScore} vs. ${code} ${other}) to nepodporuje`);
+      }
+    }
+    for (const m of value.matchAll(BARE_WEAKER_RE)) {
+      const code = m[1];
+      if (code === ownCode) continue;
+      const other = basketContext[code]?.overallScore;
+      if (other === null || other === undefined) continue;
+      if (ownScore - Number(other) <= RELATIVE_COMPARISON_EPSILON) {
+        errors.push(`${path}: tvrdí "${code} je slabší/zaostává" (vůči vlastnímu skóre appky), ale skóre appky (${ownScore} vs. ${code} ${other}) to nepodporuje`);
+      }
+    }
+    for (const code of findOtherCurrencyNumberCitations(value, ownCode, ownScore)) {
+      errors.push(`${path}: uvádí konkrétní číslo hned vedle kódu jiné měny (${code}) — appka posílá jen "rankingSummary" pro slovní srovnání, číslo jiné měny se nesmí citovat`);
+    }
     return errors;
   }
   if (Array.isArray(value)) {
-    return value.flatMap((v, i) => findRelativeComparisonErrors(v, ownScore, basketContext, `${path}[${i}]`));
+    return value.flatMap((v, i) => findRelativeComparisonErrors(v, ownScore, ownCode, basketContext, `${path}[${i}]`));
   }
   if (value && typeof value === "object") {
-    return Object.entries(value).flatMap(([k, v]) => findRelativeComparisonErrors(v, ownScore, basketContext, `${path}.${k}`));
+    return Object.entries(value).flatMap(([k, v]) => findRelativeComparisonErrors(v, ownScore, ownCode, basketContext, `${path}.${k}`));
   }
   return [];
 }
@@ -955,7 +1061,7 @@ export async function callStructuredCompletion({
   const checkResult = (r) => ({
     foreignScript: findForeignScript(r),
     leakedFields: findLeakedFieldNames(r),
-    relativeComparison: findRelativeComparisonErrors(r, ownScore, payload.basketContext ?? null),
+    relativeComparison: findRelativeComparisonErrors(r, ownScore, currencyCode ?? null, payload.basketContext ?? null),
   });
 
   let result = await runOnce(messages);

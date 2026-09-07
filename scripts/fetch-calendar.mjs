@@ -353,24 +353,23 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-// Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #4: conviction_reasons dřív
-// stavěl větu přímo se syrovým enumem z market-regime.mjs ("Risk režim: RISK_ON podporuje
-// směr") — na rozdíl od zbytku appky, kde enumy do UI/textu nikdy nejdou nepřeložené (viz
-// confidenceLevelLabel/driverKeyLabel v App.tsx, položka #3 z předchozího auditu). Živě
-// zachyceno u 4 z 8 měn (AUD, CAD, CHF, GBP) přímo pod hvězdami konvikce.
-function riskRegimeReasonLabel(regime) {
-  if (regime === "RISK_ON") return "risk-on";
-  if (regime === "RISK_OFF") return "risk-off";
-  return "neutrální";
-}
-
-// Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik z 5
-// nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded,
-// risk režim) ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore
-// z Fx-Analyzeru, přizpůsobeno na naši sadu signálů.
+// Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik ze 4
+// nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded)
+// ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore z Fx-Analyzeru,
+// přizpůsobeno na naši sadu signálů.
+//
+// Oprava P0-2 (nezávislý regresní audit, 6.9.2026, nález D1): risk_regime (VIX) tu dřív byl
+// pátým nezávislým signálem, i když byl už 5.9.2026 (Option B) vyřazen ze samotného
+// overall_score jako "čistě tržní kontext, ne bodový příspěvek". Vznikl tak rozpor: appka
+// tvrdila "VIX není součástí modelu", ale zároveň VIX dával hvězdu konvikce (živě 6/8 měn) a
+// mohl sám držet celou tezi (živě GBP: Bullish, 3 hvězdy, AKTIVNÍ — jediný driver "Risk režim
+// +0,30"). Risk regime zůstává viditelný jako kontext (UI dlaždice, riskRegime v narrativním
+// promptu), ale nikdy víc nevytváří hvězdu ani driver teze — viz stejná oprava v
+// thesis-engine.mjs (DRIVER_THRESHOLDS/pillarValues). `riskRegimeReasonLabel` beze zbytku
+// odstraněn — byl to jediný volající.
 function computeConviction(
   overallScore,
-  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, scoreWithoutCot, riskAdj, regime, policyLabel }
+  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, scoreWithoutCot, policyLabel }
 ) {
   if (overallScore === 0) return { stars: 0, reasons: [] };
   const dir = overallScore > 0 ? 1 : -1;
@@ -435,11 +434,6 @@ function computeConviction(
         : "Pozicování: souhlasí se směrem (bez dat o percentilu)"
     );
   }
-  if (signAgrees(riskAdj)) {
-    stars++;
-    reasons.push(`Risk režim: ${riskRegimeReasonLabel(regime)} podporuje směr`);
-  }
-
   return { stars: Math.min(5, stars), reasons };
 }
 
@@ -722,8 +716,6 @@ export async function recomputeScores() {
       cotScore: cotRow.cot_score,
       cotPercentile: cotRow.cot_percentile ?? null,
       scoreWithoutCot,
-      riskAdj,
-      regime: effectiveRegimeInfo?.regime ?? "NEUTRAL",
       policyLabel: cbPolicy.policyLabel,
     });
 
@@ -844,7 +836,6 @@ export async function recomputeScores() {
           cotScore: cotRow.cot_score,
           cbPolicyAdj: cbPolicy.cbPolicyAdj,
           realYieldAdj: cbPolicy.realYieldAdj,
-          riskAdj,
           retailScore,
           fundamentalEventLabel: todaysFundamentalEventLabel(currencyCode, allEvents ?? []),
         });

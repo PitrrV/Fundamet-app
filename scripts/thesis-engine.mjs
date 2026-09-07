@@ -22,14 +22,24 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY ? createClient(SUPABASE_UR
 // které daný pilíř reálně žije (viz scripts/fetch-calendar.mjs recomputeScores()).
 //
 // driver_key je záměrně pevná, kódem řízená množina, ne volný text — sanity-check nález #5
-// (metrika, co může časem tiše změnit význam): risk_regime je STRUKTURÁLNÍ/SDÍLENÝ driver
-// napříč měnami (JPY/CHF v risk-off, AUD/NZD/CAD v risk-on), takže musí mít stejný klíč pro
-// všechny měny, jinak by budoucí cross-currency regime detekce (Gen2.5) tiše nefungovala.
+// (metrika, co může časem tiše změnit význam).
+//
+// Oprava P0-2 (nezávislý regresní audit, 6.9.2026, nález D1): risk_regime (VIX) tu dřív byl
+// STRUKTURÁLNÍ/SDÍLENÝ driver napříč měnami (JPY/CHF v risk-off, AUD/NZD/CAD v risk-on) —
+// jenže VIX byl už 5.9.2026 (Option B) vyřazen ze samotného overall_score jako "čistě tržní
+// kontext, ne bodový příspěvek do skóre". Ponechání risk_regime jako driveru teze bylo
+// nekonzistentní: appka tvrdila "VIX není součástí modelu", ale zároveň VIX sám o sobě mohl
+// tezi otevřít a držet (živě zachyceno: CAD, GBP, NZD měly drivers = ["risk_regime"] a nic
+// jiného — GBP tak bylo Bullish/3 hvězdy/AKTIVNÍ výhradně díky VIX pod 15). Risk regime
+// zůstává viditelný jako kontext (UI dlaždice, riskRegime v narrativním promptu), ale nikdy
+// víc nevytváří driver teze. Existující tezi postavené jen na risk_regime tahle změna sama
+// converguje na 0 driverů (classifyThesisUpdate níž), a existující logika (nextDrivers.length
+// === 0 -> status "watching") je bez dalšího zásahu korektně schová — stejné chování jako u
+// staré 0-driver ochrany v runThesisEngineForCurrency.
 export const DRIVER_THRESHOLDS = {
   fundamental_data: 1.5, // fundamentalScoreAdj, škála -5..5
   cot_positioning: 1.5, // cot_score, škála -5..5
   cb_policy: 0.4, // cbPolicyAdj + realYieldAdj, škála zhruba -1.75..1.75
-  risk_regime: 0.2, // riskAdj, škála zhruba -0.5..0.5 — sdílený driver_key
   retail_sentiment: 1.5, // retailScore, škála -5..5
 };
 
@@ -37,7 +47,6 @@ const DRIVER_LABELS = {
   fundamental_data: "Fundamentální data",
   cot_positioning: "COT pozicování",
   cb_policy: "CB politika / real yield",
-  risk_regime: "Risk režim",
   retail_sentiment: "Retail sentiment",
 };
 
@@ -251,7 +260,7 @@ async function closeThesis(thesisId, reasoning) {
  * Hlavní vstupní bod — volá se z fetch-calendar.mjs po přepočtu overall_score pro danou měnu.
  * @param {string} currencyCode
  * @param {{overallScore:number, convictionStars:number, fundamentalScoreAdj:number, cotScore:number,
- *          cbPolicyAdj:number, realYieldAdj:number, riskAdj:number, retailScore:number,
+ *          cbPolicyAdj:number, realYieldAdj:number, retailScore:number,
  *          fundamentalEventLabel?:string|null}} pillars fundamentalEventLabel = název dnešního
  *          eventu, co nejvíc táhne fundamentalScoreAdj (viz todaysFundamentalEventLabel ve
  *          fetch-calendar.mjs) — jen kosmetika do reasoning textu u driver_key=fundamental_data.
@@ -276,7 +285,6 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
     fundamental_data: pillars.fundamentalScoreAdj,
     cot_positioning: pillars.cotScore,
     cb_policy: (pillars.cbPolicyAdj ?? 0) + (pillars.realYieldAdj ?? 0),
-    risk_regime: pillars.riskAdj,
     retail_sentiment: pillars.retailScore,
   };
   const direction = directionFromScore(pillars.overallScore);
