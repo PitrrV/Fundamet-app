@@ -2,11 +2,22 @@ name: Fetch ForexFactory Calendar
 
 on:
   schedule:
+    # Lehký režim (LIGHT_WEEK_OFFSETS_DAYS, jen aktuální+příští týden) — beze změny, každých
+    # 15 minut.
     - cron: '*/15 * * * *'
+    # Plný sweep (FULL_WEEK_OFFSETS_DAYS, 9 týdnů — dohledává pozdější opravy "actual" u
+    # starších eventů) — od 10.9.2026 (snížení objemu požadavků na ForexFactory, viz
+    # fetch-calendar.mjs) jen 2x denně, mimo minutovou mřížku */15 (minuta 17), ať appka
+    # jednoznačně pozná přes `github.event.schedule` níž, který cron zrovna odpálil běh.
+    - cron: '17 3,15 * * *'
   workflow_dispatch:
     inputs:
       force_narrative:
         description: "Vynutit přegenerování shrnutí i bez nově zachyceného 'actual' (ruční editace v appce)"
+        type: boolean
+        default: false
+      full_sweep:
+        description: "Stáhnout plných 9 týdnů (FULL_WEEK_OFFSETS_DAYS) místo lehkého režimu — pro ruční test/debug"
         type: boolean
         default: false
 
@@ -38,6 +49,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # U cronu je inputs.force_narrative prázdné -> vyhodnotí se jako false, chování beze změny.
           FORCE_NARRATIVE_REGEN: ${{ inputs.force_narrative }}
+          # Plný sweep buď z toho DRUHÉHO cronu (github.event.schedule je pro schedule-triggered
+          # běh přesně ten cron string, co ho odpálil — u workflow_dispatch/prvního cronu je
+          # prázdný/nesedí), nebo z ručního workflow_dispatch inputu (test/debug).
+          FULL_SWEEP: ${{ (github.event.schedule == '17 3,15 * * *') || (inputs.full_sweep == true) }}
           # Nepovinné — bez nich sendTelegramAlert() jen tiše nic neposílá (viz fetch-calendar.mjs).
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

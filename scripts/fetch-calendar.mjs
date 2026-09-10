@@ -66,8 +66,28 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 // relevanci AUD/NZD (viz fundamental-scoring.mjs), neskóruje se sama.
 const TRACKED_CURRENCIES = new Set(["EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "USD", "CNY"]);
 const SCORED_CURRENCIES = ["EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "USD"];
-const WEEK_OFFSETS_DAYS = [-42, -35, -28, -21, -14, -7, 0, 7, 14];
+// Snížení objemu (10.9.2026) — ForexFactory od 9.9. ~14:15 UTC vrací appce (i nezávislému
+// scraperu ve Fx-Analyzeru) HTTP 403 na všechny requesty z GitHub Actions IP rozsahu.
+// Podezřelá příčina: 9 týdnů × 96 běhů/den (15min cron) = až 864 requestů/den z jednoho
+// zdroje. FULL_WEEK_OFFSETS_DAYS (historický sweep, dohledává pozdější opravy "actual" u
+// starších eventů) běží už jen 2x denně (viz fetch-calendar.yml druhý cron), zatímco běžný
+// 15minutový cron stahuje jen LIGHT_WEEK_OFFSETS_DAYS — týdny, kde reálně přibývá nový
+// "actual" (aktuální a příští týden). Snižuje to objem z ~864 na ~192 požadavků/den.
+const FULL_WEEK_OFFSETS_DAYS = [-42, -35, -28, -21, -14, -7, 0, 7, 14];
+const LIGHT_WEEK_OFFSETS_DAYS = [0, 7];
 const MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+// Backoff po sérii 403 (10.9.2026) — appka nemá jak rozeznat "dočasná smůla na jednu IP z
+// rotujícího poolu" (viz starší komentář u BROWSER_HEADERS) od "IP rozsah je teď blokovaný
+// napořád" jinak než tím, že to zkusí znovu. Bez backoffu appka bez ustání šlehá blokovanou
+// IP dál každých 15 minut, což blokaci spíš prodlužuje než zkracuje. Práh 3 (ne 1) záměrně —
+// jeden neúspěšný běh může být šum, tři po sobě se 100% HTTP 403 je silný signál. Cooldown
+// 45 min je kompromis mezi "nezhoršovat blokaci" a "brzy zjistit, že se uvolnila" — appka
+// mezitím dál normálně přepočítává skóre/konvikci/tezi (viz oprava proti zamrznutí, git
+// historie), jen síťové volání na ForexFactory se na tu dobu přeskočí.
+const BACKOFF_FAILURE_THRESHOLD = 3;
+const BACKOFF_COOLDOWN_MINUTES = 45;
+const BACKOFF_SCRAPER_KEY = "forexfactory_calendar";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,7 +181,14 @@ export async function fetchWeek(offsetDays) {
   const week = weekParam(offsetDays);
   const url = `https://www.forexfactory.com/calendar?week=${week}`;
   const res = await fetch(url, { headers: BROWSER_HEADERS });
-  if (!res.ok) throw new Error(`HTTP ${res.status} pro week=${week}`);
+  if (!res.ok) {
+    // `status` na chybě navíc (10.9.2026) — backoff logika v main() potřebuje rozlišit
+    // "všech N pokusů selhalo A VŠECHNY byly 403" (silný signál IP bloku) od smíšených/
+    // jiných chyb (transientní síťový blb, ne nutně blokace), ne jen parsovat text zprávy.
+    const err = new Error(`HTTP ${res.status} pro week=${week}`);
+    err.status = res.status;
+    throw err;
+  }
   const html = await res.text();
   const days = extractDaysArray(html);
 
@@ -891,18 +918,90 @@ export async function recomputeScores() {
   return { thesisSignalCurrencies, staleTextCurrencies };
 }
 
+// Načte perzistentní backoff stav (přežívá mezi běhy, viz komentář u konstant výš).
+// Chybějící řádek (první běh vůbec) = žádný backoff aktivní.
+async function loadBackoffState() {
+  const { data, error } = await supabase
+    .from("scraper_backoff_state")
+    .select("consecutive_failures, cooldown_until")
+    .eq("scraper", BACKOFF_SCRAPER_KEY)
+    .limit(1);
+  if (error) {
+    console.error("Chyba čtení scraper_backoff_state (pokračuji, jako by backoff nebyl aktivní):", error.message);
+    return { consecutive_failures: 0, cooldown_until: null };
+  }
+  return data?.[0] ?? { consecutive_failures: 0, cooldown_until: null };
+}
+
+async function saveBackoffState(consecutiveFailures, cooldownUntil) {
+  const { error } = await supabase.from("scraper_backoff_state").upsert({
+    scraper: BACKOFF_SCRAPER_KEY,
+    consecutive_failures: consecutiveFailures,
+    cooldown_until: cooldownUntil,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) console.error("Chyba zápisu scraper_backoff_state:", error.message);
+}
+
 async function main() {
-  console.log("Stahuji ForexFactory kalendář (9 týdnů)...");
+  const fullSweep = process.env.FULL_SWEEP === "true";
+  const offsets = fullSweep ? FULL_WEEK_OFFSETS_DAYS : LIGHT_WEEK_OFFSETS_DAYS;
+  // Práh guardu níž ("míň eventů než X = pravděpodobně selhal scraping") byl kalibrovaný na
+  // 9týdenní sweep — v lehkém režimu (jen 2 týdny) appka reálně stahuje řádově méně eventů i
+  // při ÚPLNĚ ÚSPĚŠNÉM běhu, takže stejné číslo 20 by tam falešně hlásilo selhání skoro
+  // pokaždé. Poměrově zmenšeno (2/9 týdnů), ne libovolně — smysl guardu ("nezapisuj napůl
+  // prázdná data") zůstává nezměněný, jen kalibrace odpovídá menšímu oknu.
+  const minEventsThreshold = fullSweep ? 20 : 5;
+
+  const backoff = await loadBackoffState();
+  const inCooldown = backoff.cooldown_until && new Date(backoff.cooldown_until) > new Date();
+
   const allEvents = [];
-  for (const offset of WEEK_OFFSETS_DAYS) {
-    try {
-      const weekEvents = await fetchWeek(offset);
-      console.log(`  offset ${offset}: ${weekEvents.length} eventů`);
-      allEvents.push(...weekEvents);
-    } catch (err) {
-      console.error(`  offset ${offset} selhal:`, err.message);
+  let attempted = 0;
+  let succeeded = 0;
+  let failed403 = 0;
+
+  if (inCooldown) {
+    console.warn(
+      `ForexFactory scraping je v cooldownu do ${backoff.cooldown_until} (${backoff.consecutive_failures} selhání v řadě, práh ${BACKOFF_FAILURE_THRESHOLD}) — síťové volání se na tenhle běh přeskakuje, skóre/konvikce/teze se přepočítají dál.`
+    );
+  } else {
+    console.log(`Stahuji ForexFactory kalendář (${fullSweep ? `plný sweep, ${offsets.length} týdnů` : `lehký režim, ${offsets.length} týdny`})...`);
+    for (const offset of offsets) {
+      attempted++;
+      try {
+        const weekEvents = await fetchWeek(offset);
+        console.log(`  offset ${offset}: ${weekEvents.length} eventů`);
+        allEvents.push(...weekEvents);
+        succeeded++;
+      } catch (err) {
+        console.error(`  offset ${offset} selhal:`, err.message);
+        if (err.status === 403) failed403++;
+      }
+      await sleep(1500);
     }
-    await sleep(1500);
+
+    // Backoff bookkeeping — viz komentář u BACKOFF_* konstant výš. Aktualizuje se JEN po
+    // skutečně provedeném pokusu (ne když už byl cooldown aktivní), a jen na základě
+    // JEDNOZNAČNÉHO signálu: buď aspoň jeden pokus prošel (reset), nebo VŠECHNY pokusy
+    // selhaly A VŠECHNY byly konkrétně 403 (silný signál IP bloku, ne smíšená/náhodná chyba).
+    if (succeeded > 0) {
+      if (backoff.consecutive_failures > 0 || backoff.cooldown_until) await saveBackoffState(0, null);
+    } else if (failed403 === attempted && attempted > 0) {
+      const nextCount = backoff.consecutive_failures + 1;
+      if (nextCount >= BACKOFF_FAILURE_THRESHOLD) {
+        const cooldownUntil = new Date(Date.now() + BACKOFF_COOLDOWN_MINUTES * 60000).toISOString();
+        console.warn(
+          `${nextCount}. běh v řadě se 100% HTTP 403 (práh ${BACKOFF_FAILURE_THRESHOLD}) — appka na ${BACKOFF_COOLDOWN_MINUTES} min přestane zkoušet síť (cooldown do ${cooldownUntil}), ať blokovanou IP dál nešlehá.`
+        );
+        await saveBackoffState(nextCount, cooldownUntil);
+      } else {
+        await saveBackoffState(nextCount, null);
+      }
+    }
+    // Smíšené/jiné chyby (ani úspěch, ani čistě 403) se do backoff počítadla nezapočítávají —
+    // není to jednoznačný signál IP bloku, jen by to zbytečně spouštělo cooldown i na běžný
+    // transientní síťový blb.
   }
 
   const deduped = dedupePreferComplete(allEvents);
@@ -921,8 +1020,10 @@ async function main() {
   // chodit e-maily "Run failed", dokud se ForexFactory sám neuvolní (uživatel o výpadku ví
   // a sleduje ho zvlášť, viz konzolový warning níž, co v logu zůstává).
   let materialCurrencies = new Set();
-  if (deduped.length < 20) {
-    console.warn("Méně než 20 eventů celkem — pravděpodobně selhal scraping ForexFactory. Kalendář se nezapisuje, skóre/konvikce/teze se přepočítají dál.");
+  if (deduped.length < minEventsThreshold) {
+    console.warn(
+      `Méně než ${minEventsThreshold} eventů celkem (${fullSweep ? "plný" : "lehký"} režim) — pravděpodobně selhal scraping ForexFactory. Kalendář se nezapisuje, skóre/konvikce/teze se přepočítají dál.`
+    );
   } else {
     const merged = await mergeUpsert(deduped);
     materialCurrencies = merged.materialCurrencies;
