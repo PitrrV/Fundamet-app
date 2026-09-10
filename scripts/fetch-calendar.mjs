@@ -908,13 +908,26 @@ async function main() {
   const deduped = dedupePreferComplete(allEvents);
   console.log(`Celkem po deduplikaci: ${deduped.length} eventů`);
 
+  // Oprava (10.9.2026, živý výpadek ForexFactory — bot ochrana vrací HTTP 403 na celý rozsah):
+  // dřív `process.exit(1)` tady ukončil CELÝ skript. Scraping kalendáře a přepočet
+  // skóre/konvikce/teze (recomputeScores níž) byly v jednom procesu, takže selhání
+  // ForexFactory vedlejším efektem zamrazilo recomputeScores() pro všech 8 měn, i když s
+  // kalendářem nemají nic společného. Živě zachyceno: 20+ hodin bez jediného přepočtu tezí
+  // (9.9. 14:05 -> 10.9.), zatímco poslední report appce tvrdil jen "nerefreshuje se
+  // kalendář". Appka teď jen zaloguje varování a NEZAPÍŠE kalendář (stejná ochrana jako
+  // dřív — žádná prázdná/polámaná data), ale pokračuje na recomputeScores(), aby COT/
+  // fundament/retail/konvikce/teze fungovaly normálně i během výpadku externího scrapingu.
+  // Bez process.exit(1) navíc GitHub Actions job neoznačí běh jako selhání — přestanou
+  // chodit e-maily "Run failed", dokud se ForexFactory sám neuvolní (uživatel o výpadku ví
+  // a sleduje ho zvlášť, viz konzolový warning níž, co v logu zůstává).
+  let materialCurrencies = new Set();
   if (deduped.length < 20) {
-    console.error("Méně než 20 eventů celkem — pravděpodobně selhal scraping. DB se nemění.");
-    process.exit(1);
+    console.warn("Méně než 20 eventů celkem — pravděpodobně selhal scraping ForexFactory. Kalendář se nezapisuje, skóre/konvikce/teze se přepočítají dál.");
+  } else {
+    const merged = await mergeUpsert(deduped);
+    materialCurrencies = merged.materialCurrencies;
+    console.log(`Upsertnuto ${merged.count}/${deduped.length} eventů do calendar_events.`);
   }
-
-  const { count, materialCurrencies } = await mergeUpsert(deduped);
-  console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
 
   const { thesisSignalCurrencies, staleTextCurrencies } = await recomputeScores();
 
