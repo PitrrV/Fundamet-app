@@ -475,8 +475,15 @@ export async function recomputeScores() {
   const { data: allEvents, error } = await fetchAllCalendarEvents();
 
   if (error) {
+    // Oprava (12.9.2026, živý výpadek — Supabase "Gateway Timeout" při čtení calendar_events):
+    // holé `return;` tu vracelo undefined místo { thesisSignalCurrencies, staleTextCurrencies },
+    // což volající main() (řádek ~932) rovnou destructuruje bez ošetření — TypeError shodil celý
+    // běh přes top-level `main().catch(...) -> process.exit(1)` a poslal "Run failed" e-mail 3x
+    // (1:00, 3:00, 6:30 UTC), i když šlo jen o přechodnou chybu čtení, ne o skutečné selhání
+    // scoringu. Stejný princip jako u ForexFactory 403 výše: dočasná chyba čtení jednoho zdroje
+    // se má přeskočit (další běh za 15 min to dožene), ne shodit celý proces.
     console.error("Nepodařilo se načíst calendar_events pro scoring:", error.message);
-    return;
+    return { thesisSignalCurrencies: new Set(), staleTextCurrencies: new Set() };
   }
 
   console.log("Stahuji risk režim (VIX) a US 2Y výnos z FRED...");
