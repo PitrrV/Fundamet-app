@@ -107,17 +107,32 @@ function pricedInInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
 // longTermBiasInterpretation výš — appka nesmí "co je teď" a "co trh čeká příště" slít do
 // jedné věty, aby konsensus nevypadal jako už hotové rozhodnutí. estimateRate je OČEKÁVÁNÍ,
 // ne fakt — text to musí říct explicitně ("trh čeká", ne "bude").
+// Živý podnět uživatele (16.9.2026): appka dřív ukazovala jen AKTUÁLNÍ snímek konsensu, ne jak
+// se k němu trh dopracoval. `drift` (viz rate-decision-drift.mjs) appka spočítá sama — tahle
+// funkce jen zvýrazní, když se konsensus prokazatelně posunul A rozhodnutí je už blízko
+// (`imminent`), ať si toho čtenář všimne včas. Zůstává čistě informační — appka neříká
+// "obchoduj teď", jen "tržní očekávání se mění, sleduj to".
+function driftNote(d: NonNullable<CurrencyData["cbPolicy"]>["upcomingDecision"]): string {
+  const drift = d?.drift;
+  if (!drift || !drift.shifted) return "";
+  const fromLabel = `${drift.firstEstimateRate.toFixed(2)} %`;
+  const toLabel = `${d!.estimateRate.toFixed(2)} %`;
+  const base = ` — konsensus se za posledních ${drift.daysTracked} dní posunul z ${fromLabel} na ${toLabel}`;
+  return drift.imminent ? `${base}, rozhodnutí už za ${drift.daysUntilDecision} dní ⚠️` : `${base}`;
+}
+
 function upcomingDecisionNote(cbPolicy: CurrencyData["cbPolicy"]): string | null {
   const d = cbPolicy?.upcomingDecision;
   if (!d) return null;
   const dateLabel = new Date(`${d.eventDay}T00:00:00Z`).toLocaleDateString("cs-CZ", { day: "numeric", month: "long" });
   const bp = Math.round(Math.abs(d.diffPct) * 100);
+  const drift = driftNote(d);
   if (d.direction === "hold") {
-    return `➖ Další rozhodnutí ${dateLabel}: trh čeká beze změny (konsensus ${d.estimateRate.toFixed(2)} %)`;
+    return `➖ Další rozhodnutí ${dateLabel}: trh čeká beze změny (konsensus ${d.estimateRate.toFixed(2)} %)${drift}`;
   }
   const arrow = d.direction === "hike" ? "📈" : "📉";
   const verb = d.direction === "hike" ? "zvýšení" : "snížení";
-  return `${arrow} Další rozhodnutí ${dateLabel}: trh čeká ${verb} o ${bp} bb (konsensus ${d.estimateRate.toFixed(2)} % z ${d.currentRate.toFixed(2)} %)`;
+  return `${arrow} Další rozhodnutí ${dateLabel}: trh čeká ${verb} o ${bp} bb (konsensus ${d.estimateRate.toFixed(2)} % z ${d.currentRate.toFixed(2)} %)${drift}`;
 }
 
 function longTermBiasInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {

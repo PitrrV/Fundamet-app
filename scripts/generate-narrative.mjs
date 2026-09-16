@@ -177,6 +177,7 @@ const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš str
 - COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné, a na které straně (long/short) — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG — to je protiintuitivní a appka to proto počítá za tebe.
 - Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
+  - upcoming_decision.drift (když je přítomné a "shifted" je true) říká, jak se konsensus posunul OD PRVNÍHO snímku, co appka zachytila: "firstEstimateRate" byl konsensus tehdy, dnešní je "estimateRate" (viz výš), "daysTracked" je počet dní, co appka tenhle posun sleduje, "daysUntilDecision" je počet dní do samotného rozhodnutí. Když "shifted" je false nebo drift chybí, konsensus se nehnul — o žádném posunu nepiš. Když "imminent" je true (posun JE + rozhodnutí je blízko), zmiň to o něco výrazněji, protože jde o čerstvou repricingovou událost těsně před rozhodnutím — např. "trh v posledních X dnech přehodnotil očekávání z Y % na Z %, rozhodnutí je už za N dní". Vždy jde o POPIS FAKTU o vývoji tržního očekávání, NIKDY o doporučení k pozici ("je čas se pozicovat", "vstupte teď" apod. NEPIŠ) — appka neřeší timing ani vstup do obchodu (viz ohraničení role níž), jen zviditelňuje, že se něco v očekávání děje, ať si čtenář všimne sám.
 - Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD. Od opravy 5.9.2026 je tohle ČISTĚ tržní kontext/prostředí, NENÍ součástí číselného skóre měny — piš o něm jako o prostředí, ve kterém se měna obchoduje ("risk-on prostředí podporuje AUD/NZD"), NIKDY jako o bodovém příspěvku do skóre ("AUD získává +0,4 bodu díky risk režimu" je špatně, protože už to není pravda).
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci. KRITICKÉ: basketContext je pro tvou orientaci, NIKDY z něj neopisuj konkrétní číslo skóre jiné měny do textu (svoje vlastní skóre číslem popsat smíš, cizí ne). Pole "rankingSummary" (když není null) je HOTOVÁ, appkou spočítaná věta o tom, vůči kterým měnám je tahle měna dnes silnější/slabší — jakékoli srovnání s konkrétní jinou měnou v textu smí vycházet JEN z týhle věty (klidně ji parafrázuj/zapracuj vlastními slovy), nikdy nevymýšlej vlastní srovnání navíc ani ho neobracej. Živě zachycená chyba: narativ AUD tvrdil "GBP je silnější", zatímco skutečné skóre (AUD 1,4 vs. GBP 0,8) říkalo pravý opak — takové tvrzení, co si appka nemůže ověřit proti "rankingSummary", se nesmí opakovat.
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
@@ -563,7 +564,21 @@ function buildInputFingerprint(context) {
       pricedIn: cbPolicy?.priced_in?.label ?? null,
       // Bod #7 — když se objeví/zmizí/přehodí nadcházející rozhodnutí (nebo se konsensus
       // reviduje), appka to má poznat stejně jako každou jinou změnu v cbPolicy sekci.
-      upcomingDecision: cbPolicy?.upcoming_decision ?? null,
+      // POZOR u drift polí (16.9.2026): do otisku smí jen STAVOVÉ hodnoty (shifted, imminent),
+      // NIKDY syrové denní počítadlo (daysUntilDecision/daysTracked) — to by měnilo otisk
+      // KAŽDÝ DEN bez jakékoli reálné změny (stejný důvod jako u riskRegime/basket níž) a appka
+      // by přegenerovávala narativ jen proto, že uplynul den. "imminent" naopak smí být v
+      // otisku — je to jednorázový přechod false->true, kdy rozhodnutí vstoupí do blízkého okna,
+      // a to JE reálná, jednorázová změna kontextu hodná zmínky.
+      upcomingDecision: cbPolicy?.upcoming_decision
+        ? {
+            eventDay: cbPolicy.upcoming_decision.eventDay,
+            direction: cbPolicy.upcoming_decision.direction,
+            estimateRate: cbPolicy.upcoming_decision.estimateRate,
+            driftShifted: cbPolicy.upcoming_decision.drift?.shifted ?? null,
+            driftImminent: cbPolicy.upcoming_decision.drift?.imminent ?? null,
+          }
+        : null,
     }),
     // Jen REŽIM, ne surový VIX. VIX se hýbe každých 15 minut a jeho zahrnutí by otisk
     // zneplatňovalo prakticky pořád, aniž by se příběh reálně změnil.

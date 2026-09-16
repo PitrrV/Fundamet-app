@@ -7,6 +7,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { computeFundamentalScore, computeRegimeShift, matchRule } from "./fundamental-scoring.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
+import { trackRateDecisionDrift } from "./rate-decision-drift.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
@@ -642,6 +643,15 @@ export async function recomputeScores() {
     if (currencyCode === "USD" && usd2yYield !== null && cbPolicy.rate !== null) {
       const yieldGap = yieldGapPricedIn(usd2yYield, cbPolicy.rate);
       if (yieldGap) cbPolicy.pricedIn = yieldGap;
+    }
+
+    // Živý podnět uživatele (16.9.2026): appka dřív u nadcházejícího sazbového rozhodnutí
+    // viděla jen AKTUÁLNÍ snímek konsensu (bod #7), ne jak se k němu trh dopracoval. Obohatí
+    // upcomingDecision o `drift` — kdy appka konsensus poprvé zachytila, jestli se od té doby
+    // posunul a jestli je rozhodnutí už blízko (viz rate-decision-drift.mjs). Čistě informační,
+    // nikam jinam se nepromítá.
+    if (cbPolicy.upcomingDecision) {
+      cbPolicy.upcomingDecision = await trackRateDecisionDrift(currencyCode, cbPolicy.upcomingDecision);
     }
 
     const { error: cbErr } = await supabase.from("cb_policy_state").upsert(

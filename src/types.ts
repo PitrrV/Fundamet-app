@@ -52,6 +52,21 @@ export interface UpcomingRateDecision {
   estimateRate: number;
   diffPct: number;
   direction: "hike" | "cut" | "hold";
+  drift?: RateDecisionDrift | null;
+}
+
+// Jak se konsensus (estimateRate výš) v čase posouvá — appka dřív viděla jen aktuální snímek,
+// ne jak se k němu trh dopracoval (živý podnět uživatele, 16.9.2026, viz rate-decision-drift.mjs).
+// ČISTĚ INFORMAČNÍ, stejná konvence jako UpcomingRateDecision — appka neříká "obchoduj teď",
+// jen zviditelní fakt, že se očekávání mění a rozhodnutí se blíží.
+export interface RateDecisionDrift {
+  firstEstimateRate: number;
+  firstTrackedAt: string; // ISO timestamp
+  daysTracked: number;
+  daysUntilDecision: number;
+  revisionsCount: number;
+  shifted: boolean; // konsensus se od prvního zachyceného snímku změnil
+  imminent: boolean; // shifted A ZÁROVEŇ rozhodnutí je do PROXIMITY_WINDOW_DAYS dní
 }
 
 export interface CbPolicy {
