@@ -592,6 +592,12 @@ export async function recomputeScores() {
   // ten je hotový až po computeTopOpportunity() níž, po skončení smyčky.
   const pendingScoreAlerts = [];
 
+  // Telegram alert na REVIZI tržního konsensu k nadcházejícímu sazbovému rozhodnutí (živý
+  // podnět uživatele, 18.9.2026) — stejný princip jako pendingScoreAlerts výš: jen sesbírat
+  // přes smyčku měn, poslat až po jejím skončení. Posílá se JEN při justRevised (viz
+  // rate-decision-drift.mjs) — ne při prvním zachycení nové nadcházející sazby.
+  const pendingDriftAlerts = [];
+
   // Třetí, nezávislý spouštěč přegenerování narrativu (2026-08-08): materialCurrencies a
   // thesisSignalCurrencies chytí NOVÁ data/tezi, ale žádný z nich nesleduje, jestli text, co už
   // je uložený, pořád odpovídá aktuálnímu skóre — a to se hýbe i BEZ nové teze/eventu (VIX risk
@@ -652,6 +658,9 @@ export async function recomputeScores() {
     // nikam jinam se nepromítá.
     if (cbPolicy.upcomingDecision) {
       cbPolicy.upcomingDecision = await trackRateDecisionDrift(currencyCode, cbPolicy.upcomingDecision);
+      if (cbPolicy.upcomingDecision.drift?.justRevised) {
+        pendingDriftAlerts.push({ currencyCode, decision: cbPolicy.upcomingDecision });
+      }
     }
 
     const { error: cbErr } = await supabase.from("cb_policy_state").upsert(
@@ -902,6 +911,19 @@ export async function recomputeScores() {
         `\n\nNejsilnější: ${topOpportunity.strongest.currencyCode} (${fmt(topOpportunity.strongest.overallScore)})` +
         `\nNejslabší: ${topOpportunity.weakest.currencyCode} (${fmt(topOpportunity.weakest.overallScore)})`;
     }
+    await sendTelegramAlert(text);
+  }
+
+  // Telegram alert na revizi konsensu (živý podnět uživatele, 18.9.2026) — posláno až tady,
+  // po dopočtení celého kola, stejná konvence jako pendingScoreAlerts výš.
+  for (const { currencyCode, decision } of pendingDriftAlerts) {
+    const d = decision.drift;
+    const fmtRate = (n) => `${n.toFixed(2)} %`;
+    let text =
+      `📊 <b>${currencyCode}</b> — konsensus na "${decision.eventTitle}" se posunul: ` +
+      `${fmtRate(d.previousEstimateRate)} → ${fmtRate(decision.estimateRate)}` +
+      `\nRozhodnutí za ${d.daysUntilDecision} ${d.daysUntilDecision === 1 ? "den" : "dní"} (${decision.eventDay}), aktuální sazba ${fmtRate(decision.currentRate)}.`;
+    if (d.imminent) text += "\n⚠️ Rozhodnutí je už blízko.";
     await sendTelegramAlert(text);
   }
 

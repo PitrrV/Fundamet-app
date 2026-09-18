@@ -57,6 +57,12 @@ export async function trackRateDecisionDrift(currencyCode, decision) {
   // Ulož nový snímek jen při skutečné změně hodnoty — první běh pro danou eventDay (latest
   // neexistuje) taky zakládá historii, ať appka má od čeho měřit "firstEstimateRate".
   const changed = !latest || Number(latest.estimate_rate) !== decision.estimateRate;
+  // Živý podnět uživatele (18.9.2026): appka má na tohle upozornit Telegramem, ne jen tiše
+  // zapsat. `justRevised` je TRUE jen když už dřív nějaký snímek existoval A hodnota se
+  // změnila — ne při úplně prvním zachycení nové nadcházející sazby (to není "revize", jen
+  // appka se poprvé dozvěděla o novém rozhodnutí).
+  const justRevised = changed && !!latest;
+  const previousEstimateRate = latest ? Number(latest.estimate_rate) : null;
   if (changed) {
     const { error: insErr } = await supabase.from("rate_decision_estimate_history").insert({
       currency_code: currencyCode,
@@ -102,6 +108,10 @@ export async function trackRateDecisionDrift(currencyCode, decision) {
       // musí platit najednou — posun daleko dopředu (>PROXIMITY_WINDOW_DAYS) je pořád jen
       // tichá historie, ne důvod appku zviditelňovat.
       imminent: shifted && daysUntilDecision >= 0 && daysUntilDecision <= PROXIMITY_WINDOW_DAYS,
+      // Pro Telegram alert v main() — jen TATO revize (ne celková historie od prvního
+      // snímku), ať zpráva ukazuje "odkud se to práva hnulo", ne jen "odkud appka sleduje".
+      justRevised,
+      previousEstimateRate,
     },
   };
 }
