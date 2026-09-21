@@ -184,6 +184,9 @@ async function processCurrency(currency) {
     cot_wow_change: result.wowChange,
     cot_4w_change: result.change4w,
     cot_score: result.cotScore,
+    // Čistě směrová složka cot_score (viz komentář u COT_CROWDED_* v scoring.mjs) — tohle,
+    // ne cot_score, teď jde do overall_score blendu ve fetch-calendar.mjs.
+    cot_flow: result.cotFlow,
     overall_score: result.cotScore, // přepočítá fetch-calendar.mjs (blend přes všechny pilíře)
     retail_score: retail?.retailScore ?? null,
     cot_percentile: percentile,
@@ -233,7 +236,7 @@ async function processCurrency(currency) {
   }
 
   console.log(
-    `[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} zscore=${result.zscore} ` +
+    `[${label}] OK — report_date=${result.reportDate} cot_score=${result.cotScore} cot_flow=${result.cotFlow} zscore=${result.zscore} ` +
       `retail_score=${scoreRow.retail_score ?? "N/A"}${retail ? ` (${retail.pctLong}% long, ${retail.percentileRank}. percentil)` : ""} ` +
       `cot_percentile=${percentile ?? "N/A"}` +
       (existing && existing.data_tier !== "cot_only"

@@ -12,6 +12,7 @@
 // rozhodnutí jsou deterministická a auditovatelná, ne "protože to model tak napsal".
 
 import { createClient } from "@supabase/supabase-js";
+import { isCotCrowded } from "./scoring.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -67,7 +68,7 @@ export async function computeTopOpportunity() {
 
   const [{ data: scores, error: scoresErr }, { data: theses, error: thesesErr }, { data: quality, error: qualityErr }] =
     await Promise.all([
-      supabase.from("latest_confluence_scores").select("currency_code, overall_score, conviction_stars"),
+      supabase.from("latest_confluence_scores").select("currency_code, overall_score, conviction_stars, cot_percentile"),
       supabase.from("latest_currency_thesis").select("currency_code, direction, conviction"),
       supabase.from("data_quality_score").select("currency_code, score"),
     ]);
@@ -93,6 +94,11 @@ export async function computeTopOpportunity() {
         convictionStars: s.conviction_stars ?? 0,
         direction: thesis?.direction ?? null,
         qualityScore: qualityByCode.get(s.currency_code) ?? null,
+        // Nezávislý report (Cowork, 21.9.2026), P0.2: crowded pozicování (extrémní percentil)
+        // je riskový filtr, ne důvod, aby appka zrovna TUHLE měnu vyhlásila za "nejsilnější/
+        // nejslabší" — živě zachyceno: JPY na 97. percentilu bylo top příležitost přesně
+        // v týdnu, kdy to mělo číst jako riziko obratu, ne jako potvrzení směru.
+        crowded: isCotCrowded(s.cot_percentile ?? null),
       };
     });
 
@@ -118,11 +124,23 @@ export async function computeTopOpportunity() {
     return null;
   }
 
-  const sorted = candidates.slice().sort((a, b) => b.overallScore - a.overallScore);
+  // P0.2 (Cowork report, 21.9.2026): crowded měna se nesmí vybrat jako "nejsilnější/
+  // nejslabší" — přednost mají necrowded kandidáti. Když by tím zbyla necrowded pool <2
+  // (víc měn crowded najednou), appka radši ukáže srovnání se VŠEMI kandidáty a řekne to
+  // v rationale, než aby mlčela — "žádné srovnání" by tu bylo horší než "srovnání s výhradou".
+  const eligible = candidates.filter((c) => !c.crowded);
+  const usedFallback = eligible.length < 2;
+  const pool = usedFallback ? candidates : eligible;
+
+  const sorted = pool.slice().sort((a, b) => b.overallScore - a.overallScore);
   const strongest = sorted[0];
   const weakest = sorted[sorted.length - 1];
   const spread = strongest.overallScore - weakest.overallScore;
   const tier = computeTier(strongest, weakest, spread);
+  let rationale = buildRationale(strongest, weakest, tier);
+  if (usedFallback) {
+    rationale += " Pozn.: víc měn má teď extrémně crowded pozicování, takže srovnání zahrnuje i je (necrowded kandidátů bylo < 2).";
+  }
 
   const { error: upsertErr } = await supabase.from("weekly_top_opportunity").upsert(
     {
@@ -133,7 +151,7 @@ export async function computeTopOpportunity() {
       weakest_currency: weakest.currencyCode,
       weakest_score: weakest.overallScore,
       weakest_conviction: weakest.convictionStars,
-      rationale: buildRationale(strongest, weakest, tier),
+      rationale,
       confidence_tier: tier,
       insufficient_data: false,
       computed_at: new Date().toISOString(),

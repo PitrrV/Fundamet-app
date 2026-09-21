@@ -123,26 +123,65 @@ export function autoDetectPolicy(rateHistory) {
   const last6 = rateHistory.slice(-6);
   const holdCount = last6.filter((r, i) => i > 0 && Math.abs(r.rate - last6[i - 1].rate) < 0.1).length;
 
+  // Nezávislý report (Cowork, 21.9.2026), bod P0.1 — živě nahlášená chyba: USD hikelo
+  // 16.9.2026 (3.75 % -> 4.00 %), ale `holdCount >= 4` větev níž fireovala BEZOHLEDU na to,
+  // že poslední záznam v `rateHistory` je přesně tenhle čerstvý hike (last6 obsahuje i
+  // "hold" období PŘED ním — 5 z 6 párů beze změny, jen poslední pár se hnul). Souběžně
+  // `cutCount === 0` podmínka v "cyklus hikování" větvi blokovala label kvůli JEDINÉMU
+  // starému cutu z prosince 2025 (9 měsíců zpátky, nesouvisející cyklus). Appka pak týden
+  // po skutečném zvýšení sazby tvrdila "plateau, hold @ 4.00 %" — fakticky nepravda.
+  //
+  // Oprava: `daysSinceMove` (ukotveno na `referenceTime`, stejná konvence jako `yearChange`
+  // výš — NIKDY Date.now(), ať se klasifikace neposouvá jen plynutím dní) měří, jak starý je
+  // POSLEDNÍ SKUTEČNÝ pohyb sazby. Když je do FRESH_MOVE_WINDOW_DAYS dní starý, appka ho MUSÍ
+  // odrazit v labelu/score bez ohledu na to, kolik "hold" rozhodnutí bylo PŘED ním — vloženo
+  // jako nová větev PŘED `holdCount >= 4` fallback (ten zůstává beze změny pro skutečně
+  // staré plató, což byl jeho původní účel, viz komentář tam). Bez podmínky na `cutCount`/
+  // `hikeCount` — čerstvost poslední změny je sama o sobě dostatečný důkaz, přesně jako u
+  // `holdCount >= 4` níž.
+  const FRESH_MOVE_WINDOW_DAYS = 45;
+  const lastChangeEntry = changes[changes.length - 1] ?? null;
+  const daysSinceMove = lastChangeEntry
+    ? Math.round((referenceTime - new Date(lastChangeEntry.date).getTime()) / 86400000)
+    : null;
+  const isFreshMove = daysSinceMove !== null && daysSinceMove <= FRESH_MOVE_WINDOW_DAYS;
+
   let score = 0;
   let desc = "hold";
-  if (hikeCount >= 3 || (hikeCount >= 2 && yearChange > 1.0)) {
+  // `lastChange >= 0`/`<= 0` guardy na agregátních větvích (počítají HIKE/CUT KDEKOLI
+  // v posledních 6 změnách, bez ohledu na pořadí): bez nich mohl vzorec "hike, hike, cut"
+  // dostat "agresivní/aktivní cyklus hikování", i když POSLEDNÍ skutečné rozhodnutí bylo
+  // obráceně — appka by pak tvrdila pokračující hikovací cyklus přesně v týdnu, kdy se
+  // otočil. Živě odhaleno vlastním regresním testem při psaní P0.1 (21.9.2026) — branže
+  // `hikeCount>=1 && cutCount===0` (dnešní "cyklus hikování") guard nepotřebuje, protože
+  // `cutCount===0` už sama o sobě vylučuje, že by poslední změna byla cut.
+  if ((hikeCount >= 3 || (hikeCount >= 2 && yearChange > 1.0)) && lastChange >= 0) {
     score = 2;
     desc = `agresivní hiking (${yearChange >= 0 ? "+" : ""}${yearChange.toFixed(2)} % za rok)`;
-  } else if (hikeCount >= 2 && holdCount <= 2) {
+  } else if (hikeCount >= 2 && holdCount <= 2 && lastChange >= 0) {
     score = 2;
     desc = "aktivní cyklus hikování";
   } else if (hikeCount >= 1 && cutCount === 0 && holdCount <= 3) {
     score = 1;
     desc = "cyklus hikování";
-  } else if (cutCount >= 3 || (cutCount >= 2 && yearChange < -1.0)) {
+  } else if ((cutCount >= 3 || (cutCount >= 2 && yearChange < -1.0)) && lastChange <= 0) {
     score = -2;
     desc = `agresivní řezy (${yearChange.toFixed(2)} % za rok)`;
-  } else if (cutCount >= 2 && hikeCount === 0) {
+  } else if (cutCount >= 2 && hikeCount === 0 && lastChange <= 0) {
     score = -2;
     desc = "aktivní cyklus řezů";
   } else if (cutCount >= 1 && hikeCount === 0 && holdCount <= 3) {
     score = -1;
     desc = "cyklus snižování";
+  } else if (isFreshMove && lastChange > 0) {
+    // MUSÍ být před `holdCount >= 4` — viz komentář u FRESH_MOVE_WINDOW_DAYS výš. Tvrdé
+    // pravidlo: label nikdy nesmí znít "plateau, hold", když je poslední skutečný pohyb
+    // čerstvý (<=45 dní), i kdyby mu předcházela dlouhá řada "hold" rozhodnutí.
+    score = 1;
+    desc = "čerstvý hike, pozorujeme";
+  } else if (isFreshMove && lastChange < 0) {
+    score = -1;
+    desc = "čerstvý cut, pozorujeme";
   } else if (holdCount >= 4) {
     // Bez podmínky na `yearChange` — živě nahlášená chyba (USD, audit 2026-08-02): jediný
     // skutečný cut z prosince 2025, následovaný 5 rozhodnutími beze změny (do 29.7.2026),
@@ -150,8 +189,8 @@ export function autoDetectPolicy(rateHistory) {
     // klasifikace spadla na fallback "poslední cut, pozorujeme" — i když jde o 8 měsíců
     // staré, dávno stabilní plató. `holdCount >= 4` (aspoň 4 z posledních 6 ROZHODNUTÍ beze
     // změny) je sám o sobě dostatečný důkaz aktuálního plató — agresivní cykly už odchytily
-    // dřívější větve (ty vyžadují holdCount <= 3), takže sem se dostane jen skutečně stabilní
-    // sazba bez ohledu na to, jak starý je poslední skutečný pohyb.
+    // dřívější větve (ty vyžadují holdCount <= 3) a čerstvý pohyb odchytila větev `isFreshMove`
+    // výš, takže sem se dostane jen skutečně stabilní sazba BEZ nedávného skutečného pohybu.
     // Bez "@ rate %" tady v `desc` — `label` o pár řádků níž sazbu připojuje sám, stejně jako
     // u ostatních větví ("cyklus hikování", "poslední cut, pozorujeme" apod.). Dřív duplicitně
     // dávalo "plateau, hold @ 3.75 % @ 3.75 %" — nikdy předtím naživo neprojevené, protože tahle
@@ -169,7 +208,14 @@ export function autoDetectPolicy(rateHistory) {
   const confidence = changes.length >= 4 ? "HIGH" : changes.length >= 2 ? "MEDIUM" : "LOW";
   const currentRate = rateHistory[rateHistory.length - 1]?.rate;
   const label = `${desc}${currentRate !== undefined ? ` @ ${currentRate.toFixed(2)} %` : ""}`;
-  return { score, label, confidence };
+  return {
+    score,
+    label,
+    confidence,
+    lastMoveBp: lastChangeEntry ? Math.round(lastChangeEntry.change * 100) : null,
+    lastMoveDate: lastChangeEntry?.date ?? null,
+    daysSinceMove,
+  };
 }
 
 // Real yield (sazba - CPI) RELATIVNĚ k průměru ostatních měn v košíku — capnuto ±1.0
@@ -345,6 +391,11 @@ export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendar
     policyScore: policy.score,
     policyLabel: policy.label,
     policyConfidence: policy.confidence,
+    // P0.1 (Cowork report, 21.9.2026) — kolik dní uplynulo od POSLEDNÍHO skutečného pohybu
+    // sazby, ne od posledního rozhodnutí obecně (to může být "hold"). Viz autoDetectPolicy.
+    lastMoveBp: policy.lastMoveBp,
+    lastMoveDate: policy.lastMoveDate,
+    daysSinceMove: policy.daysSinceMove,
     realYieldAdj,
     cbPolicyAdj,
     pricedIn,

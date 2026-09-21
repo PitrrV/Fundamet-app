@@ -13,6 +13,7 @@ import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
 import { runDataQualityForCurrency } from "./data-quality.mjs";
 import { computeTopOpportunity } from "./top-opportunity.mjs";
+import { isCotCrowded, COT_CROWDED_DAMPENING, COT_CROWDED_PERCENTILE_HIGH, COT_CROWDED_PERCENTILE_LOW } from "./scoring.mjs";
 
 // Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
 // scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
@@ -354,6 +355,64 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function daysBetween(isoDateA, isoDateB) {
+  return Math.round((new Date(isoDateA).getTime() - new Date(isoDateB).getTime()) / 86400000);
+}
+
+// Nezávislý report (Cowork, 21.9.2026), P1.1/P1.2 — čerstvost pozicování. COT se publikuje
+// týdně (pátek, data z předchozího úterý) a mezi vydáními je to jediný pevný bod vrstvy A
+// (pozice/struktura) — appka to dřív blendovala se stejnou vahou bez ohledu na to, jestli od
+// `report_date` mezitím proběhlo rozhodnutí centrální banky. Živě zachyceno: USD i JPY COT
+// z 15.9. (před Fed 16.9. i BOJ 18.9.) neslo skoro polovinu váhy overall_score, i když
+// pozicování změřené PŘED zasedáním nic neříká o světě PO něm.
+//
+// decay: 1,00 do 3 dní stáří (pá-ne po pátečním vydání), lineárně 1,00->0,50 mezi 3 a 10 dny,
+// pak drženo na podlaze 0,50 (appka dál nespekuluje, o kolik dál by to mělo klesat — report
+// dál nespecifikuje, a COT starší než ~2 týdny by měl spíš spadnout do P1.3 "insufficient"
+// stavu, ne do čím dál menšího čísla; P1.3 zatím není implementován, viz commit message).
+//
+// event_penalty: 1,00 žádná HIGH událost dané měny po report_date; 0,50 proběhla libovolná
+// HIGH událost; 0,25 proběhlo přímo rozhodnutí centrální banky (kategorie "Interest Rates") —
+// pozicování měřené před zasedáním pořád nese informaci o tom, jak byl trh nastavený, jen ne
+// o tom, co se stalo NA zasedání (viz zdůvodnění v reportu, proč ne 0 a ne 1,0).
+const FRESHNESS_FULL_DAYS = 3;
+const FRESHNESS_DECAY_END_DAYS = 10;
+const FRESHNESS_DECAY_FLOOR = 0.5;
+const EVENT_PENALTY_HIGH = 0.5;
+const EVENT_PENALTY_CB_DECISION = 0.25;
+
+function computeCotFreshness(currencyCode, cotReportDate, allEvents, todayIso) {
+  if (!cotReportDate) return { freshness: 1, ageDays: null, staleReason: null };
+
+  const ageDays = Math.max(0, daysBetween(todayIso, cotReportDate));
+  let decay;
+  if (ageDays <= FRESHNESS_FULL_DAYS) decay = 1;
+  else if (ageDays >= FRESHNESS_DECAY_END_DAYS) decay = FRESHNESS_DECAY_FLOOR;
+  else {
+    const t = (ageDays - FRESHNESS_FULL_DAYS) / (FRESHNESS_DECAY_END_DAYS - FRESHNESS_FULL_DAYS);
+    decay = 1 - t * (1 - FRESHNESS_DECAY_FLOOR);
+  }
+
+  const eventsSince = allEvents.filter(
+    (e) => e.currency_code === currencyCode && e.impact === "High" && e.event_day > cotReportDate && e.event_day <= todayIso
+  );
+  const cbDecisionSince = eventsSince.find((e) => matchRule(e.event_title)?.cat === "Interest Rates");
+
+  let eventPenalty = 1;
+  let staleReason = null;
+  if (cbDecisionSince) {
+    eventPenalty = EVENT_PENALTY_CB_DECISION;
+    staleReason = `COT z ${cotReportDate} předchází rozhodnutí centrální banky (${cbDecisionSince.event_title}, ${cbDecisionSince.event_day}).`;
+  } else if (eventsSince.length > 0) {
+    eventPenalty = EVENT_PENALTY_HIGH;
+    staleReason = `COT z ${cotReportDate} předchází ${eventsSince.length} HIGH událost${eventsSince.length === 1 ? "i" : "em"} (např. ${eventsSince[0].event_title}, ${eventsSince[0].event_day}).`;
+  } else if (ageDays > FRESHNESS_FULL_DAYS) {
+    staleReason = `COT z ${cotReportDate} je ${ageDays} dní staré.`;
+  }
+
+  return { freshness: Math.round(decay * eventPenalty * 100) / 100, ageDays, staleReason };
+}
+
 // Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik ze 4
 // nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded)
 // ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore z Fx-Analyzeru,
@@ -370,7 +429,7 @@ function clamp(value, min, max) {
 // odstraněn — byl to jediný volající.
 function computeConviction(
   overallScore,
-  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotScore, cotPercentile, scoreWithoutCot, policyLabel }
+  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotFlow, cotPercentile, scoreWithoutCot, policyLabel }
 ) {
   if (overallScore === 0) return { stars: 0, reasons: [] };
   const dir = overallScore > 0 ? 1 : -1;
@@ -424,10 +483,16 @@ function computeConviction(
   // systému, ne samo se sebou. "Crowded" filtr zůstává vázaný na PUBLIKOVANÝ směr tezí (dir,
   // z overall_score) — to je správně, crowding je riziko vůči tomu, co appka fakticky tvrdí,
   // ne vůči hypotetickému "skóre bez COT".
-  const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= 88) || (dir < 0 && cotPercentile <= 12));
+  //
+  // Nezávislý report (Cowork, 21.9.2026), P0.2: `cotScore` mísí extrém úrovně (60 %, totéž,
+  // co měří `cotPercentile` — proto zrovna ta kombinace vedla k "COT souhlasí se směrem"
+  // skoro tautologicky u crowded pozic) s momentem (40 %). Hvězda teď používá `cotFlow`
+  // (čistě směrová složka, viz scoring.mjs) — stejný princip jako přechod z overall_score na
+  // scoreWithoutCot výš: nezávislé potvrzení musí měřit SMĚR, ne "jak extrémní je úroveň".
+  const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= COT_CROWDED_PERCENTILE_HIGH) || (dir < 0 && cotPercentile <= COT_CROWDED_PERCENTILE_LOW));
   const dirWithoutCot = scoreWithoutCot > 0 ? 1 : scoreWithoutCot < 0 ? -1 : 0;
-  const cotAgreesIndependently = cotScore !== null && cotScore !== 0 && dirWithoutCot !== 0 && Math.sign(cotScore) === dirWithoutCot;
-  if (Math.abs(cotScore) >= 1 && cotAgreesIndependently && !crowdedAgainst) {
+  const cotAgreesIndependently = cotFlow !== null && cotFlow !== 0 && dirWithoutCot !== 0 && Math.sign(cotFlow) === dirWithoutCot;
+  if (Math.abs(cotFlow) >= 1 && cotAgreesIndependently && !crowdedAgainst) {
     stars++;
     reasons.push(
       cotPercentile !== null
@@ -462,7 +527,7 @@ async function fetchAllCalendarEvents() {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("calendar_events")
-      .select("id, currency_code, event_title, event_day, actual, estimate, previous")
+      .select("id, currency_code, event_title, event_day, impact, actual, estimate, previous")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) return { data: null, error };
@@ -473,6 +538,10 @@ async function fetchAllCalendarEvents() {
 }
 
 export async function recomputeScores() {
+  // Stejná konvence jako todaysFundamentalEventLabel výš (pražský, ne UTC den) — pro
+  // computeCotFreshness níž, ať "je HIGH událost po report_date, ale ještě ne dnes" počítá se
+  // stejným dnem, co appka jinde v tomhle souboru používá jako "dnes".
+  const today = pragueDateString(new Date());
   const { data: allEvents, error } = await fetchAllCalendarEvents();
 
   if (error) {
@@ -686,7 +755,7 @@ export async function recomputeScores() {
 
     const { data: latestCot, error: cotSelectErr } = await supabase
       .from("latest_confluence_scores")
-      .select("report_date, cot_score, retail_score, cot_percentile")
+      .select("report_date, cot_score, cot_flow, retail_score, cot_percentile")
       .eq("currency_code", currencyCode)
       .limit(1);
 
@@ -723,8 +792,36 @@ export async function recomputeScores() {
     // výpadek), ne skutečný pohyb fundamentu/COT/retailu. BLEND_WEIGHTS se NEMĚNÍ —
     // fund 0,43 + cot 0,46 + retail 0,11 už dnes sčítá přesně na 1,0 nezávisle na riskAdj (ten byl
     // navíc bonus mimo tenhle součet), takže žádná renormalizace vah není potřeba.
-    const overallRaw =
-      fundamentalScoreAdj * BLEND_WEIGHTS.fund + cotRow.cot_score * BLEND_WEIGHTS.cot + retailScore * BLEND_WEIGHTS.retail;
+    // Nezávislý report (Cowork, 21.9.2026), P0.2 + P1.2 — dvě NEZÁVISLÉ opravy toho, co dřív
+    // šlo do blendu jako `cotRow.cot_score` s plnou váhou BLEND_WEIGHTS.cot:
+    //
+    // (1) P0.2 — `cot_score` mísí extrém úrovně (60 %, risk-filtr podle vlastního komentáře
+    // v scoring.mjs) se směrem (40 %, moment). Blend teď používá `cot_flow` (čistě směrová
+    // složka), navíc ztlumenou (COT_CROWDED_DAMPENING), když je pozicování na extrému
+    // (isCotCrowded — stejný práh 88/12, co dřív hlídal jen hvězdu konvikce). Živě: JPY na
+    // 97. percentilu dávalo +3,90 do cot_score (nejsilnější kladný příspěvek appky) — teď jde
+    // do blendu jen ztlumená směrová složka, ne extrém úrovně samotné.
+    //
+    // (2) P1.2 — i takhle opravená COT složka je pořád týdenní snímek (cot.report_date), který
+    // appka dřív blendovala se stejnou vahou bez ohledu na to, co se mezitím stalo. freshness_A
+    // (viz computeCotFreshness výš) škáluje váhu COT dolů, když od report_date proběhla HIGH
+    // událost/rozhodnutí CB dané měny — ušetřená váha se přerozdělí do fund/retail proporčně
+    // k jejich dosavadním vahám, součet vah zůstává 1,0.
+    const cotFreshness = computeCotFreshness(currencyCode, cotRow.report_date, allEvents ?? [], today);
+    const cotCrowded = isCotCrowded(cotRow.cot_percentile ?? null);
+    // `cot_flow` je nové pole — starší řádky (před tímhle nasazením) ho ještě nemají, dokud
+    // přes ně neproběhne ingest-cot.mjs znovu. Appka si chybějící hodnotu nedomýšlí (fallback
+    // na cot_score by vrátil starý bug) — bez dat je COT příspěvek prostě 0, ne hádaný.
+    const cotFlowRaw = cotRow.cot_flow ?? null;
+    const cotFlowContribution = cotFlowRaw === null ? 0 : cotFlowRaw * (cotCrowded ? COT_CROWDED_DAMPENING : 1);
+
+    const wCotEff = BLEND_WEIGHTS.cot * (cotFreshness.freshness ?? 1);
+    const wSpare = BLEND_WEIGHTS.cot - wCotEff;
+    const wOther = BLEND_WEIGHTS.fund + BLEND_WEIGHTS.retail;
+    const wFundEff = BLEND_WEIGHTS.fund + wSpare * (BLEND_WEIGHTS.fund / wOther);
+    const wRetailEff = BLEND_WEIGHTS.retail + wSpare * (BLEND_WEIGHTS.retail / wOther);
+
+    const overallRaw = fundamentalScoreAdj * wFundEff + cotFlowContribution * wCotEff + retailScore * wRetailEff;
     const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
 
     // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2: totéž co overallRaw,
@@ -733,13 +830,15 @@ export async function recomputeScores() {
     // jako skóre — tohle číslo se nikam neukládá, slouží jen jako "co by si systém myslel, i
     // kdyby COT vůbec neexistoval". Od opravy B (5.9.2026) taky BEZ riskAdj — konzistentně
     // s overallRaw výš, jinak by "skóre bez COT" počítalo s VIX, zatímco "skóre celkem" ne.
+    // Používá PŮVODNÍ (ne freshness-škálované) váhy fund/retail — je to hypotetické "kdyby COT
+    // vůbec nebyl v systému", ne "za dnešní čerstvosti".
     const scoreWithoutCot = fundamentalScoreAdj * BLEND_WEIGHTS.fund + retailScore * BLEND_WEIGHTS.retail;
 
     const conviction = computeConviction(overallScore, {
       cbPolicyAdj: cbPolicy.cbPolicyAdj,
       realYieldAdj: cbPolicy.realYieldAdj,
       fundamentalScoreAdj,
-      cotScore: cotRow.cot_score,
+      cotFlow: cotFlowRaw,
       cotPercentile: cotRow.cot_percentile ?? null,
       scoreWithoutCot,
       policyLabel: cbPolicy.policyLabel,
@@ -753,6 +852,8 @@ export async function recomputeScores() {
         conviction_stars: conviction.stars,
         conviction_reasons: conviction.reasons,
         conviction_label: convictionLabelFromStars(conviction.stars),
+        freshness_cot: cotFreshness.freshness,
+        stale_reason: cotFreshness.staleReason,
       })
       .eq("currency_code", currencyCode)
       .eq("report_date", cotRow.report_date);
@@ -761,7 +862,8 @@ export async function recomputeScores() {
       console.error(`[${currencyCode}] chyba aktualizace overall_score:`, updErr.message);
     } else {
       console.log(
-        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} cot=${cotRow.cot_score} retail=${retailScore} risk=${riskAdj} ` +
+        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} cot_flow=${cotFlowRaw ?? "N/A"}${cotCrowded ? " (crowded)" : ""} ` +
+          `freshness_cot=${cotFreshness.freshness ?? "N/A"} retail=${retailScore} risk=${riskAdj} ` +
           `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
       );
 

@@ -7,6 +7,27 @@ const MOMENTUM_CLAMP = 1;
 const WEIGHT_EXTREMITY = 0.6;
 const WEIGHT_MOMENTUM = 0.4;
 
+// Nezávislý report (Cowork, 21.9.2026): `cot_score` (výš) mísí EXTRÉM ÚROVNĚ pozicování
+// (60 % váhy, `scaledZ` — v podstatě totéž, co měří cotPercentile níž) se SMĚREM ZMĚNY
+// (40 %, momentum) — a `cot_score` pak jde do overall_score blendu s nejvyšší jednotlivou
+// vahou ze všech pilířů (BLEND_WEIGHTS.cot = 0.46, viz fetch-calendar.mjs). Extrém úrovně je
+// ale podle vlastního komentáře u cotPercentile() zamýšlený jako RIZIKOVÝ FILTR, ne směrový
+// vstup — živě ověřeno: JPY 97. percentil (extrémně přeplněný long) dal +3,90 do cot_score,
+// nejsilnější kladný příspěvek celé appky, přesně v týdnu, kdy to mělo číst jako riziko
+// obratu, ne jako potvrzení směru.
+//
+// Stejný threshold, co počítá jako "crowded", je teď na jednom místě (dřív jen natvrdo
+// zapsaný 88/12 přímo v computeConviction ve fetch-calendar.mjs) — používá ho i tahle
+// hranice pro dampening skutečného skóre (viz cotFlow/fetch-calendar.mjs), ne jen hvězda
+// konvikce, ať appka neřeší "crowded" dvěma různými čísly na dvou místech.
+export const COT_CROWDED_PERCENTILE_HIGH = 88;
+export const COT_CROWDED_PERCENTILE_LOW = 12;
+export const COT_CROWDED_DAMPENING = 0.5;
+
+export function isCotCrowded(percentile) {
+  return percentile !== null && percentile !== undefined && (percentile >= COT_CROWDED_PERCENTILE_HIGH || percentile <= COT_CROWDED_PERCENTILE_LOW);
+}
+
 function mean(arr) {
   return arr.reduce((sum, v) => sum + v, 0) / arr.length;
 }
@@ -62,6 +83,11 @@ export function computeCotScore(historyAsc) {
     clamp(WEIGHT_EXTREMITY * scaledZ + WEIGHT_MOMENTUM * scaledMomentum, -5, 5) * 10
   ) / 10;
 
+  // Čistě směrová složka (viz komentář u COT_CROWDED_* výš) — jen momentum, BEZ z-skóre
+  // extremity. `scaledMomentum` je už clampnuté na ±5 (clamp před *5 výš), zaokrouhlení
+  // stejné jako u cotScore.
+  const cotFlow = Math.round(scaledMomentum * 10) / 10;
+
   return {
     reportDate: latest.report_date,
     levMoneyNet: latest.lev_money_net,
@@ -69,6 +95,7 @@ export function computeCotScore(historyAsc) {
     wowChange,
     change4w,
     cotScore,
+    cotFlow,
   };
 }
 

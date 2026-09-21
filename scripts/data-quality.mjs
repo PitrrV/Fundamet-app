@@ -20,6 +20,20 @@ const SEVERITY_PENALTY = { HIGH: 25, MEDIUM: 10, LOW: 5 };
 // na LOW bez ohledu na vážený průměr, ne jen tiše ubere pár bodů.
 const CRITICAL_MISSING_SCORE_CAP = 40;
 
+// Nezávislý report (Cowork, 21.9.2026), P0.3 — ověřeno na živých datech (21.9.2026): 486 USD +
+// 59 JPY eventů po datu vydání bez `actual`. Rozklad ukázal, že drtivá většina (386/486 USD,
+// 21/59 JPY) jsou tiskovky/projevy/svědectví — eventy, co ŽÁDNÉ číslo nikdy nemají (ForexFactory
+// u nich `actual` neplní, protože žádné neexistuje), ne mezery ve scraperu. `pending_actual_
+// overdue` je předtím počítal jako "pořád čekáme na doplnění" donekonečna — appka tak hlásila
+// stovky "pending" eventů, co nikdy pendovat nepřestanou. Zbylých ~100 USD/~38 JPY skutečně
+// numerických eventů bez actual MŮŽE být reálná mezera ve scraperu — na to ale odsud (bez
+// přístupu k živému ForexFactory HTML) appka nemá jak bezpečně sáhnout, viz commit message.
+const NO_NUMERIC_ACTUAL_PATTERN =
+  /press conference|statement|speech|speaks|testimony|testifies|remarks|press briefing|q\s*&\s*a|bank holiday|meeting minutes|summary of opinions|bulletin|beige book|economic projections|outlook report|monetary policy report|financial stability report|currency report|stress test|elections?|daylight saving/i;
+export function hasNoNumericActual(eventTitle) {
+  return NO_NUMERIC_ACTUAL_PATTERN.test(eventTitle || "");
+}
+
 function daysBetween(isoDateA, isoDateB) {
   return Math.round((new Date(isoDateA).getTime() - new Date(isoDateB).getTime()) / 86400000);
 }
@@ -129,7 +143,11 @@ export async function runDataQualityForCurrency(currencyCode, allEvents, latestC
     });
   }
 
-  const overdue = currencyEvents.filter((e) => e.event_day < today && !e.actual && daysBetween(today, e.event_day) >= 1);
+  // P0.3 — viz komentář u NO_NUMERIC_ACTUAL_PATTERN výš: tiskovky/projevy/minutes/bulletiny
+  // apod. nikdy `actual` nedostanou, appka je nemá počítat jako "čekáme na doplnění".
+  const overdue = currencyEvents.filter(
+    (e) => e.event_day < today && !e.actual && daysBetween(today, e.event_day) >= 1 && !hasNoNumericActual(e.event_title)
+  );
   if (overdue.length > 0) {
     flags.push({
       currency_code: currencyCode,
