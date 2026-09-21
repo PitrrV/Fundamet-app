@@ -740,6 +740,13 @@ export async function recomputeScores() {
         policy_score: cbPolicy.policyScore,
         policy_label: cbPolicy.policyLabel,
         policy_confidence: cbPolicy.policyConfidence,
+        // P0.1 (Cowork report, 21.9.2026) — viz autoDetectPolicy v cb-policy.mjs. Bez tohohle
+        // by nové sloupce zůstaly navždy null, přestože computeCbPolicyState() je počítá
+        // správně — živě odhaleno hned po prvním ostrém běhu po nasazení (policy_label se
+        // opravil, last_move_* zůstaly null, protože sem chyběly v upsertu).
+        last_move_bp: cbPolicy.lastMoveBp,
+        last_move_date: cbPolicy.lastMoveDate,
+        days_since_move: cbPolicy.daysSinceMove,
         real_yield_adj: cbPolicy.realYieldAdj,
         cb_policy_adj: cbPolicy.cbPolicyAdj,
         priced_in: cbPolicy.pricedIn,
