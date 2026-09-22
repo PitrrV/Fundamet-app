@@ -1,0 +1,31 @@
+name: Shadow Fundamental Engine (Phase 4)
+
+# Zcela oddělené od Fetch ForexFactory Calendar (fetch-calendar.yml) — makro bloky (CPI/GDP/
+# Unemployment/Retail Sales/PMI) se mění v řádu dní/týdnů, ne 15 minut, a tenhle workflow nikdy
+# nevolá recomputeScores() ani nezapisuje do produkčních tabulek. Pád tohohle jobu nemůže shodit
+# fetch-calendar.yml a naopak.
+on:
+  schedule:
+    - cron: '17 4 * * *' # jednou denně, mimo špičku fetch-calendar cronu (*/15 * * * *)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shadow-fundamental-engine
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/run-shadow-engine.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
