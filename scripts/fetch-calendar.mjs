@@ -393,8 +393,26 @@ function computeCotFreshness(currencyCode, cotReportDate, allEvents, todayIso) {
     decay = 1 - t * (1 - FRESHNESS_DECAY_FLOOR);
   }
 
+  // Živě nahlášená chyba (Petr, 22.9.2026): appka o pár hodin/dní zpátky ukazovala skóre, co
+  // se měnilo skoro každých 15 minut, i když se COT ani "tvrdá" fundamentální data vůbec
+  // nehnula. Příčina: filtr dřív testoval jen `event_day <= todayIso` — BEZ ohledu na to, jestli
+  // událost UŽ SKUTEČNĚ PROBĚHLA (`actual` vyplněné). Živě zachyceno: "RBA Gov Bullock Speaks"
+  // (impact High, event_day dnešní, actual STÁLE null — proslov se ještě nekonal) začal počítat
+  // jako "od COT snímku proběhla HIGH událost" v okamžiku, kdy kalendářní den přetekl na dnešek
+  // — a protože ForexFactory scraper takové "speaker slot" řádky (impact/datum) průběžně
+  // revidoval při každém 15minutovém běhu, freshness_cot (a s ním overall_score) se přepočítával
+  // pokaždé jinak, i beze změny čehokoliv reálného. Stejná zásada jako u extractRateHistory/
+  // decisionConsensusPricedIn výš v cb-policy.mjs — appka si "proběhlo to" nedomýšlí z pouhého
+  // data v kalendáři, vyžaduje skutečně zapsaný výsledek.
   const eventsSince = allEvents.filter(
-    (e) => e.currency_code === currencyCode && e.impact === "High" && e.event_day > cotReportDate && e.event_day <= todayIso
+    (e) =>
+      e.currency_code === currencyCode &&
+      e.impact === "High" &&
+      e.event_day > cotReportDate &&
+      e.event_day <= todayIso &&
+      e.actual !== null &&
+      e.actual !== undefined &&
+      e.actual !== ""
   );
   const cbDecisionSince = eventsSince.find((e) => matchRule(e.event_title)?.cat === "Interest Rates");
 
