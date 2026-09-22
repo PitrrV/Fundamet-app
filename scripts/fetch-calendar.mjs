@@ -849,23 +849,11 @@ export async function recomputeScores() {
     const cotFlowRaw = cotRow.cot_flow ?? null;
     const cotFlowContribution = cotFlowRaw === null ? 0 : cotFlowRaw * (cotCrowded ? COT_CROWDED_DAMPENING : 1);
 
-    // POZOR — dočasně VYPNUTO (22.9.2026, živě nahlášeno Petrem): P1.2 (škálování váhy COT
-    // podle cotFreshness.freshness) po nasazení opakovaně měnilo overall_score při KAŽDÉM
-    // 15minutovém přepočtu u VŠECH měn zároveň, i beze změny COT/fundamentu — např. GBP
-    // stabilně střídalo -0,10 / -1,10 v páru "špatně, pak o ~25s později správně" na každém
-    // 15minutovém tiku. cotFreshness sama o sobě přitom pro GBP vychází při ručním
-    // (izolovaném) přepočtu VŽDY stejně (0,18, MPC Official Bank Rate Votes) — podezření na
-    // souběh dvou téměř současných spouštěčů (viz `Souběžné běhy fronta` výš — appka má dva
-    // nezávislé zdroje triggeru zhruba na stejném 15minutovém taktu), kde jeden z nich čte
-    // `allEvents` v momentě, kdy vidí jinou množinu řádků než ten druhý. Kořenová příčina TÉHLE
-    // konkrétní nestability zatím není jistá (dvě předchozí opravy stejné funkce dnes večer už
-    // řešily jiné, skutečné bugy — viz komentáře u eventsSince výš) — radši appka dočasně
-    // přestane pouštět nejistý vstup do HLAVNÍHO čísla, než aby dál hádala třetí opravu za
-    // provozu. `cotFreshness`/`stale_reason` se dál počítá a ukládá (informační, P1.1 badge
-    // teprve přijde), jen NEOVLIVŇUJE váhy blendu, dokud se závod nedohledá a neopraví pořádně.
-    const wCotEff = BLEND_WEIGHTS.cot;
-    const wFundEff = BLEND_WEIGHTS.fund;
-    const wRetailEff = BLEND_WEIGHTS.retail;
+    const wCotEff = BLEND_WEIGHTS.cot * (cotFreshness.freshness ?? 1);
+    const wSpare = BLEND_WEIGHTS.cot - wCotEff;
+    const wOther = BLEND_WEIGHTS.fund + BLEND_WEIGHTS.retail;
+    const wFundEff = BLEND_WEIGHTS.fund + wSpare * (BLEND_WEIGHTS.fund / wOther);
+    const wRetailEff = BLEND_WEIGHTS.retail + wSpare * (BLEND_WEIGHTS.retail / wOther);
 
     const overallRaw = fundamentalScoreAdj * wFundEff + cotFlowContribution * wCotEff + retailScore * wRetailEff;
     const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
