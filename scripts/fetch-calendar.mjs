@@ -393,27 +393,36 @@ function computeCotFreshness(currencyCode, cotReportDate, allEvents, todayIso) {
     decay = 1 - t * (1 - FRESHNESS_DECAY_FLOOR);
   }
 
-  // Živě nahlášená chyba (Petr, 22.9.2026): appka o pár hodin/dní zpátky ukazovala skóre, co
-  // se měnilo skoro každých 15 minut, i když se COT ani "tvrdá" fundamentální data vůbec
-  // nehnula. Příčina: filtr dřív testoval jen `event_day <= todayIso` — BEZ ohledu na to, jestli
-  // událost UŽ SKUTEČNĚ PROBĚHLA (`actual` vyplněné). Živě zachyceno: "RBA Gov Bullock Speaks"
-  // (impact High, event_day dnešní, actual STÁLE null — proslov se ještě nekonal) začal počítat
-  // jako "od COT snímku proběhla HIGH událost" v okamžiku, kdy kalendářní den přetekl na dnešek
-  // — a protože ForexFactory scraper takové "speaker slot" řádky (impact/datum) průběžně
-  // revidoval při každém 15minutovém běhu, freshness_cot (a s ním overall_score) se přepočítával
-  // pokaždé jinak, i beze změny čehokoliv reálného. Stejná zásada jako u extractRateHistory/
-  // decisionConsensusPricedIn výš v cb-policy.mjs — appka si "proběhlo to" nedomýšlí z pouhého
-  // data v kalendáři, vyžaduje skutečně zapsaný výsledek.
-  const eventsSince = allEvents.filter(
-    (e) =>
-      e.currency_code === currencyCode &&
-      e.impact === "High" &&
-      e.event_day > cotReportDate &&
-      e.event_day <= todayIso &&
-      e.actual !== null &&
-      e.actual !== undefined &&
-      e.actual !== ""
-  );
+  // Živě nahlášená chyba (Petr, 22.9.2026): appka o pár hodin zpátky ukazovala skóre, co se
+  // měnilo skoro každých 15 minut, i když se COT ani "tvrdá" fundamentální data vůbec nehnula.
+  // Příčina: filtr dřív testoval jen `event_day <= todayIso` — BEZ ohledu na to, jestli událost
+  // UŽ SKUTEČNĚ PROBĚHLA. Živě zachyceno: "RBA Gov Bullock Speaks" (impact High, event_day
+  // dnešní, naplánovaná na 03:10 UTC) začala počítat jako "proběhlá HIGH událost" hned po
+  // půlnoci, hodiny PŘED tím, než se proslov vůbec konal — a ForexFactory scraper takové
+  // "speaker slot" řádky (impact/datum) navíc průběžně revidoval při každém 15minutovém běhu,
+  // takže freshness_cot (a s ním overall_score) se přepočítával pokaždé jinak, i beze změny
+  // čehokoliv reálného.
+  //
+  // Oprava #1 (příliš přísná, zpětně opravena tímhle commitem): vyžadovat `actual` vyplněné —
+  // stejná zásada jako extractRateHistory/decisionConsensusPricedIn v cb-policy.mjs. Jenže
+  // "RBA Gov Bullock Speaks" (a proslovy/tiskovky obecně, viz hasNoNumericActual
+  // v data-quality.mjs) NIKDY actual nedostanou — appka by takovou událost nepočítala jako
+  // "proběhlou" ani měsíce poté, co se skutečně stala. Actual != "proběhlo to", actual jen
+  // znamená "appka má z toho číslo" — u proslovů žádné číslo neexistuje.
+  //
+  // Oprava #2 (tahle): appka to, jestli událost UŽ NASTALA, testuje proti `event_time`
+  // (naplánovaný čas z ForexFactory) vs. aktuální čas běhu, ne proti `actual`. Funguje
+  // stejně dobře pro číselné eventy (actual dorazí AŽ PO event_time, takže "proběhlo" i
+  // "má actual" spadají prakticky vjedno) i pro proslovy/tiskovky (actual nikdy, ale
+  // event_time pořád spolehlivě říká, kdy se to skutečně konalo). Bez `event_time` (starší
+  // řádky) appka nemá lepší signál než `event_day <= todayIso` — stejné chování jako předtím.
+  const nowMs = Date.now();
+  const eventsSince = allEvents.filter((e) => {
+    if (e.currency_code !== currencyCode || e.impact !== "High") return false;
+    if (!(e.event_day > cotReportDate && e.event_day <= todayIso)) return false;
+    if (e.event_time) return new Date(e.event_time).getTime() <= nowMs;
+    return true;
+  });
   const cbDecisionSince = eventsSince.find((e) => matchRule(e.event_title)?.cat === "Interest Rates");
 
   let eventPenalty = 1;
@@ -545,7 +554,7 @@ async function fetchAllCalendarEvents() {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase
       .from("calendar_events")
-      .select("id, currency_code, event_title, event_day, impact, actual, estimate, previous")
+      .select("id, currency_code, event_title, event_day, event_time, impact, actual, estimate, previous")
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     if (error) return { data: null, error };
