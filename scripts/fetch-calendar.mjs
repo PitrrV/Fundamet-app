@@ -173,17 +173,29 @@ const FF_RELAY_BASE = "https://wdcvxfbhauwvwzbatkfh.supabase.co/functions/v1/ff-
 const FF_RELAY_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkY3Z4ZmJoYXV3dnd6YmF0a2ZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NjU2NjEsImV4cCI6MjA5NzE0MTY2MX0.7ofHhBK6OxTug6l3MgnLJFNECZOmaKB_Z35v9v80I2o";
 
+// `fetch()` v Node nemá defaultní timeout — bez AbortSignal by zaseknutý relay (nebo
+// zaseknutý přímý fetch) mohl viset donekonečna a zablokovat celý 15minutový cron (živě
+// zachyceno při prvním nasazení relaye: běh, co normálně trvá ~60s, po 6+ minutách pořád
+// visel na kroku fetch-calendar.mjs). 15s je dost na cold start Edge Function i pomalejší
+// odpověď ForexFactory, ale krátké dost, aby 9 offsetů v nejhorším případě (relay i fallback
+// oba timeoutnou) zabralo řádově ~5 min, ne hodiny.
+const FETCH_TIMEOUT_MS = 15000;
+
 async function fetchFFWeek(week) {
   try {
     const relayRes = await fetch(`${FF_RELAY_BASE}?week=${week}`, {
       headers: { Authorization: `Bearer ${FF_RELAY_KEY}` },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (relayRes.ok) return relayRes;
     console.warn(`FF relay ${week}: status=${relayRes.status} — zkouším přímý fetch...`);
   } catch (err) {
     console.warn(`FF relay ${week}: ERR ${err.message} — zkouším přímý fetch...`);
   }
-  return fetch(`https://www.forexfactory.com/calendar?week=${week}`, { headers: BROWSER_HEADERS });
+  return fetch(`https://www.forexfactory.com/calendar?week=${week}`, {
+    headers: BROWSER_HEADERS,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
 }
 
 export async function fetchWeek(offsetDays) {

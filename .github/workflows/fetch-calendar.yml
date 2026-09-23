@@ -32,6 +32,12 @@ jobs:
           node-version: 22
       - run: npm install
       - run: node scripts/fetch-calendar.mjs
+        # Pojistka proti zaseknutému fetchi (relay/ForexFactory) — scripts/fetch-calendar.mjs
+        # má vlastní per-request timeout (FETCH_TIMEOUT_MS), tohle je druhá, hrubší vrstva pro
+        # cokoli nepředvídaného (stejná konvence jako Fx-Analyzer .github/workflows/data-refresh.yml).
+        # S concurrency.cancel-in-progress:false výš by se jinak zaseknutý běh mohl frontou
+        # táhnout donekonečna a blokovat všechny další 15minutové běhy za sebou.
+        timeout-minutes: 8
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
