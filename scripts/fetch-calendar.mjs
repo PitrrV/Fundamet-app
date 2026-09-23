@@ -159,10 +159,36 @@ const BROWSER_HEADERS = {
   Accept: "text/html,application/xhtml+xml",
 };
 
+// ForexFactory/Cloudflare blokuje GitHub Actions IP rozsah nepřetržitě od 22.9.2026 ~04:00 UTC
+// (HTTP 403 na VŠECH offsetech, potvrzeno živě). Fx-Analyzer (sesterský projekt, sdílí tenhle
+// Supabase projekt) má stejný problém už od 9.9.2026 a řeší ho přes Edge Function relay
+// (ff-calendar-relay) — čistý HTTP proxy na ForexFactory z egressu Supabase (ten blokovaný
+// není), whitelist jen na `week` parametr (žádný obecný open proxy), viz zdroj funkce. Živě
+// ověřeno 23.9.2026: Fx-Analyzer přes relay úspěšně scrapuje, zatímco přímý fetch z GitHub
+// Actions dostává 403 na stejné URL ve stejnou chvíli.
+//
+// ANON klíč je veřejný/publishable (ne service role), bezpečně hardcodovatelný — stejný, co
+// appka posílá z prohlížeče (src/lib) a co Fx-Analyzer už takhle používá.
+const FF_RELAY_BASE = "https://wdcvxfbhauwvwzbatkfh.supabase.co/functions/v1/ff-calendar-relay";
+const FF_RELAY_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkY3Z4ZmJoYXV3dnd6YmF0a2ZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1NjU2NjEsImV4cCI6MjA5NzE0MTY2MX0.7ofHhBK6OxTug6l3MgnLJFNECZOmaKB_Z35v9v80I2o";
+
+async function fetchFFWeek(week) {
+  try {
+    const relayRes = await fetch(`${FF_RELAY_BASE}?week=${week}`, {
+      headers: { Authorization: `Bearer ${FF_RELAY_KEY}` },
+    });
+    if (relayRes.ok) return relayRes;
+    console.warn(`FF relay ${week}: status=${relayRes.status} — zkouším přímý fetch...`);
+  } catch (err) {
+    console.warn(`FF relay ${week}: ERR ${err.message} — zkouším přímý fetch...`);
+  }
+  return fetch(`https://www.forexfactory.com/calendar?week=${week}`, { headers: BROWSER_HEADERS });
+}
+
 export async function fetchWeek(offsetDays) {
   const week = weekParam(offsetDays);
-  const url = `https://www.forexfactory.com/calendar?week=${week}`;
-  const res = await fetch(url, { headers: BROWSER_HEADERS });
+  const res = await fetchFFWeek(week);
   if (!res.ok) throw new Error(`HTTP ${res.status} pro week=${week}`);
   const html = await res.text();
   const days = extractDaysArray(html);
