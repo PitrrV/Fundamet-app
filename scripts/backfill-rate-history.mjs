@@ -72,8 +72,8 @@ async function main() {
     process.exit(1);
   }
 
-  const { count } = await mergeUpsert(deduped);
-  console.log(`Upsertnuto ${count}/${deduped.length} eventů do calendar_events.`);
+  const { count, unchanged } = await mergeUpsert(deduped);
+  console.log(`Zapsáno ${count} nových/změněných eventů, ${unchanged} beze změny (z ${deduped.length}).`);
 
   console.log("Přepočítávám skóre (CB Policy teď uvidí rozšířenou historii)...");
   await recomputeScores();

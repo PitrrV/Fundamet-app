@@ -6,6 +6,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { computeFundamentalScore, computeRegimeShift, matchRule } from "./fundamental-scoring.mjs";
+import { planCalendarMerge } from "./calendar-merge.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { trackRateDecisionDrift } from "./rate-decision-drift.mjs";
 import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
@@ -253,57 +254,60 @@ export function dedupePreferComplete(events) {
   return [...map.values()];
 }
 
-export async function mergeUpsert(events) {
-  let count = 0;
-  // Jestli během tohohle běhu přibyl actual u eventu, na kterém appce záleží (má váhu v
-  // EVENT_RULES) — pokud ano, stojí za to hned po přepočtu spustit generate-narrative.yml,
-  // ne čekat na jeho jednou-denní cron (viz triggerNarrativeRegeneration níže). Sleduje se PO
-  // MĚNĚ (Set), ne jako jeden globální boolean — nákladový audit (2026-08-05) živě odhalil, že
-  // appka na jediný "něco se změnilo" signál pravidelně přegenerovala všech 8 měn místo té
-  // jedné, co skutečně dostala nový tisk (7-8× denně, ne 1× — desítky USD/měsíc navíc na LLM
-  // i TTS). Auto-trigger teď appce řekne PŘESNĚ které měny, ne "spusť to znovu a zkontroluj si to sám".
-  const materialCurrencies = new Set();
+// Dřív SELECT + UPSERT zvlášť pro každý z ~830 eventů (~1660 dotazů za sebou) — živě změřeno
+// 25.9.2026: 5 min 25 s jen na zápis, přičemž dnešní eventy jsou v pořadí až na konci, takže
+// čerstvý actual (BOJ Core CPI, vydán 05:00) se do DB dostal až v 05:09. Teď jedno hromadné
+// načtení existujících řádků pro celý rozsah dní + dávkový upsert jen řádků, které se opravdu
+// změnily (planCalendarMerge v calendar-merge.mjs).
+const UPSERT_BATCH_SIZE = 200;
 
-  for (const ev of events) {
-    const { data: existingRows, error: selErr } = await supabase
+async function fetchExistingInRange(fromDay, toDay) {
+  const pageSize = 1000;
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
       .from("calendar_events")
-      .select("actual, estimate, previous")
-      .eq("currency_code", ev.currency_code)
-      .eq("event_title", ev.event_title)
-      .eq("event_day", ev.event_day)
-      .limit(1);
+      .select("currency_code, event_title, event_day, event_time, impact, actual, estimate, previous")
+      .gte("event_day", fromDay)
+      .lte("event_day", toDay)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: rows, error: null };
+}
 
-    if (selErr) {
-      console.error(`Chyba čtení eventu ${ev.currency_code}/${ev.event_title}:`, selErr.message);
-      continue;
-    }
+export async function mergeUpsert(events) {
+  if (events.length === 0) return { count: 0, unchanged: 0, materialCurrencies: new Set() };
 
-    const existing = existingRows?.[0];
+  const days = events.map((e) => e.event_day).sort();
+  const { data: existingRows, error: readErr } = await fetchExistingInRange(days[0], days[days.length - 1]);
+  if (readErr) {
+    // Bez znalosti existujících řádků by merge mohl přepsat dřív zachycený actual prázdnou
+    // hodnotou — radši tenhle běh nezapsat vůbec, další za 15 min to dožene.
+    console.error("Nepodařilo se načíst existující calendar_events, kalendář se v tomhle běhu nezapisuje:", readErr.message);
+    return { count: 0, unchanged: 0, materialCurrencies: new Set() };
+  }
 
-    if (!existing?.actual && ev.actual && (matchRule(ev.event_title)?.w ?? 0) > 0) {
-      materialCurrencies.add(ev.currency_code);
-    }
+  // materialCurrencies: u KTERÝCH měn přibyl actual u eventu s váhou v EVENT_RULES — spouštěč
+  // přegenerování narrativu jen pro ně (nákladový audit 2026-08-05), viz triggerNarrativeRegeneration.
+  const { rows, unchanged, materialCurrencies } = planCalendarMerge(events, existingRows, new Date().toISOString());
 
-    const merged = {
-      ...ev,
-      // nikdy neztratit dřív zachycený actual/estimate/previous kvůli neúplnému re-scrapu
-      actual: ev.actual ?? existing?.actual ?? null,
-      estimate: ev.estimate ?? existing?.estimate ?? null,
-      previous: ev.previous ?? existing?.previous ?? null,
-      updated_at: new Date().toISOString(),
-    };
-
+  let count = 0;
+  for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
+    const batch = rows.slice(i, i + UPSERT_BATCH_SIZE);
     const { error: upsertErr } = await supabase
       .from("calendar_events")
-      .upsert(merged, { onConflict: "currency_code,event_title,event_day" });
-
+      .upsert(batch, { onConflict: "currency_code,event_title,event_day" });
     if (upsertErr) {
-      console.error(`Chyba upsertu eventu ${ev.currency_code}/${ev.event_title}:`, upsertErr.message);
+      console.error(`Chyba dávkového upsertu (${batch.length} eventů od ${batch[0].currency_code}/${batch[0].event_title}):`, upsertErr.message);
       continue;
     }
-    count++;
+    count += batch.length;
   }
-  return { count, materialCurrencies };
+  return { count, unchanged, materialCurrencies };
 }
 
 // Spustí generate-narrative.yml přes GitHub API místo čekání na jeho denní cron — potřebuje
@@ -1139,7 +1143,7 @@ async function main() {
   } else {
     const merged = await mergeUpsert(deduped);
     materialCurrencies = merged.materialCurrencies;
-    console.log(`Upsertnuto ${merged.count}/${deduped.length} eventů do calendar_events.`);
+    console.log(`Zapsáno ${merged.count} nových/změněných eventů, ${merged.unchanged} beze změny (z ${deduped.length}).`);
   }
 
   const { thesisSignalCurrencies, staleTextCurrencies } = await recomputeScores();
