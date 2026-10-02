@@ -2,7 +2,7 @@
 // podle overall_score (žádná hvězdičková brána) — cílem je rychle ukázat, kde je teď
 // nejvýraznější fundamentální příběh, ne mlčet, když konvikce zrovna není na plné síle.
 // Poctivost se řeší odstupňovaným `confidence_tier`, ne skrýváním výsledku:
-//   "strong" — obě strany mají ≥3/5 hvězd a kvalita dat u obou není nízká
+//   "strong" — obě strany mají 2+/3 signály a kvalita dat u obou není nízká
 //   "soft"   — reálný rozestup existuje, ale konvikce/kvalita dat zatím nejsou na plné úrovni
 //   "flat"   — rozestup mezi nejsilnější a nejslabší měnou je tenhle týden malý, trh je plochý
 // Čistě INSPIRACE pro další zkoumání, NIKDY signál ke vstupu — appka neřeší timing, risk
@@ -12,7 +12,6 @@
 // rozhodnutí jsou deterministická a auditovatelná, ne "protože to model tak napsal".
 
 import { createClient } from "@supabase/supabase-js";
-import { isCotCrowded } from "./scoring.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -20,7 +19,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
 
 const FLAT_SPREAD_THRESHOLD = 1.0;
-const STRONG_MIN_CONVICTION = 3;
+const STRONG_MIN_CONVICTION = 2; // z max. 3 fundamentálních signálů (viz fundamental-summary.mjs)
 const STRONG_MIN_DATA_QUALITY = 50;
 
 function dirLabel(d) {
@@ -43,9 +42,9 @@ function computeTier(strongest, weakest, spread) {
 
 function buildRationale(strongest, weakest, tier) {
   const base =
-    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, ${strongest.convictionStars}/5 hvězd, ` +
+    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, ${strongest.convictionStars}/3 signály, ` +
     `skóre ${strongest.overallScore > 0 ? "+" : ""}${strongest.overallScore}. ` +
-    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, ${weakest.convictionStars}/5 hvězd, ` +
+    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, ${weakest.convictionStars}/3 signály, ` +
     `skóre ${weakest.overallScore > 0 ? "+" : ""}${weakest.overallScore}.`;
 
   if (tier === "flat") {
@@ -68,7 +67,7 @@ export async function computeTopOpportunity() {
 
   const [{ data: scores, error: scoresErr }, { data: theses, error: thesesErr }, { data: quality, error: qualityErr }] =
     await Promise.all([
-      supabase.from("latest_confluence_scores").select("currency_code, overall_score, conviction_stars, cot_percentile"),
+      supabase.from("latest_confluence_scores").select("currency_code, overall_score, conviction_stars"),
       supabase.from("latest_currency_thesis").select("currency_code, direction, conviction"),
       supabase.from("data_quality_score").select("currency_code, score"),
     ]);
@@ -94,11 +93,6 @@ export async function computeTopOpportunity() {
         convictionStars: s.conviction_stars ?? 0,
         direction: thesis?.direction ?? null,
         qualityScore: qualityByCode.get(s.currency_code) ?? null,
-        // Nezávislý report (Cowork, 21.9.2026), P0.2: crowded pozicování (extrémní percentil)
-        // je riskový filtr, ne důvod, aby appka zrovna TUHLE měnu vyhlásila za "nejsilnější/
-        // nejslabší" — živě zachyceno: JPY na 97. percentilu bylo top příležitost přesně
-        // v týdnu, kdy to mělo číst jako riziko obratu, ne jako potvrzení směru.
-        crowded: isCotCrowded(s.cot_percentile ?? null),
       };
     });
 
@@ -124,24 +118,14 @@ export async function computeTopOpportunity() {
     return null;
   }
 
-  // P0.2 (Cowork report, 21.9.2026): crowded měna se nesmí vybrat jako "nejsilnější/
-  // nejslabší" — přednost mají necrowded kandidáti. Když by tím zbyla necrowded pool <2
-  // (víc měn crowded najednou), appka radši ukáže srovnání se VŠEMI kandidáty a řekne to
-  // v rationale, než aby mlčela — "žádné srovnání" by tu bylo horší než "srovnání s výhradou".
-  const eligible = candidates.filter((c) => !c.crowded);
-  const usedFallback = eligible.length < 2;
-  const pool = usedFallback ? candidates : eligible;
+  const pool = candidates;
 
   const sorted = pool.slice().sort((a, b) => b.overallScore - a.overallScore);
   const strongest = sorted[0];
   const weakest = sorted[sorted.length - 1];
   const spread = strongest.overallScore - weakest.overallScore;
   const tier = computeTier(strongest, weakest, spread);
-  let rationale = buildRationale(strongest, weakest, tier);
-  if (usedFallback) {
-    rationale += " Pozn.: víc měn má teď extrémně crowded pozicování, takže srovnání zahrnuje i je (necrowded kandidátů bylo < 2).";
-  }
-
+  const rationale = buildRationale(strongest, weakest, tier);
   const { error: upsertErr } = await supabase.from("weekly_top_opportunity").upsert(
     {
       id: true,

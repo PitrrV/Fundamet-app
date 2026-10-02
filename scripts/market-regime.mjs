@@ -168,3 +168,19 @@ export async function computeMarketRegime() {
 
   return { regimeInfo, usd2yYield };
 }
+
+/**
+ * Poslední US 2Y výnos z FRED (DGS2) — jediná část market-regime.mjs, kterou appka ještě
+ * používá (priced-in USD, viz yieldGapPricedIn). VIX/risk režim už z appky odešel — není to
+ * fundament, řeší ho Fx-Analyzer. Při selhání fetch vrací null (volající zůstane u
+ * decision_consensus metody), nikdy nehází.
+ */
+export async function fetchUsd2yYield() {
+  try {
+    const rows = await fetchFredSeries("DGS2");
+    return rows.length > 0 ? rows[rows.length - 1].value : null;
+  } catch (err) {
+    console.error("FRED DGS2 fetch selhal:", err.message);
+    return null;
+  }
+}

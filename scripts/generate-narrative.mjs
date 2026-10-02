@@ -1,6 +1,5 @@
-// "Vypravěč" — skládá ze VŠECH pilířů (COT + retail pozicování + fundament/kalendář +
-// CB politika/real yield/zaceněnost + risk režim + basket kontext) soudržný fundamentální
-// příběh přes OpenAI, včetně explicitní scénářové predikce ("když X, tak Y") pro nejbližší
+// "Vypravěč" — skládá z fundamentu (kalendář + CB politika/real yield/zaceněnost + basket
+// kontext) soudržný fundamentální příběh přes OpenAI; COT je jen doplňkový údaj, včetně explicitní scénářové predikce ("když X, tak Y") pro nejbližší
 // důležité eventy. Tohle je jediný krok v pipeline, který skutečně "rozumí" datům, ne jen
 // počítá vzorec — proto LLM, ne deterministický kód.
 
@@ -167,18 +166,17 @@ const GLOSSARY = `ZÁVAZNÁ TERMINOLOGIE — appka tyhle výrazy používá v UI
 - pricedIn → "zaceněnost"
 - positioning → "pozicování"
 - leveraged funds → "velcí spekulanti"
-- retail sentiment → "retail sentiment" nebo "pozicování drobných spekulantů"
 - beat / miss → "překonal odhad" / "zaostal za odhadem"
 - driver → "driver" (běžně se v češtině v tomhle oboru nepřekládá)
 
 Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná. Piš VÝHRADNĚ latinkou s českou diakritikou — appka živě zachytila případ, kdy se v jinak českém textu objevila azbuka; žádné jiné písmo (cyrilice, řečtina, CJK znaky...) se do odpovědi nesmí dostat ani omylem.`;
 
 const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
-- COT pozicování velkých spekulantů (cot) a retail pozicování malých spekulantů (retailSentiment) — pozicování je RIZIKOVÝ FILTR, ne směrový signál: přeplněný obchod je křehký, i správná teze se dá vyždímat. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné, a na které straně (long/short) — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG — to je protiintuitivní a appka to proto počítá za tebe.
-- Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental).
+- Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental) — celkové skóre měny (cot.overallScore) je ČISTĚ fundament: překvapení z kalendáře + CB politika + real yield. Příběh má vyprávět fundamentální stav měny: co dělá centrální banka, jak vypadá inflace, trh práce, růst a poptávka a co se naposledy změnilo.
+- COT pozicování velkých spekulantů (cot) je pouze DOPLŇKOVÝ údaj — NENÍ součástí skóre ani teze a není to fundament. Zmiň ho nanejvýš jednou krátkou větou na konci jako kontext rizika přeplnění, nikdy ne jako důvod ani potvrzení směru. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné a na které straně — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG.
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
   - upcoming_decision.drift (když je přítomné a "shifted" je true) říká, jak se konsensus posunul OD PRVNÍHO snímku, co appka zachytila: "firstEstimateRate" byl konsensus tehdy, dnešní je "estimateRate" (viz výš), "daysTracked" je počet dní, co appka tenhle posun sleduje, "daysUntilDecision" je počet dní do samotného rozhodnutí. Když "shifted" je false nebo drift chybí, konsensus se nehnul — o žádném posunu nepiš. Když "imminent" je true (posun JE + rozhodnutí je blízko), zmiň to o něco výrazněji, protože jde o čerstvou repricingovou událost těsně před rozhodnutím — např. "trh v posledních X dnech přehodnotil očekávání z Y % na Z %, rozhodnutí je už za N dní". Vždy jde o POPIS FAKTU o vývoji tržního očekávání, NIKDY o doporučení k pozici ("je čas se pozicovat", "vstupte teď" apod. NEPIŠ) — appka neřeší timing ani vstup do obchodu (viz ohraničení role níž), jen zviditelňuje, že se něco v očekávání děje, ať si čtenář všimne sám.
-- Risk-on/risk-off tržní režim (riskRegime) — v risk-off táhnou JPY/CHF bez ohledu na vlastní data, v risk-on táhnou AUD/NZD/CAD. Od opravy 5.9.2026 je tohle ČISTĚ tržní kontext/prostředí, NENÍ součástí číselného skóre měny — piš o něm jako o prostředí, ve kterém se měna obchoduje ("risk-on prostředí podporuje AUD/NZD"), NIKDY jako o bodovém příspěvku do skóre ("AUD získává +0,4 bodu díky risk režimu" je špatně, protože už to není pravda).
+- Retail sentiment, VIX ani risk-on/risk-off režim appka neřeší (nejsou to fundament) — NIKDY o nich nepiš.
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci. KRITICKÉ: basketContext je pro tvou orientaci, NIKDY z něj neopisuj konkrétní číslo skóre jiné měny do textu (svoje vlastní skóre číslem popsat smíš, cizí ne). Pole "rankingSummary" (když není null) je HOTOVÁ, appkou spočítaná věta o tom, vůči kterým měnám je tahle měna dnes silnější/slabší — jakékoli srovnání s konkrétní jinou měnou v textu smí vycházet JEN z týhle věty (klidně ji parafrázuj/zapracuj vlastními slovy), nikdy nevymýšlej vlastní srovnání navíc ani ho neobracej. Živě zachycená chyba: narativ AUD tvrdil "GBP je silnější", zatímco skutečné skóre (AUD 1,4 vs. GBP 0,8) říkalo pravý opak — takové tvrzení, co si appka nemůže ověřit proti "rankingSummary", se nesmí opakovat.
 - Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
@@ -204,7 +202,7 @@ export const NARRATIVE_PROMPT = `${SHARED_CONTEXT}
 
 Dostaneš navíc kontext zbytku koše měn (basketContext) a hotovou větu o pořadí vůči koši (rankingSummary, viz výš) — FX je vždy relativní, piš o měně i VE VZTAHU k ostatním, ne v izolaci, ale konkrétní srovnání s jinou měnou opírej VÝHRADNĚ o "rankingSummary" — a nadcházející (upcomingEvents) i nedávno vyšlé eventy (recentEvents).
 
-Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE COT pozicování zůstává extrémně long a historicky se po podobných zklamáních měna spíš stabilizovala"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
+Tvým úkolem je napsat soudržný fundamentální příběh v češtině — ne jen popsat čísla, ale vysvětlit PROČ se měna chová, jak se chová, včetně situací, kdy jednotlivá data protiřečí (např. "poslední data vyšla hůř, než se čekalo, ALE centrální banka právě zvedla sazby a reálný výnos zůstává kladný"). Dej explicitní upozornění na navazující eventy — pokud se blíží důležité rozhodnutí, ale předtím vyjde jiný klíčový event, řekni to jasně a vysvětli, proč na to čekat.
 
 POLE "thesis_change_note" — vysvětlení posledního pohybu skóre. Píšeš ho jako makro analytik hedgeového fondu, který vysvětluje kolegovi, co se změnilo a jestli to má nějaký význam.
 
@@ -245,7 +243,7 @@ Pro KAŽDÝ event ve "scenarioSeeds" vyplň:
 - "market_expectation": co trh čeká, přeložené do makro věty, ne holé číslo — konsensus VŮČI předchozí hodnotě a co ta trajektorie implikuje ("čeká se zpomalení na 2.4 % z 2.6 %, tedy potvrzení dezinflace a prostor pro další cut").
 - "thesis_test": KONKRÉTNÍ laťka — co by muselo vyjít, aby to současnou tezi skutečně změnilo, ne vágní "kdyby to bylo horší". Kde to jde, uveď přibližnou hodnotu nebo rozsah a řekni, kterého driveru teze by se to dotklo. Pokud tenhle event tezí realisticky pohnout NEMŮŽE, napiš to na rovinu — to je cenná informace, ne selhání.
 - "reaction": "silná" = trh na to reálně zareaguje; "omezená" = z velké části už v ceně nebo nízká informační hodnota; "asymetrická" = jedna strana překvapení hne trhem výrazně víc než druhá.
-- "reaction_note": jedna věta PROČ — opři se o zaceněnost (cbPolicy.pricedIn), pozicování (cot/retailSentiment, cotPercentile — přeplněný obchod zvětšuje reakci na překvapení proti pozici) a risk režim. U "asymetrická" VŽDY řekni, KTERÁ strana překvapení váží víc a proč.
+- "reaction_note": jedna věta PROČ — opři se o zaceněnost (cbPolicy.pricedIn) a o to, jak moc print míří na hlavní drivery teze. U "asymetrická" VŽDY řekni, KTERÁ strana překvapení váží víc a proč.
 
 Navíc: pokud má seed vyplněné pole "actual" (výsledek už je zveřejněný), napiš i "outcome" — profesionální zhodnocení SKUTEČNÉHO výsledku, ne jen zopakování čísel. Řekni, jestli to bylo beat/miss/v souladu s konsensem, JAK moc to bylo signifikantní, a co to znamená DÁL — potvrdil ten výsledek tezi, nebo jí odporuje? Piš to jako trader, co právě dostal číslo na obrazovku. "outcome" MUSÍ být VŽDY buď null (event ještě neproběhl), NEBO alespoň jedna celá věta s vysvětlením (minimálně 15-20 slov) — NIKDY jen holé slovo jako "beat", "miss" nebo "v souladu", to je pro tradera k ničemu.
 
@@ -337,11 +335,6 @@ export async function loadBasketContext() {
   return map;
 }
 
-export async function loadMarketRegime() {
-  const { data } = await supabase.from("market_regime").select("vix, vix_5d_change, regime").limit(1);
-  return data?.[0] ?? null;
-}
-
 // Vybere eventy pro makro agendu z kombinovaného okna (nedávno vyšlé + nadcházející).
 // Eventy, co ve svém okně `actual` UŽ mají, zůstávají v agendě pár dní
 // (SCENARIO_LOOKBACK_DAYS) po zveřejnění, aby appka mohla okomentovat i skutečný výsledek,
@@ -427,12 +420,8 @@ function selectFlaggedEvents(upcoming, max = MAX_FLAGGED_EVENTS) {
 // — od téhle opravy ale risk režim/VIX už NENÍ součástí overall_score (viz fetch-calendar.mjs,
 // komentář u overallRaw), takže by jeho delta v týhle tabulce nesprávně naznačovala, že vysvětluje
 // část pohybu skóre, i když matematicky už na overall_score vůbec nemá vliv. Zbylé tři komponenty
-// (fund/cot/retail) jsou teď jediné, co overall_score skutečně skládají.
-const SCORE_COMPONENTS = [
-  { key: "fundamental_score_adj", label: "Fundament vč. CB politiky/real yieldu" },
-  { key: "cot_score", label: "COT pozicování" },
-  { key: "retail_score", label: "Retail sentiment" },
-];
+// (zůstala jen fundamentální komponenta — COT/retail/VIX už overall_score neskládají).
+const SCORE_COMPONENTS = [{ key: "fundamental_score_adj", label: "Fundament vč. CB politiky/real yieldu" }];
 
 function buildScoreChange(snapsDesc) {
   if (!Array.isArray(snapsDesc) || snapsDesc.length < 2) return null;
@@ -475,10 +464,9 @@ function buildScoreChange(snapsDesc) {
 // Otisk je rozpadlý po sekcích, ne jeden slepený hash — díky tomu z porovnání vypadne rovnou
 // DŮVOD regenerace ("změna: teze, kalendář") místo pouhého "něco se změnilo".
 const SECTION_LABELS = {
-  scores: "skóre/pozicování",
+  scores: "skóre",
   thesis: "teze",
   cbPolicy: "CB politika",
-  riskRegime: "risk režim",
   basket: "koš měn (překlopení směru)",
   seeds: "kalendář/výsledky",
 };
@@ -537,17 +525,14 @@ export function buildRankingSummary(ownScore, otherCurrencies) {
 }
 
 function buildInputFingerprint(context) {
-  const { cot, fundamental, cbPolicy, thesis, retailSentiment, riskRegime, basketContext, scenarioSeeds } = context;
+  const { cot, fundamental, cbPolicy, thesis, basketContext, scenarioSeeds } = context;
 
   return {
+    // Jen fundamentální skóre — COT je doplňkový údaj a text kvůli jeho týdenní změně nepřegenerováváme.
     scores: sectionHash({
-      cot: round1(cot?.cotScore),
       overall: round05(cot?.overallScore),
       fundamental: round05(fundamental?.fundamental_score),
       stars: cot?.convictionStars ?? null,
-      positioning: cot?.positioningLabel ?? null,
-      percentile: cot?.cotPercentile ?? null,
-      retail: round1(retailSentiment?.score),
     }),
     thesis: sectionHash({
       direction: thesis?.direction ?? null,
@@ -580,9 +565,6 @@ function buildInputFingerprint(context) {
           }
         : null,
     }),
-    // Jen REŽIM, ne surový VIX. VIX se hýbe každých 15 minut a jeho zahrnutí by otisk
-    // zneplatňovalo prakticky pořád, aniž by se příběh reálně změnil.
-    riskRegime: sectionHash(riskRegime?.regime ?? null),
     // Jen ZNAMÉNKO skóre ostatních měn, ne hodnota. Relativní rámování v příběhu se mění, až
     // když některá měna překlopí směr. Kdyby se hashovaly hodnoty, jakýkoli pohyb kterékoli
     // měny by přegeneroval všech osm a optimalizace by ztratila smysl.
@@ -608,7 +590,7 @@ function changedSections(previous, next) {
   return Object.keys(next).filter((key) => previous[key] !== next[key]);
 }
 
-export async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext, marketRegime) {
+export async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext) {
   const today = isoToday();
   const upcomingCutoff = new Date(Date.now() + UPCOMING_DAYS * 86400000).toISOString().slice(0, 10);
   const recentCutoff = new Date(Date.now() - RECENT_DAYS * 86400000).toISOString().slice(0, 10);
@@ -616,7 +598,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
   const { data: cotRows } = await supabase
     .from("latest_confluence_scores")
     // summary záměrně nevybíráme — viz komentář u sestavení `cot` payloadu níž.
-    .select("cot_score, overall_score, cot_positioning_label, conviction_label, conviction_stars, conviction_reasons, retail_score, cot_percentile, data_tier")
+    .select("cot_score, overall_score, cot_positioning_label, conviction_label, conviction_stars, conviction_reasons, cot_percentile, data_tier")
     .eq("currency_code", currencyCode)
     .limit(1);
   const cotRow = cotRows?.[0] ?? null;
@@ -648,7 +630,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
   // změny. Model nesmí atribuci odhadovat; dostane spočítané delty po komponentách.
   const { data: snaps } = await supabase
     .from("score_snapshots")
-    .select("overall_score, fundamental_score_adj, cot_score, retail_score, risk_adj, conviction_stars, recorded_at")
+    .select("overall_score, fundamental_score_adj, conviction_stars, recorded_at")
     .eq("currency_code", currencyCode)
     .order("recorded_at", { ascending: false })
     .limit(2);
@@ -758,8 +740,6 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
       }
     : null;
 
-  const retailSentiment = cotRow?.retail_score != null ? { score: cotRow.retail_score, cotPercentile: cotRow.cot_percentile } : null;
-
   const otherCurrencies = Object.fromEntries(Object.entries(basketContext).filter(([code]) => code !== currencyCode));
   const rankingSummary = buildRankingSummary(cotRow?.overall_score ?? null, otherCurrencies);
 
@@ -770,8 +750,6 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     thesis,
     scoreChange,
     recentLedger: ledgerRows ?? [],
-    retailSentiment,
-    riskRegime: marketRegime,
     basketContext: otherCurrencies,
     rankingSummary,
     upcoming,
@@ -1124,7 +1102,7 @@ export async function callStructuredCompletion({
 // slouží pro A/B srovnání modelů (viz níže), kde appka potřebuje vynutit konkrétní model a
 // přečíst si spotřebu tokenů bez zápisu do produkční tabulky narratives.
 export async function generateNarrativePart(currencyCode, context, model = OPENAI_MODEL, onUsage) {
-  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, retailSentiment, riskRegime, basketContext, upcoming, recent, flaggedEvents } = context;
+  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, basketContext, upcoming, recent, flaggedEvents } = context;
 
   const payload = {
     currency: currencyCode,
@@ -1134,8 +1112,6 @@ export async function generateNarrativePart(currencyCode, context, model = OPENA
     thesis,
     scoreChange,
     recentLedger,
-    retailSentiment,
-    riskRegime,
     basketContext,
     upcomingEvents: upcoming,
     recentEvents: recent,
@@ -1170,7 +1146,7 @@ export async function generateNarrativePart(currencyCode, context, model = OPENA
 // generovalo obojí naráz, agenda shrnutí vůbec neviděla. Užší payload než krok 1 (bez koše měn
 // a bez obou proudů eventů), takže rozdělení nezdvojnásobí vstupní tokeny.
 export async function generateAgendaPart(currencyCode, context, narrative, model = OPENAI_MODEL, onUsage) {
-  const { cot, cbPolicy, thesis, retailSentiment, riskRegime, scenarioSeeds } = context;
+  const { cot, cbPolicy, thesis, scenarioSeeds } = context;
 
   if (scenarioSeeds.length === 0) return [];
 
@@ -1180,8 +1156,6 @@ export async function generateAgendaPart(currencyCode, context, narrative, model
     cot,
     cbPolicy,
     thesis,
-    retailSentiment,
-    riskRegime,
     scenarioSeeds,
   };
 
@@ -1339,8 +1313,6 @@ function contextScoreSnapshot(context) {
   return {
     overall_score: context.cot?.overallScore ?? null,
     fundamental_score: context.fundamental?.fundamental_score ?? null,
-    cot_score: context.cot?.cotScore ?? null,
-    retail_score: context.retailSentiment?.score ?? null,
   };
 }
 
@@ -1350,15 +1322,13 @@ async function readLiveScoreSnapshot(currencyCode) {
   const [{ data: cotRows }, { data: fundRows }] = await Promise.all([
     supabase
       .from("latest_confluence_scores")
-      .select("overall_score, cot_score, retail_score")
+      .select("overall_score")
       .eq("currency_code", currencyCode)
       .limit(1),
     supabase.from("latest_fundamental_scores").select("fundamental_score").eq("currency_code", currencyCode).limit(1),
   ]);
   return {
     overall_score: cotRows?.[0]?.overall_score ?? null,
-    cot_score: cotRows?.[0]?.cot_score ?? null,
-    retail_score: cotRows?.[0]?.retail_score ?? null,
     fundamental_score: fundRows?.[0]?.fundamental_score ?? null,
   };
 }
@@ -1366,7 +1336,7 @@ async function readLiveScoreSnapshot(currencyCode) {
 // null vs. číslo se počítá jako neshoda (appka radši jednou navíc přegeneruje, než aby tiše
 // nechala projít stav, kdy pilíř mezitím zmizel nebo nově přibyl).
 function scoresDiffer(used, live) {
-  return ["overall_score", "fundamental_score", "cot_score", "retail_score"].some((key) => {
+  return ["overall_score", "fundamental_score"].some((key) => {
     const a = used[key];
     const b = live[key];
     if (a === null || b === null) return a !== b;
@@ -1375,7 +1345,7 @@ function scoresDiffer(used, live) {
 }
 
 // `reloadContext` je async funkce bez argumentů — main() ji zavře nad currencyCode/
-// allCalendarEvents/basketContext/marketRegime, ať tahle funkce nemusí znát nic z volajícího
+// allCalendarEvents/basketContext, ať tahle funkce nemusí znát nic z volajícího
 // kontextu kromě toho, co dostane jako parametr.
 async function generateForCurrency(currencyCode, context, inputFingerprint, reloadContext) {
   const { cot, fundamental, upcoming, recent } = context;
@@ -1478,7 +1448,6 @@ async function main() {
   }
 
   const basketContext = await loadBasketContext();
-  const marketRegime = await loadMarketRegime();
 
   // Otisky vstupů z posledních narrativů — jeden dotaz pro všechny měny.
   // Kdyby dotaz selhal (typicky ještě neproběhla migrace schema-input-fingerprint.sql),
@@ -1508,7 +1477,7 @@ async function main() {
   let ok = 0;
   let skipped = 0;
   for (const { code } of targetCurrencies) {
-    const context = await loadCurrencyContext(code, allCalendarEvents ?? [], basketContext, marketRegime);
+    const context = await loadCurrencyContext(code, allCalendarEvents ?? [], basketContext);
     const fingerprint = buildInputFingerprint(context);
     const changed = changedSections(fingerprintByCode.get(code), fingerprint);
 
@@ -1540,10 +1509,10 @@ async function main() {
           : `změna: ${changed.map((k) => SECTION_LABELS[k] ?? k).join(", ")}`;
     console.log(`[${code}] generuji — ${reason}.`);
 
-    // Uzavírá code/allCalendarEvents/basketContext/marketRegime — freshness-check v
+    // Uzavírá code/allCalendarEvents/basketContext — freshness-check v
     // generateForCurrency ji zavolá jen když zjistí, že se skóre mezitím posunulo, ne při
     // každém běhu (opětovné čtení calendar_events by bylo zbytečně drahé).
-    const reloadContext = () => loadCurrencyContext(code, allCalendarEvents ?? [], basketContext, marketRegime);
+    const reloadContext = () => loadCurrencyContext(code, allCalendarEvents ?? [], basketContext);
 
     const success = await generateForCurrency(code, context, fingerprint, reloadContext);
     if (success) ok++;

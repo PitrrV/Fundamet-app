@@ -44,7 +44,7 @@ async function main() {
 
   const { data: conf, error: e2 } = await supabase
     .from("latest_confluence_scores")
-    .select("currency_code, overall_score, cot_score, retail_score");
+    .select("currency_code, overall_score");
   if (e2) {
     console.error("Nepodařilo se načíst latest_confluence_scores:", e2.message);
     process.exit(1);
@@ -79,8 +79,6 @@ async function main() {
 
     const live = {
       overall_score: confByCode[code]?.overall_score ?? null,
-      cot_score: confByCode[code]?.cot_score ?? null,
-      retail_score: confByCode[code]?.retail_score ?? null,
       fundamental_score: fundByCode[code]?.fundamental_score ?? null,
     };
 
@@ -91,12 +89,6 @@ async function main() {
     }
     if (differs(snap.fundamental_score, live.fundamental_score)) {
       mismatches.push(`fundamental_score: text=${snap.fundamental_score} živé=${live.fundamental_score}`);
-    }
-    if (differs(snap.cot_score, live.cot_score)) {
-      mismatches.push(`cot_score: text=${snap.cot_score} živé=${live.cot_score}`);
-    }
-    if (differs(snap.retail_score, live.retail_score)) {
-      mismatches.push(`retail_score: text=${snap.retail_score} živé=${live.retail_score}`);
     }
 
     if (mismatches.length > 0) {

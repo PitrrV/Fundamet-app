@@ -36,18 +36,23 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY ? createClient(SUPABASE_UR
 // converguje na 0 driverů (classifyThesisUpdate níž), a existující logika (nextDrivers.length
 // === 0 -> status "watching") je bez dalšího zásahu korektně schová — stejné chování jako u
 // staré 0-driver ochrany v runThesisEngineForCurrency.
+// Teze je ČISTĚ fundamentální: drivery jsou jen fundament z kalendáře a CB politika/real yield.
+// COT, retail a risk režim (VIX) už driverem teze nejsou (nejsou to fundament). Staré teze,
+// co ještě nesou cot_positioning/retail_sentiment/risk_regime driver, se přirozeně vyčistí:
+// pillarValues ten klíč nemá, takže ho classifyThesisUpdate podruhé po sobě zpochybní a odebere
+// (teze bez driveru pak přejde do "watching"). Štítky starých driverů zůstávají jen kvůli
+// čitelnosti záznamů v ledgeru.
 export const DRIVER_THRESHOLDS = {
   fundamental_data: 1.5, // fundamentalScoreAdj, škála -5..5
-  cot_positioning: 1.5, // cot_score, škála -5..5
   cb_policy: 0.4, // cbPolicyAdj + realYieldAdj, škála zhruba -1.75..1.75
-  retail_sentiment: 1.5, // retailScore, škála -5..5
 };
 
 const DRIVER_LABELS = {
   fundamental_data: "Fundamentální data",
-  cot_positioning: "COT pozicování",
   cb_policy: "CB politika / real yield",
-  retail_sentiment: "Retail sentiment",
+  cot_positioning: "COT pozicování (již není driver)",
+  retail_sentiment: "Retail sentiment (již není driver)",
+  risk_regime: "Risk režim (již není driver)",
 };
 
 const THESIS_DIRECTION_DEADZONE = 0.3; // |overall_score| pod tímhle = neutrální teze
@@ -259,8 +264,8 @@ async function closeThesis(thesisId, reasoning) {
 /**
  * Hlavní vstupní bod — volá se z fetch-calendar.mjs po přepočtu overall_score pro danou měnu.
  * @param {string} currencyCode
- * @param {{overallScore:number, convictionStars:number, fundamentalScoreAdj:number, cotScore:number,
- *          cbPolicyAdj:number, realYieldAdj:number, retailScore:number,
+ * @param {{overallScore:number, convictionStars:number, fundamentalScoreAdj:number,
+ *          cbPolicyAdj:number, realYieldAdj:number,
  *          fundamentalEventLabel?:string|null}} pillars fundamentalEventLabel = název dnešního
  *          eventu, co nejvíc táhne fundamentalScoreAdj (viz todaysFundamentalEventLabel ve
  *          fetch-calendar.mjs) — jen kosmetika do reasoning textu u driver_key=fundamental_data.
@@ -283,9 +288,7 @@ export async function runThesisEngineForCurrency(currencyCode, pillars) {
 
   const pillarValues = {
     fundamental_data: pillars.fundamentalScoreAdj,
-    cot_positioning: pillars.cotScore,
     cb_policy: (pillars.cbPolicyAdj ?? 0) + (pillars.realYieldAdj ?? 0),
-    retail_sentiment: pillars.retailScore,
   };
   const direction = directionFromScore(pillars.overallScore);
   const now = new Date();

@@ -62,35 +62,6 @@ function impactBadgeClasses(impact: "Low" | "Medium" | "High"): string {
   return "border-line text-faint";
 }
 
-function retailSentimentLabel(score: number | null): string {
-  if (score === null) return "Zatím nedostupné";
-  const formatted = `${score > 0 ? "+" : ""}${score.toFixed(1)}`;
-  if (score <= -2.5) return `${formatted} — dav nakoupen nahoru (kontrariánsky medvědí)`;
-  if (score >= 2.5) return `${formatted} — dav prodává (kontrariánsky býčí)`;
-  return `${formatted} — bez extrému`;
-}
-
-function riskRegimeLabel(regime: CurrencyData["riskRegime"]): string {
-  if (!regime) return "Zatím nedostupné";
-  const label = regime.regime === "RISK_ON" ? "RISK-ON" : regime.regime === "RISK_OFF" ? "RISK-OFF" : "NEUTRÁLNÍ";
-  return `${label} · VIX ${regime.vix.toFixed(1)} (5d ${regime.vix5dChange > 0 ? "+" : ""}${regime.vix5dChange.toFixed(1)})`;
-}
-
-// Intradenní broker positioning (MyFxbook/FXSSI) — ČISTĚ informační dlaždice. Post-audit F
-// backtest (9/2026, Δ24H vs. následující denní return, 344 pozorování po opravě datové mezery
-// 31.7.) nenašel žádnou prokazatelnou predikční hodnotu — proto se tahle funkce záměrně NEDÍVÁ
-// na hodnotu (žádné "roste/klesá = bullish/bearish", žádná barva, žádný barPct). Vždycky stejná
-// neutrální poznámka, ať appka časem omylem nezačne vypadat, že tu něco predikuje.
-function retailIntradayDisplay(ri: CurrencyData["retailIntraday"]): { value: string; sub: string | null; interpretation: string } {
-  if (!ri) return { value: "Zatím nedostupné", sub: null, interpretation: "Bez prokázané predikční výhody" };
-  const deltaStr = ri.delta24h !== null ? `Δ24H ${ri.delta24h > 0 ? "+" : ""}${ri.delta24h.toFixed(1)} p.b.` : "Δ24H zatím nedostupné";
-  return {
-    value: `${ri.longPct.toFixed(0)} % long`,
-    sub: `${deltaStr} · zdroj: broker positioning (MyFxbook/FXSSI)`,
-    interpretation: "Bez prokázané predikční výhody (backtest 9/2026)",
-  };
-}
-
 // Jednověté, okamžitě čitelné shrnutí "co to znamená" nad syrová čísla pilíře — deterministicky
 // odvozené z už spočtených polí cbPolicy (žádné nové LLM volání, žádné domýšlení).
 function pricedInInterpretation(cbPolicy: CurrencyData["cbPolicy"]): string {
@@ -676,7 +647,7 @@ export default function App() {
                         {c.score.toFixed(1)}
                       </span>
                       <span className={`text-[10px] tracking-wide ${convictionColor(c.convictionLabel)}`}>
-                        {c.convictionStars ?? 0}/5
+                        {c.convictionStars ?? 0}/3
                       </span>
                     </button>
                   );
@@ -907,17 +878,11 @@ export default function App() {
               )}
             </div>
 
-            {/* PILÍŘE — vstupy, ze kterých skóre vzniklo. Dřív byly schované uvnitř panelu
-                se shrnutím, kam logicky nepatří: nejsou to závěry, jsou to data. */}
+            {/* FUNDAMENT — vstupy, ze kterých skóre a teze vznikly. Appka je čistě fundamentální:
+                skóre tvoří jen kalendář, CB politika a real yield. */}
             <Card className="p-5">
-              <SectionTitle hint="Vstupy, ze kterých skóre a teze vznikly.">Pilíře</SectionTitle>
+              <SectionTitle hint="Fundamentální vstupy, ze kterých skóre a teze vznikly.">Fundament</SectionTitle>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
-                <Pillar
-                  label="COT pozicování"
-                  value={currency.cotPositioning}
-                  sub={currency.cotPercentile !== null ? `${currency.cotPercentile}. percentil` : null}
-                  barPct={currency.cotPercentile}
-                />
                 <Pillar
                   label="Fundamentální skóre"
                   value={
@@ -926,8 +891,13 @@ export default function App() {
                       : "—"
                   }
                 />
-                <Pillar label="Retail sentiment" value={retailSentimentLabel(currency.retailScore)} />
-                <Pillar label="Retail (intradenní, broker)" {...retailIntradayDisplay(currency.retailIntraday)} />
+                <Pillar
+                  label="Dlouhodobý bias (CB)"
+                  interpretation={longTermBiasInterpretation(currency.cbPolicy)}
+                  value={currency.longTermBias ?? "—"}
+                  sub={upcomingDecisionNote(currency.cbPolicy)}
+                />
+                <Pillar label="Real yield" {...realYieldDisplay(currency.cbPolicy)} />
                 <Pillar
                   label="Zaceněnost"
                   interpretation={pricedInInterpretation(currency.cbPolicy)}
@@ -942,14 +912,19 @@ export default function App() {
                       : null
                   }
                 />
+              </div>
+            </Card>
+
+            {/* DOPLŇKOVÝ ÚDAJ — COT není fundament a do skóre ani teze nevstupuje. */}
+            <Card className="p-5">
+              <SectionTitle hint="Jen doplňkový údaj — nevstupuje do skóre ani do teze.">Doplněk: COT pozicování</SectionTitle>
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
                 <Pillar
-                  label="Dlouhodobý bias (CB)"
-                  interpretation={longTermBiasInterpretation(currency.cbPolicy)}
-                  value={currency.longTermBias ?? "—"}
-                  sub={upcomingDecisionNote(currency.cbPolicy)}
+                  label="COT pozicování (velcí spekulanti, týdně)"
+                  value={currency.cotPositioning}
+                  sub={currency.cotPercentile !== null ? `${currency.cotPercentile}. percentil` : null}
+                  barPct={currency.cotPercentile}
                 />
-                <Pillar label="Real yield" {...realYieldDisplay(currency.cbPolicy)} />
-                <Pillar label="Risk režim" value={riskRegimeLabel(currency.riskRegime)} />
               </div>
             </Card>
 
@@ -1054,9 +1029,9 @@ export default function App() {
 
         <footer className="text-xs text-faint pt-6 pb-10 space-y-3 border-t border-line leading-relaxed">
           <p>
-            COT pozicování a retail sentiment (týdně, CFTC), fundamentální skóre a CB politika/real yield
-            (ekonomický kalendář ForexFactory) a risk režim (VIX, FRED) jsou reálná a průběžně aktualizovaná
-            data. „Zaceněnost" je u většiny měn odvozená z konsensu posledního rozhodnutí, ne z reálné
+            Fundamentální skóre a CB politika/real yield (ekonomický kalendář ForexFactory) jsou reálná a
+            průběžně aktualizovaná data; COT pozicování (týdně, CFTC) je jen doplňkový údaj a do skóre
+            nevstupuje. „Zaceněnost" je u většiny měn odvozená z konsensu posledního rozhodnutí, ne z reálné
             OIS/futures křivky — metoda je vždy uvedená u čísla.
           </p>
           <p>

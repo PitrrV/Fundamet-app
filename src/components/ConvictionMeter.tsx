@@ -1,7 +1,7 @@
-// 5-segmentový bar meter nahrazující ★★★☆☆ glyfy — čistší a víc "institucionální" než
+// 3-segmentový bar meter (max. 3 nezávislé fundamentální signály) nahrazující ★★★☆☆ glyfy — čistší a víc "institucionální" než
 // hvězdičky, používá se v gauge kartě i v kartě makro teze.
 export function ConvictionMeter({ filled }: { filled: number }) {
-  const segments = Array.from({ length: 5 }, (_, i) => i < filled);
+  const segments = Array.from({ length: 3 }, (_, i) => i < filled);
   return (
     <div className="flex justify-center gap-[3px]">
       {segments.map((isFilled, i) => (

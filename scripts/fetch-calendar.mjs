@@ -9,17 +9,12 @@ import { computeFundamentalScore, computeRegimeShift, matchRule } from "./fundam
 import { planCalendarMerge } from "./calendar-merge.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { trackRateDecisionDrift } from "./rate-decision-drift.mjs";
-import { computeMarketRegime, riskAdjForCurrency, yieldGapPricedIn } from "./market-regime.mjs";
+import { fetchUsd2yYield, yieldGapPricedIn } from "./market-regime.mjs";
+import { computeOverallScore, computeConviction, convictionLabelFromStars } from "./fundamental-summary.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
 import { runDataQualityForCurrency } from "./data-quality.mjs";
 import { computeTopOpportunity } from "./top-opportunity.mjs";
-import { isCotCrowded, COT_CROWDED_DAMPENING, COT_CROWDED_PERCENTILE_HIGH, COT_CROWDED_PERCENTILE_LOW } from "./scoring.mjs";
-
-// Editorská volba vah blendu (NE zpětně testováno — stejně jako zbytek systému, viz
-// scoring.mjs a fundamental-scoring.mjs komentáře). Přibližně odpovídá neutrálním váhám
-// Fx-Analyzeru (fund .42/cot .45/sent .11/sea .02), s přerozdělenou sezónností (chybí pilíř).
-const BLEND_WEIGHTS = { fund: 0.43, cot: 0.46, retail: 0.11 };
 
 // "Den eventu" appka počítá podle pražského (uživatelova) místního času, ne podle UTC — živě
 // nahlášená chyba (NZD, audit 2026-08-03): event v 22:45 UTC je 4.8. v UTC, ale 5.8. i v Praze
@@ -363,13 +358,6 @@ async function triggerNarrativeRegeneration(reason, currencyCodes) {
 // užší filtr NAD ní, jen na pohyby, co stojí za upozornění.
 const SCORE_ALERT_THRESHOLD = 0.2;
 
-// Post-audit oprava B (5.9.2026, konzervativní varianta navržená ChatGPT po diskuzi o
-// Telegram alert stormu): kolik po sobě jdoucích úspěšných klasifikací risk režimu ze
-// STEJNÉ strany musí přijít, než se `market_regime.regime` skutečně překlopí. Prahy VIX
-// (<15/>20, viz classifyRegime v market-regime.mjs) se NEMĚNÍ — jen se debounceuje jejich
-// promítnutí do "potvrzeného" režimu, aby živý VIX kolísající 14,9→15,1→14,8 na hraně
-// prahu nezpůsobil zbytečné přepínání každých 15 minut.
-const REGIME_HYSTERESIS_CONFIRMATIONS = 2;
 
 // Pošle zprávu do Telegramu přes Bot API. Volitelné — bez TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
 // (secrets ve fetch-calendar.yml) se jen tiše přeskočí, ať appka funguje i bez nastaveného
@@ -391,10 +379,6 @@ async function sendTelegramAlert(text) {
   } catch (err) {
     console.error("Telegram alert selhal:", err.message);
   }
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
 }
 
 function daysBetween(isoDateA, isoDateB) {
@@ -482,101 +466,6 @@ function computeCotFreshness(currencyCode, cotReportDate, allEvents, todayIso) {
   return { freshness: Math.round(decay * eventPenalty * 100) / 100, ageDays, staleReason };
 }
 
-// Konvicience ze SHODY nezávislých signálů (ne z velikosti overall_score) — kolik ze 4
-// nezávislých pohledů (CB politika, real yield, fundament/kalendář, pozicování-ne-crowded)
-// ukazuje stejným směrem jako výsledné skóre. Vzor calcConvictionScore z Fx-Analyzeru,
-// přizpůsobeno na naši sadu signálů.
-//
-// Oprava P0-2 (nezávislý regresní audit, 6.9.2026, nález D1): risk_regime (VIX) tu dřív byl
-// pátým nezávislým signálem, i když byl už 5.9.2026 (Option B) vyřazen ze samotného
-// overall_score jako "čistě tržní kontext, ne bodový příspěvek". Vznikl tak rozpor: appka
-// tvrdila "VIX není součástí modelu", ale zároveň VIX dával hvězdu konvikce (živě 6/8 měn) a
-// mohl sám držet celou tezi (živě GBP: Bullish, 3 hvězdy, AKTIVNÍ — jediný driver "Risk režim
-// +0,30"). Risk regime zůstává viditelný jako kontext (UI dlaždice, riskRegime v narrativním
-// promptu), ale nikdy víc nevytváří hvězdu ani driver teze — viz stejná oprava v
-// thesis-engine.mjs (DRIVER_THRESHOLDS/pillarValues). `riskRegimeReasonLabel` beze zbytku
-// odstraněn — byl to jediný volající.
-function computeConviction(
-  overallScore,
-  { cbPolicyAdj, realYieldAdj, fundamentalScoreAdj, cotFlow, cotPercentile, scoreWithoutCot, policyLabel }
-) {
-  if (overallScore === 0) return { stars: 0, reasons: [] };
-  const dir = overallScore > 0 ? 1 : -1;
-  // `v !== null` explicitně (ne jen spoléhat na to, že Math.sign(null) vyjde 0 a null!==0 je
-  // true) — od auditu 4.9.2026 může realYieldAdj přijít jako `null` (chybí spolehlivé CPI, viz
-  // cb-policy.mjs), a hvězda za "Real yield" se v takovém případě nesmí udělit — appka o
-  // reálném výnosu té měny prostě nic neví, to není totéž jako "neshoduje se se směrem".
-  const signAgrees = (v) => v !== null && v !== 0 && Math.sign(v) === dir;
-
-  const reasons = [];
-  let stars = 0;
-
-  if (signAgrees(cbPolicyAdj)) {
-    stars++;
-    reasons.push(`CB politika: ${policyLabel}`);
-  }
-  if (signAgrees(realYieldAdj)) {
-    stars++;
-    reasons.push(`Real yield: ${realYieldAdj > 0 ? "+" : ""}${realYieldAdj} vůči průměru koše měn`);
-  }
-  if (Math.abs(fundamentalScoreAdj) >= 1 && signAgrees(fundamentalScoreAdj)) {
-    stars++;
-    reasons.push(`Fundament/kalendář: ${fundamentalScoreAdj > 0 ? "+" : ""}${fundamentalScoreAdj}`);
-  }
-  // Nezávislý audit (Fable, 3.9.2026), položka #5: tenhle blok dřív kontroloval jen "není
-  // crowded" (cotPercentile) a "Math.abs(overallScore) >= 1" — tedy magnitudu BLENDOVANÉHO
-  // skóre, ne COT vlastní hodnoty. cot_score přitom má v blendu (BLEND_WEIGHTS.cot = 0.46, viz
-  // výš) nejvyšší váhu ze všech pilířů — hvězda pro "Pozicování" tak mohla appce přiznat
-  // COT nezávislé potvrzení směru, i když COT skóre bylo ve skutečnosti NULOVÉ, NEUTRÁLNÍ, nebo
-  // dokonce v OPAČNÉM směru než overall_score (percentil sám o sobě znaménko neurčuje — 45.
-  // percentil může být lehce long i lehce short, podle toho, kde leží zbytek historie). Živě
-  // ověřeno: CAD (cot_score +1.20, jasně souhlasí) hvězdu nedostal jen proto, že overall_score
-  // (0.90) nedosáhl prahu 1 — zatímco COT samo o sobě bylo silnější potvrzení než "Real yield"
-  // pilíř, který hvězdu dostal bez jakéhokoli prahu na velikost.
-  //
-  // Oprava (3.9.2026): stejná konvence jako fundamentalScoreAdj (Math.abs(...) >= 1, stejná
-  // škála -5..5) — hvězda vyžaduje, aby COT SKÓRE SAMO souhlasilo se směrem a nebylo
-  // zanedbatelně malé, NE jen aby overall_score (kam COT už svou vahou přispělo) byl velký.
-  //
-  // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2 — druhá vrstva stejného
-  // problému: `signAgrees(cotScore)` porovnávala COT proti `dir`, což je znaménko CELÉHO
-  // overall_score — a cot_score v něm má nejvyšší váhu ze všech pilířů (0.46). Živě naměřeno
-  // (155 snímků): corr(overall_score, cot_score) = 0.964, sign(overall) == sign(cot) v 95 %
-  // pozorování — COT tak "souhlasil se směrem" skoro tautologicky, protože ten směr většinou
-  // sám určil. Hvězda se z 63 % (stará chyba) posunula na 89 % (po první opravě) fire rate,
-  // aniž by měřila nezávislé potvrzení.
-  //
-  // Oprava: hvězda teď porovnává COT se směrem OSTATNÍCH pilířů BEZ COT (scoreWithoutCot —
-  // fund + retail + risk, viz volající místo), ne s celkovým skóre, do kterého COT sám
-  // přispěl. To je skutečná nezávislá shoda — souhlasí pozicování s tím, co říká zbytek
-  // systému, ne samo se sebou. "Crowded" filtr zůstává vázaný na PUBLIKOVANÝ směr tezí (dir,
-  // z overall_score) — to je správně, crowding je riziko vůči tomu, co appka fakticky tvrdí,
-  // ne vůči hypotetickému "skóre bez COT".
-  //
-  // Nezávislý report (Cowork, 21.9.2026), P0.2: `cotScore` mísí extrém úrovně (60 %, totéž,
-  // co měří `cotPercentile` — proto zrovna ta kombinace vedla k "COT souhlasí se směrem"
-  // skoro tautologicky u crowded pozic) s momentem (40 %). Hvězda teď používá `cotFlow`
-  // (čistě směrová složka, viz scoring.mjs) — stejný princip jako přechod z overall_score na
-  // scoreWithoutCot výš: nezávislé potvrzení musí měřit SMĚR, ne "jak extrémní je úroveň".
-  const crowdedAgainst = cotPercentile !== null && ((dir > 0 && cotPercentile >= COT_CROWDED_PERCENTILE_HIGH) || (dir < 0 && cotPercentile <= COT_CROWDED_PERCENTILE_LOW));
-  const dirWithoutCot = scoreWithoutCot > 0 ? 1 : scoreWithoutCot < 0 ? -1 : 0;
-  const cotAgreesIndependently = cotFlow !== null && cotFlow !== 0 && dirWithoutCot !== 0 && Math.sign(cotFlow) === dirWithoutCot;
-  if (Math.abs(cotFlow) >= 1 && cotAgreesIndependently && !crowdedAgainst) {
-    stars++;
-    reasons.push(
-      cotPercentile !== null
-        ? `Pozicování: ${cotPercentile}. percentil, souhlasí se směrem a není crowded`
-        : "Pozicování: souhlasí se směrem (bez dat o percentilu)"
-    );
-  }
-  return { stars: Math.min(5, stars), reasons };
-}
-
-function convictionLabelFromStars(stars) {
-  const base = stars >= 4 ? "VYSOKÁ" : stars >= 2 ? "STŘEDNÍ" : "NÍZKÁ";
-  return `${base} CONVICTION (${stars}/5 NEZÁVISLÝCH SIGNÁLŮ SOUHLASÍ)`;
-}
-
 // PostgREST vrací max 1000 řádků na dotaz bez explicitní stránkování — od backfillu historie
 // (3000+ řádků v calendar_events) by neomezený .select() tiše ořezal část měn/historie
 // použité pro fundamentální i CB Policy scoring. Stránkuje po 1000, dokud nedojdou řádky.
@@ -625,98 +514,8 @@ export async function recomputeScores() {
     return { thesisSignalCurrencies: new Set(), staleTextCurrencies: new Set() };
   }
 
-  console.log("Stahuji risk režim (VIX) a US 2Y výnos z FRED...");
-  const { regimeInfo, usd2yYield } = await computeMarketRegime();
-
-  // effectiveRegimeInfo.regime je jediná věc, co se níž skutečně použije pro riskAdj/conviction
-  // (vix/vix5dChange z market_regime čte přímo fetchCurrencies.ts pro UI, tady se jen ukládají).
-  // Vždycky POTVRZENÝ režim, nikdy syrová klasifikace z tohohle běhu — viz hystereze níž.
-  let effectiveRegimeInfo = null;
-
-  // Nejdřív přečíst dosavadní stav (potvrzený režim + rozjednaný kandidát), bez ohledu na to,
-  // jestli FRED tenhle běh uspěl — hystereze i fallback na "poslední známý" ho oba potřebují.
-  const { data: existingRegimeRow, error: existingRegimeErr } = await supabase
-    .from("market_regime")
-    .select("vix, vix_5d_change, regime, pending_regime, pending_regime_count, updated_at")
-    .eq("id", true)
-    .maybeSingle();
-  if (existingRegimeErr) console.error("Chyba čtení market_regime:", existingRegimeErr.message);
-
-  if (regimeInfo) {
-    const rawRegime = regimeInfo.regime;
-    let confirmedRegime = rawRegime;
-    let pendingRegime = null;
-    let pendingCount = 0;
-
-    // Post-audit oprava B (5.9.2026, konzervativní varianta): syrová klasifikace z classifyRegime
-    // (prahy 15/20 beze změny) se propíše do POTVRZENÉHO regime teprve po
-    // REGIME_HYSTERESIS_CONFIRMATIONS po sobě jdoucích úspěšných bězích na STEJNÉ straně —
-    // živý VIX kolísající 14,9→15,1→14,8 na hraně prahu tak appku nenutí přepínat režim (a s ním
-    // riskAdj pro conviction) každých 15 minut. Bez předchozího řádku (první běh appky vůbec)
-    // se nová klasifikace bere rovnou jako potvrzená — nemá se s čím debouncovat.
-    if (existingRegimeRow) {
-      if (rawRegime === existingRegimeRow.regime) {
-        confirmedRegime = existingRegimeRow.regime;
-      } else if (rawRegime === existingRegimeRow.pending_regime) {
-        const newCount = (existingRegimeRow.pending_regime_count ?? 0) + 1;
-        if (newCount >= REGIME_HYSTERESIS_CONFIRMATIONS) {
-          confirmedRegime = rawRegime; // potvrzeno — překlápíme
-        } else {
-          confirmedRegime = existingRegimeRow.regime; // zůstává starý, čeká na další potvrzení
-          pendingRegime = rawRegime;
-          pendingCount = newCount;
-        }
-      } else {
-        confirmedRegime = existingRegimeRow.regime; // nový kandidát, teprve první pozorování
-        pendingRegime = rawRegime;
-        pendingCount = 1;
-      }
-    }
-
-    const { error: regimeErr } = await supabase.from("market_regime").upsert(
-      {
-        id: true,
-        vix: regimeInfo.vix,
-        vix_5d_change: regimeInfo.vix5dChange,
-        regime: confirmedRegime,
-        pending_regime: pendingRegime,
-        pending_regime_count: pendingCount,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-    if (regimeErr) {
-      console.error("Chyba upsertu market_regime:", regimeErr.message);
-      // Upsert selhal — nemáme jistotu, co je teď v DB. Radši použít dosavadní potvrzený řádek
-      // (pokud existuje), než appku nechat běžet bez risk kontextu úplně.
-      if (existingRegimeRow) effectiveRegimeInfo = { vix: existingRegimeRow.vix, vix5dChange: existingRegimeRow.vix_5d_change, regime: existingRegimeRow.regime };
-    } else {
-      effectiveRegimeInfo = { vix: regimeInfo.vix, vix5dChange: regimeInfo.vix5dChange, regime: confirmedRegime };
-      const flapNote = pendingRegime ? ` (živě: ${rawRegime}, čeká na potvrzení ${pendingCount}/${REGIME_HYSTERESIS_CONFIRMATIONS})` : "";
-      console.log(
-        `Risk režim: ${confirmedRegime} (VIX ${regimeInfo.vix}, 5d ${regimeInfo.vix5dChange >= 0 ? "+" : ""}${regimeInfo.vix5dChange})${flapNote}`
-      );
-    }
-  } else {
-    // Živě zachyceno 4.9. 16:07 a 5.9. 05:15 (post-fix audit, telegram alerty): FRED VIXCLS/DGS2
-    // fetch občas selže na jedno kolo (transientní síťová chyba), ne že by se trh reálně stal
-    // neutrálním. Dřívější tichý fallback na riskAdj=0 "pro všechny měny" hodil skóre o 0,2-0,4
-    // bodu u 5-6 měn NAJEDNOU (protože riskAdj je stejné napříč měnami) a spustil zbytečnou vlnu
-    // Telegram alertů, než se to o 15 minut později samo vrátilo zpět. Chybějící data != "trh je
-    // teď neutrální" — stejná chyba jako dřívější CPI `?? 2` bug u real yieldu. Radši použít
-    // poslední ZNÁMÝ (potvrzený) risk režim z market_regime (může být pár minut/hodin starý, ale
-    // je to skutečné číslo, ne vymyšlený default) — a NEpřepisovat market_regime touhle chybou,
-    // ať UI/appka pořád vidí, odkdy je hodnota fakticky stará. Rozjednaný pending_regime se
-    // netýká — ten se bez nové syrové klasifikace stejně nemá jak posunout.
-    if (existingRegimeRow) {
-      effectiveRegimeInfo = { vix: existingRegimeRow.vix, vix5dChange: existingRegimeRow.vix_5d_change, regime: existingRegimeRow.regime };
-      console.warn(
-        `FRED VIX fetch selhal — používám poslední známý risk režim ${existingRegimeRow.regime} (VIX ${existingRegimeRow.vix}, z ${existingRegimeRow.updated_at}), NEpředstírám neutral.`
-      );
-    } else {
-      console.warn("FRED VIX fetch selhal a v market_regime není žádný předchozí záznam — risk režim pro tenhle běh vynechán (riskAdj=0 pro všechny měny).");
-    }
-  }
+  console.log("Stahuji US 2Y výnos z FRED (priced-in USD)...");
+  const usd2yYield = await fetchUsd2yYield();
 
   // Druhý, nezávislý spouštěč přegenerování narrativu (viz komentář u runThesisEngineForCurrency
   // v thesis-engine.mjs) — na rozdíl od materialCurrencies (scrape-diff, per-event) tohle
@@ -846,77 +645,24 @@ export async function recomputeScores() {
       continue;
     }
 
-    // Nezávislý audit (ChatGPT/Cowork Opus, 4.9.2026), bod #1: realYieldAdj může být teď `null`
-    // (chybí spolehlivé CPI — viz computeRealYieldAdj v cb-policy.mjs). Explicitní `?? 0`
-    // znamená "tenhle pilíř do fundamentu nic nepřidává, protože o něm nic nevíme" — jiná věc
-    // než dřívější tichý předpoklad konkrétní (a u NZD/CAD/CHF chybné) inflace uvnitř samotného
-    // realYieldAdj výpočtu. Bez tohohle `?? 0` by `number + null` sice v JS taky vyšlo jako
-    // number (null se sčítá jako 0), ale implicitně a nečitelně — a `undefined` by tiše dalo NaN.
-    const fundamentalScoreAdj = clamp(
-      result.fundamentalScore + (cbPolicy.realYieldAdj ?? 0) + cbPolicy.cbPolicyAdj,
-      -5,
-      5
-    );
-    const riskAdj = effectiveRegimeInfo ? riskAdjForCurrency(currencyCode, effectiveRegimeInfo.regime) : 0;
-    const retailScore = cotRow.retail_score ?? 0;
+    // Celkové skóre je ČISTĚ fundament: překvapení z kalendáře + real yield + CB politika (viz
+    // fundamental-summary.mjs). COT, retail sentiment ani VIX do něj nevstupují — appka je
+    // fundamentální (příběh měny), COT se ukládá a zobrazuje zvlášť jako doplňkový údaj.
+    // realYieldAdj může být null (chybí spolehlivé CPI) — pak tenhle pilíř nic nepřidává.
+    const { fundamentalScoreAdj, overallScore } = computeOverallScore({
+      fundamentalScore: result.fundamentalScore,
+      realYieldAdj: cbPolicy.realYieldAdj,
+      cbPolicyAdj: cbPolicy.cbPolicyAdj,
+    });
 
-    // Post-audit oprava B (5.9.2026, konzervativní varianta navržená ChatGPT): risk režim/VIX už
-    // NENÍ součástí overall_score — jen kontext pro UI (Pillar "Risk režim") a AI narrativ, plus
-    // pořád jeden z 5 nezávislých potvrzujících signálů v computeConviction níž. Důvod: vlastním
-    // měřením nad 647 snímky (audit + potvrzeno 5.9.2026) 21-32 % změn overall_score u AUD/CAD/
-    // CHF/GBP/JPY/NZD způsoboval čistě risk-режim flap (VIX na hraně prahu, nebo dřív i FRED
-    // výpadek), ne skutečný pohyb fundamentu/COT/retailu. BLEND_WEIGHTS se NEMĚNÍ —
-    // fund 0,43 + cot 0,46 + retail 0,11 už dnes sčítá přesně na 1,0 nezávisle na riskAdj (ten byl
-    // navíc bonus mimo tenhle součet), takže žádná renormalizace vah není potřeba.
-    // Nezávislý report (Cowork, 21.9.2026), P0.2 + P1.2 — dvě NEZÁVISLÉ opravy toho, co dřív
-    // šlo do blendu jako `cotRow.cot_score` s plnou váhou BLEND_WEIGHTS.cot:
-    //
-    // (1) P0.2 — `cot_score` mísí extrém úrovně (60 %, risk-filtr podle vlastního komentáře
-    // v scoring.mjs) se směrem (40 %, moment). Blend teď používá `cot_flow` (čistě směrová
-    // složka), navíc ztlumenou (COT_CROWDED_DAMPENING), když je pozicování na extrému
-    // (isCotCrowded — stejný práh 88/12, co dřív hlídal jen hvězdu konvikce). Živě: JPY na
-    // 97. percentilu dávalo +3,90 do cot_score (nejsilnější kladný příspěvek appky) — teď jde
-    // do blendu jen ztlumená směrová složka, ne extrém úrovně samotné.
-    //
-    // (2) P1.2 — i takhle opravená COT složka je pořád týdenní snímek (cot.report_date), který
-    // appka dřív blendovala se stejnou vahou bez ohledu na to, co se mezitím stalo. freshness_A
-    // (viz computeCotFreshness výš) škáluje váhu COT dolů, když od report_date proběhla HIGH
-    // událost/rozhodnutí CB dané měny — ušetřená váha se přerozdělí do fund/retail proporčně
-    // k jejich dosavadním vahám, součet vah zůstává 1,0.
+    // Čerstvost COT se dál počítá a ukládá (freshness_cot/stale_reason) — už jen pro zobrazení
+    // doplňkového údaje, ne jako váha ve skóre.
     const cotFreshness = computeCotFreshness(currencyCode, cotRow.report_date, allEvents ?? [], today);
-    const cotCrowded = isCotCrowded(cotRow.cot_percentile ?? null);
-    // `cot_flow` je nové pole — starší řádky (před tímhle nasazením) ho ještě nemají, dokud
-    // přes ně neproběhne ingest-cot.mjs znovu. Appka si chybějící hodnotu nedomýšlí (fallback
-    // na cot_score by vrátil starý bug) — bez dat je COT příspěvek prostě 0, ne hádaný.
-    const cotFlowRaw = cotRow.cot_flow ?? null;
-    const cotFlowContribution = cotFlowRaw === null ? 0 : cotFlowRaw * (cotCrowded ? COT_CROWDED_DAMPENING : 1);
-
-    const wCotEff = BLEND_WEIGHTS.cot * (cotFreshness.freshness ?? 1);
-    const wSpare = BLEND_WEIGHTS.cot - wCotEff;
-    const wOther = BLEND_WEIGHTS.fund + BLEND_WEIGHTS.retail;
-    const wFundEff = BLEND_WEIGHTS.fund + wSpare * (BLEND_WEIGHTS.fund / wOther);
-    const wRetailEff = BLEND_WEIGHTS.retail + wSpare * (BLEND_WEIGHTS.retail / wOther);
-
-    const overallRaw = fundamentalScoreAdj * wFundEff + cotFlowContribution * wCotEff + retailScore * wRetailEff;
-    const overallScore = Math.round(clamp(overallRaw, -5, 5) * 10) / 10;
-
-    // Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #2: totéž co overallRaw,
-    // ale BEZ COT komponenty — jen pro porovnání směru uvnitř computeConviction (viz komentář
-    // tam), ne jako náhrada overall_score. Nemění se BLEND_WEIGHTS ani nic, co appka ukazuje
-    // jako skóre — tohle číslo se nikam neukládá, slouží jen jako "co by si systém myslel, i
-    // kdyby COT vůbec neexistoval". Od opravy B (5.9.2026) taky BEZ riskAdj — konzistentně
-    // s overallRaw výš, jinak by "skóre bez COT" počítalo s VIX, zatímco "skóre celkem" ne.
-    // Používá PŮVODNÍ (ne freshness-škálované) váhy fund/retail — je to hypotetické "kdyby COT
-    // vůbec nebyl v systému", ne "za dnešní čerstvosti".
-    const scoreWithoutCot = fundamentalScoreAdj * BLEND_WEIGHTS.fund + retailScore * BLEND_WEIGHTS.retail;
 
     const conviction = computeConviction(overallScore, {
       cbPolicyAdj: cbPolicy.cbPolicyAdj,
       realYieldAdj: cbPolicy.realYieldAdj,
       fundamentalScoreAdj,
-      cotFlow: cotFlowRaw,
-      cotPercentile: cotRow.cot_percentile ?? null,
-      scoreWithoutCot,
       policyLabel: cbPolicy.policyLabel,
     });
 
@@ -938,9 +684,8 @@ export async function recomputeScores() {
       console.error(`[${currencyCode}] chyba aktualizace overall_score:`, updErr.message);
     } else {
       console.log(
-        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} cot_flow=${cotFlowRaw ?? "N/A"}${cotCrowded ? " (crowded)" : ""} ` +
-          `freshness_cot=${cotFreshness.freshness ?? "N/A"} retail=${retailScore} risk=${riskAdj} ` +
-          `-> overall_score=${overallScore} (${conviction.stars}/5 hvězd)`
+        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} (cot ${cotRow.cot_score} jen jako doplněk, freshness ${cotFreshness.freshness ?? "N/A"}) ` +
+          `-> overall_score=${overallScore} (${conviction.stars}/3 signálů)`
       );
 
       // Porovnání s tím, co cituje POSLEDNÍ uložený text (viz komentář u staleTextCurrencies výš).
@@ -961,29 +706,21 @@ export async function recomputeScores() {
           if (!snap) {
             console.log(`[${currencyCode}] kontrola stáří textu: žádný score_snapshot u posledního narrativu (starší řádek) — přeskočeno.`);
           } else {
-            // Živě zachyceno 15.8.2026: AUD/GBP prošly beze změny, i když check-narrative-
-            // freshness.mjs (kontroluje cot_score/retail_score PŘÍMO, ne přes blend) hlásil
-            // neshodu. Příčina: overall_score je VÁŽENÝ BLEND (BLEND_WEIGHTS výš) — posun v cot i
-            // retail se může v blendu z velké části vyrušit (AUD: cot +0,5×0,46 ≈ +0,23, retail
-            // −2,5×0,11 ≈ −0,28, součet ≈ −0,05, těsně pod prahem), takže overallDrift/fundDrift
-            // samotné neuvidí nic, přestože KAŽDÝ pilíř samostatně je výrazně nad prahem. Musí se
-            // proto porovnat přímo stejné 4 pole, co kontroluje check-narrative-freshness.mjs —
-            // ne jen jejich odvozený blend.
+            // Porovnává se přímo stejná pole, co kontroluje check-narrative-freshness.mjs.
+            // Retail sentiment už v textech není (není to fundament), COT je jen doplňkový údaj.
             const overallDrift = Math.abs(Number(snap.overall_score) - overallScore);
             const fundDrift = Math.abs(Number(snap.fundamental_score) - result.fundamentalScore);
             const cotDrift = Math.abs(Number(snap.cot_score ?? 0) - cotRow.cot_score);
-            const retailDrift = Math.abs(Number(snap.retail_score ?? 0) - retailScore);
             if (
               overallDrift > STALE_TEXT_EPSILON ||
               fundDrift > STALE_TEXT_EPSILON ||
-              cotDrift > STALE_TEXT_EPSILON ||
-              retailDrift > STALE_TEXT_EPSILON
+              cotDrift > STALE_TEXT_EPSILON
             ) {
               staleTextCurrencies.add(currencyCode);
               console.log(
                 `[${currencyCode}] text neodpovídá skóre (overall text=${snap.overall_score} živé=${overallScore}, ` +
                   `fund text=${snap.fundamental_score} živé=${result.fundamentalScore}, ` +
-                  `cot text=${snap.cot_score ?? 0} živé=${cotRow.cot_score}, retail text=${snap.retail_score ?? 0} živé=${retailScore}) — přidáno k přegenerování.`
+                  `cot text=${snap.cot_score ?? 0} živé=${cotRow.cot_score}) — přidáno k přegenerování.`
               );
             }
           }
@@ -996,7 +733,7 @@ export async function recomputeScores() {
       // 15 minut i beze změny by tabulku zaplnilo identickými řádky a "poslední změna" by pak
       // ukazovala delta 0 z doby před pár minutami místo skutečného posledního pohybu.
       // Ukládá se i rozpad na pilíře, protože bez něj nejde určit, KTERÁ komponenta skóre pohnula
-      // (fundamentalScoreAdj a riskAdj jinde v DB neexistují — počítají se jen v paměti výš).
+      // (fundamentalScoreAdj jinde v DB neexistuje — počítá se jen v paměti výš).
       try {
         const { data: lastSnap } = await supabase
           .from("score_snapshots")
@@ -1012,8 +749,8 @@ export async function recomputeScores() {
             overall_score: overallScore,
             fundamental_score_adj: Math.round(fundamentalScoreAdj * 100) / 100,
             cot_score: cotRow.cot_score,
-            retail_score: retailScore,
-            risk_adj: Math.round(riskAdj * 100) / 100,
+            retail_score: null,
+            risk_adj: null,
             conviction_stars: conviction.stars,
           });
           if (snapErr) console.error(`[${currencyCode}] chyba zápisu score_snapshots:`, snapErr.message);
@@ -1037,10 +774,8 @@ export async function recomputeScores() {
           overallScore,
           convictionStars: conviction.stars,
           fundamentalScoreAdj,
-          cotScore: cotRow.cot_score,
           cbPolicyAdj: cbPolicy.cbPolicyAdj,
           realYieldAdj: cbPolicy.realYieldAdj,
-          retailScore,
           fundamentalEventLabel: todaysFundamentalEventLabel(currencyCode, allEvents ?? []),
         });
         if (thesisChanged) thesisSignalCurrencies.add(currencyCode);
