@@ -12,6 +12,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fetchWeek, dedupePreferComplete } from "./fetch-calendar.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { computeFundamentalScore } from "./fundamental-scoring.mjs";
+import { computeFundamentalState } from "./fundamental-state.mjs";
 import {
   extractUnemploymentHistory, extractGrowthHistory, extractRetailSalesHistory, extractPmiHistory,
 } from "./shadow-fundamental-engine.mjs";
@@ -138,6 +139,7 @@ function evaluate(rows) {
   }
   return out;
 }
+const years0 = (fr) => [...new Set(fr.map((f) => f.slice(0, 4)))];
 const fmt = (x, d = 2) => (x === null || x === undefined ? "  n/a" : x.toFixed(d).padStart(5));
 function line(label, ev, extra = "") {
   const cells = HORIZONS.map((h) => `${fmt(ev[h].ic)}(t${fmt(ev[h].t, 1)})`).join("  ");
@@ -235,6 +237,21 @@ async function main() {
     const rows = []; for (const f of fridays) for (const c of CODES) { const v = fn(comp.get(`${f}|36|${c}`)); if (v !== null) rows.push({ f, c, v }); }
     line(name, evaluate(rows), `n=${rows.length}`);
   }
+
+  // produkční modul state-v1 (váhy 1,5/1,5/1/1/1/0,5, okno 12 m) vs. stejné složky s rovnými vahami
+  console.log(`\n=== Produkční modul state-v1: vážený vs. rovné váhy (události striktně před pátkem) ===`);
+  console.log(head);
+  const weighted = [], equal = [], byYear = {};
+  for (const f of fridays) for (const c of CODES) {
+    const st = computeFundamentalState(c, CODES, events, { asOfDay: iso(new Date(f).getTime() - DAY) });
+    if (st.index === null) continue;
+    weighted.push({ f, c, v: st.index });
+    const av = st.components.filter((x) => x.score !== null);
+    equal.push({ f, c, v: av.reduce((a, x) => a + x.score, 0) / av.length });
+  }
+  line("vážený (produkce)", evaluate(weighted), `n=${weighted.length}`);
+  line("rovné váhy", evaluate(equal), `n=${equal.length}`);
+  console.log(`${"po letech (vážený)".padEnd(12)} ` + years0(fridays).map((y) => { const e = evaluate(weighted.filter((r) => r.f.startsWith(y))); return `${y}: IC4=${fmt(e[4].ic)} IC13=${fmt(e[13].ic)}`; }).join("  "));
 
   // stabilita po letech (h=4 t., k=3)
   console.log(`\n=== Stabilita po letech: IC pro 4 týdny dopředu (k=3) ===`);
