@@ -1,5 +1,5 @@
 import { supabase } from "./supabaseClient";
-import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, LedgerEntry, PricedIn, RegimeShift, Scenario, ThesisDriver, TopOpportunity, UpcomingRateDecision } from "../types";
+import type { AgendaReaction, AgendaTier, CalendarEvent, CbPolicy, CurrencyData, CurrencyThesis, DataQuality, DataTier, FundamentalState, LedgerEntry, PricedIn, RegimeShift, Scenario, StateComponent, StateHistoryPoint, ThesisDriver, TopOpportunity, UpcomingRateDecision } from "../types";
 
 // Tvar, jak agendu skutečně ukládá generate-narrative.mjs (OpenAI JSON schema používá
 // snake_case) — mapuje se na camelCase `Scenario` až ve výstupu fetchCurrencies().
@@ -139,6 +139,30 @@ interface WeeklyTopOpportunityRow {
   computed_at: string;
 }
 
+interface FundamentalStateRow {
+  currency_code: string;
+  as_of_day: string;
+  window_months: number;
+  index_value: number | null;
+  score: number | null;
+  band_key: FundamentalState["bandKey"];
+  band_label: string;
+  available_count: number;
+  total_count: number;
+  components: StateComponent[] | null;
+  inflation: FundamentalState["inflation"];
+  surprise_score: number | null;
+  surprise_label: string | null;
+}
+
+interface StateHistoryRow {
+  currency_code: string;
+  week_end: string;
+  score: number | null;
+  available_count: number;
+}
+
+const STATE_HISTORY_WEEKS = 60;
 const FETCH_TIMEOUT_MS = 10_000;
 const UPCOMING_DAYS = 21;
 
@@ -186,6 +210,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     ledgerFeedResult,
     scoreChangeResult,
     regimeShiftResult,
+    stateResult,
+    stateHistoryResult,
   ] = await Promise.all([
       withTimeout(
         supabase
@@ -245,6 +271,22 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
         supabase.from("regime_shift_state").select("currency_code, long_term_score, short_term_score, divergence, alert"),
         FETCH_TIMEOUT_MS
       ),
+      withTimeout(
+        supabase
+          .from("fundamental_state")
+          .select(
+            "currency_code, as_of_day, window_months, index_value, score, band_key, band_label, available_count, total_count, components, inflation, surprise_score, surprise_label"
+          ),
+        FETCH_TIMEOUT_MS
+      ),
+      withTimeout(
+        supabase
+          .from("fundamental_state_history")
+          .select("currency_code, week_end, score, available_count")
+          .gte("week_end", new Date(Date.now() - STATE_HISTORY_WEEKS * 7 * 86400000).toISOString().slice(0, 10))
+          .order("week_end", { ascending: true }),
+        FETCH_TIMEOUT_MS
+      ),
     ]);
 
   if (cotResult.error) {
@@ -261,6 +303,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
   const ledgerFeedByCode = groupByCurrency((ledgerFeedResult.data ?? []) as LedgerFeedRow[]);
   const scoreChangeByCode = groupByCurrency((scoreChangeResult.data ?? []) as ScoreChangeRow[]);
   const regimeShiftByCode = groupByCurrency((regimeShiftResult.data ?? []) as RegimeShiftStateRow[]);
+  const stateByCode = groupByCurrency((stateResult.data ?? []) as FundamentalStateRow[]);
+  const stateHistoryByCode = groupByCurrency((stateHistoryResult.data ?? []) as StateHistoryRow[]);
 
   return ((cotResult.data ?? []) as LatestConfluenceScoreRow[]).map((row) => {
     const fundamental = fundamentalByCode.get(row.currency_code)?.[0] ?? null;
@@ -348,6 +392,29 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           }
         : null;
 
+    const stateRow = stateByCode.get(row.currency_code)?.[0] ?? null;
+    const fundamentalState: FundamentalState | null = stateRow
+      ? {
+          index: stateRow.index_value === null ? null : Number(stateRow.index_value),
+          score: stateRow.score === null ? null : Number(stateRow.score),
+          bandKey: stateRow.band_key,
+          bandLabel: stateRow.band_label,
+          availableCount: stateRow.available_count,
+          totalCount: stateRow.total_count,
+          components: stateRow.components ?? [],
+          inflation: stateRow.inflation ?? null,
+          surpriseScore: stateRow.surprise_score === null ? null : Number(stateRow.surprise_score),
+          surpriseLabel: stateRow.surprise_label,
+          asOfDay: stateRow.as_of_day,
+          windowMonths: stateRow.window_months,
+        }
+      : null;
+    const stateHistory: StateHistoryPoint[] = (stateHistoryByCode.get(row.currency_code) ?? []).map((h) => ({
+      weekEnd: h.week_end,
+      score: h.score === null ? null : Number(h.score),
+      availableCount: h.available_count,
+    }));
+
     const ledgerFeed: LedgerEntry[] = (ledgerFeedByCode.get(row.currency_code) ?? [])
       .slice(0, LEDGER_FEED_LIMIT_PER_CURRENCY)
       .map((l) => ({
@@ -389,6 +456,8 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
           : null,
       thesisChangeNote: narrative?.thesis_change_note ?? null,
       regimeShift,
+      fundamentalState,
+      stateHistory,
     };
   });
 }

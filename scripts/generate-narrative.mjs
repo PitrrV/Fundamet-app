@@ -172,13 +172,14 @@ const GLOSSARY = `ZÁVAZNÁ TERMINOLOGIE — appka tyhle výrazy používá v UI
 Piš spisovnou, gramaticky správnou češtinou. Nepoužívej anglické slovo tam, kde má tenhle seznam český tvar. Když si nejsi jistý odborným výrazem, opiš ho běžnými slovy — srozumitelný opis je vždy lepší než vymyšlený patvar. Tohle čte profesionál a zkomolená věta je horší než žádná. Piš VÝHRADNĚ latinkou s českou diakritikou — appka živě zachytila případ, kdy se v jinak českém textu objevila azbuka; žádné jiné písmo (cyrilice, řečtina, CJK znaky...) se do odpovědi nesmí dostat ani omylem.`;
 
 const SHARED_CONTEXT = `Jsi profesionální makro trader FX fondu. Dostaneš strukturovaná fundamentální data o jedné měně:
-- Kvantitativní fundamentální skóre z nedávných ekonomických dat (fundamental) — celkové skóre měny (cot.overallScore) je ČISTĚ fundament: překvapení z kalendáře + CB politika + real yield. Příběh má vyprávět fundamentální stav měny: co dělá centrální banka, jak vypadá inflace, trh práce, růst a poptávka a co se naposledy změnilo.
+- Fundamentální STAV měny (fundamentalState) — HLAVNÍ podklad příběhu a zdroj celkového skóre (cot.overallScore = stav × 5). Skládá se z až 6 složek: politika centrální banky, reálný výnos, trh práce, růst (HDP), spotřeba (maloobchod), PMI. Každá složka má stav "pozitivní" / "neutrální" / "negativní" nebo "nemáme data" a krátký popis (detail). "band" je slovní zařazení celkového stavu (Silný / Mírně pozitivní / Neutrální / Mírně negativní / Slabý), "availableComponents"/"totalComponents" říká, kolik složek má data. Příběh MUSÍ vycházet z těchto složek: řekni, které složky měnu táhnou nahoru, které dolů a které neznáme. Složku s "nemáme data" NIKDY nehodnoť ani si její stav nedomýšlej — pokud je jich víc, řekni na rovinu, že obraz je zatím neúplný. fundamentalState.inflation (když není null) je jen KONTEXT (jak daleko je inflace od cíle banky), do stavu nevstupuje — nepiš, že "zvedá" nebo "snižuje" skóre.
+- Překvapení (fundamental) — jak se poslední čísla odchýlila od konsensu trhu. NENÍ to stav měny a do skóre nevstupuje; je to jen doplněk "co už trh čekal". Silný stav a překvapení "v souladu s očekáváním" znamená "silná, ale už zaceněná" — nikdy to nepiš jako slabost měny.
 - COT pozicování velkých spekulantů (cot) je pouze DOPLŇKOVÝ údaj — NENÍ součástí skóre ani teze a není to fundament. Zmiň ho nanejvýš jednou krátkou větou na konci jako kontext rizika přeplnění, nikdy ne jako důvod ani potvrzení směru. cot.crowdingLabel je appkou SPOČÍTANÝ fakt, jestli je pozicování přeplněné a na které straně — vyprávěj ho vlastními slovy, ale NIKDY si sám nedomýšlej ze samotného čísla cotPercentile, jestli je to "long" nebo "short" přeplnění: NÍZKÝ percentil (blízko 0) znamená přeplněný SHORT, VYSOKÝ percentil (blízko 100) znamená přeplněný LONG.
 - Politiku centrální banky — trajektorie (hiking/cutting/hold cyklus), real yield vůči ostatním měnám koše, a "zaceněnost" (pricedIn) — jak moc trh poslední rozhodnutí čekal (cbPolicy). cbPolicy.upcoming_decision (když není null) je NADCHÁZEJÍCÍ sazbové rozhodnutí s validním tržním konsensem — currentRate je AKTUÁLNÍ sazba (fakt), estimateRate je KONSENSUS trhu pro TOHLE nadcházející rozhodnutí (očekávání, NE fakt), direction "hike"/"cut"/"hold" říká, kterým směrem konsensus míří. Piš to jasně odděleně od aktuálního stavu, např. "ECB aktuálně drží sazbu na X %, ale konsensus pro příští rozhodnutí (datum) počítá se zvýšením na Y %" — a VŽDY jako očekávání/konsensus trhu, NIKDY jako už hotové nebo jisté rozhodnutí ("ECB zvýší sazbu" je špatně, "trh čeká/očekává zvýšení" je správně). Když je upcoming_decision null, o žádném nadcházejícím rozhodnutí nepiš — appka žádné s validním konsensem nemá.
   - upcoming_decision.drift (když je přítomné a "shifted" je true) říká, jak se konsensus posunul OD PRVNÍHO snímku, co appka zachytila: "firstEstimateRate" byl konsensus tehdy, dnešní je "estimateRate" (viz výš), "daysTracked" je počet dní, co appka tenhle posun sleduje, "daysUntilDecision" je počet dní do samotného rozhodnutí. Když "shifted" je false nebo drift chybí, konsensus se nehnul — o žádném posunu nepiš. Když "imminent" je true (posun JE + rozhodnutí je blízko), zmiň to o něco výrazněji, protože jde o čerstvou repricingovou událost těsně před rozhodnutím — např. "trh v posledních X dnech přehodnotil očekávání z Y % na Z %, rozhodnutí je už za N dní". Vždy jde o POPIS FAKTU o vývoji tržního očekávání, NIKDY o doporučení k pozici ("je čas se pozicovat", "vstupte teď" apod. NEPIŠ) — appka neřeší timing ani vstup do obchodu (viz ohraničení role níž), jen zviditelňuje, že se něco v očekávání děje, ať si čtenář všimne sám.
 - Retail sentiment, VIX ani risk-on/risk-off režim appka neřeší (nejsou to fundament) — NIKDY o nich nepiš.
 - Kontext zbytku koše měn (basketContext) — FX je vždy relativní, píš o měně i VE VZTAHU k ostatním, ne v izolaci. KRITICKÉ: basketContext je pro tvou orientaci, NIKDY z něj neopisuj konkrétní číslo skóre jiné měny do textu (svoje vlastní skóre číslem popsat smíš, cizí ne). Pole "rankingSummary" (když není null) je HOTOVÁ, appkou spočítaná věta o tom, vůči kterým měnám je tahle měna dnes silnější/slabší — jakékoli srovnání s konkrétní jinou měnou v textu smí vycházet JEN z týhle věty (klidně ji parafrázuj/zapracuj vlastními slovy), nikdy nevymýšlej vlastní srovnání navíc ani ho neobracej. Živě zachycená chyba: narativ AUD tvrdil "GBP je silnější", zatímco skutečné skóre (AUD 1,4 vs. GBP 0,8) říkalo pravý opak — takové tvrzení, co si appka nemůže ověřit proti "rankingSummary", se nesmí opakovat.
-- Konvikce jako shoda nezávislých signálů (convictionStars/convictionReasons) — kolik nezávislých pohledů souhlasí, ne jak velké je jedno číslo.
+- Konvikce jako shoda složek stavu se směrem skóre (convictionStars 0–3 / convictionReasons) — kolik z dostupných složek míří stejným směrem, ne jak velké je jedno číslo.
 - Aktuální otevřenou tezi appky (thesis) — směr, konvikce, jednotlivé drivery s hodnotami a stavem, a jestli je teze aktivní nebo se jen sleduje. TOHLE je "současný příběh", vůči kterému se poměřuje všechno ostatní.
 
 KRITICKÉ — názvy polí v uvozovkách/závorkách (recentEvents, scenarioSeeds, recentLedger, flaggedEvents, basketContext, components, verdict a podobné) jsou instrukce PRO TEBE, odkud brát informace — NIKDY je neopisuj doslova do vlastní odpovědi. Živě nahlášená chyba: model v "thesis_change_note" napsal "v poskytnutých recentEvents ani ve scenarioSeeds však není jediný zřejmý katalyzátor... recentLedger uvádí invalidaci fundamentálního driveru" — pro čtenáře to vypadá jako uniklý kód, ne text od analytika. Obsah vždy popiš přirozenou češtinou ("z nedávno vyšlých dat", "z plánovaných eventů", "z historie potvrzení a zpochybnění teze"), nikdy anglickým názvem interní proměnné. STEJNÉ PRAVIDLO platí pro klasifikační hodnoty uvnitř "recentLedger" ("confirms", "challenges", "invalidates_driver", "closed", "opened") — živě nahlášená chyba: model napsal "recentLedger uvádí invalidates_driver u fundamentálních dat a následně closed i opened" a jinde "recentLedger obsahuje pouze „confirms" pro COT driver". Správně: "driver byl podruhé zpochybněn a odebrán z teze", "teze byla uzavřena a otevřena nová", "driver zůstává potvrzen" — vlastními slovy, nikdy anglickým kódem klasifikace.
@@ -525,7 +526,7 @@ export function buildRankingSummary(ownScore, otherCurrencies) {
 }
 
 function buildInputFingerprint(context) {
-  const { cot, fundamental, cbPolicy, thesis, basketContext, scenarioSeeds } = context;
+  const { cot, fundamental, fundamentalState, cbPolicy, thesis, basketContext, scenarioSeeds } = context;
 
   return {
     // Jen fundamentální skóre — COT je doplňkový údaj a text kvůli jeho týdenní změně nepřegenerováváme.
@@ -533,6 +534,13 @@ function buildInputFingerprint(context) {
       overall: round05(cot?.overallScore),
       fundamental: round05(fundamental?.fundamental_score),
       stars: cot?.convictionStars ?? null,
+    }),
+    // Stav měny: změna pásma, počtu dostupných složek nebo stavu kterékoli složky = nový příběh.
+    state: sectionHash({
+      band: fundamentalState?.band ?? null,
+      available: fundamentalState?.availableComponents ?? null,
+      components: (fundamentalState?.components ?? []).map((c) => [c.name, c.state]),
+      surprise: fundamentalState?.surprise ?? null,
     }),
     thesis: sectionHash({
       direction: thesis?.direction ?? null,
@@ -590,6 +598,25 @@ function changedSections(previous, next) {
   return Object.keys(next).filter((key) => previous[key] !== next[key]);
 }
 
+// Stav měny (fundamental_state) ve tvaru pro model: složky pojmenované slovy, ne +1/0/−1.
+const STATE_WORDS = { 1: "pozitivní", 0: "neutrální", "-1": "negativní" };
+function buildStatePayload(row) {
+  if (!row) return null;
+  return {
+    band: row.band_label,
+    score: row.score,
+    availableComponents: row.available_count,
+    totalComponents: row.total_count,
+    components: (row.components ?? []).map((c) => ({
+      name: c.label,
+      state: c.score === null || c.score === undefined ? "nemáme data" : STATE_WORDS[String(c.score)],
+      detail: c.detail,
+    })),
+    inflation: row.inflation ?? null,
+    surprise: row.surprise_label ?? null,
+  };
+}
+
 export async function loadCurrencyContext(currencyCode, allCalendarEvents, basketContext) {
   const today = isoToday();
   const upcomingCutoff = new Date(Date.now() + UPCOMING_DAYS * 86400000).toISOString().slice(0, 10);
@@ -609,6 +636,13 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
     .eq("currency_code", currencyCode)
     .limit(1);
   const fundamental = fundRows?.[0] ?? null;
+
+  const { data: stateRows } = await supabase
+    .from("fundamental_state")
+    .select("score, band_label, available_count, total_count, components, inflation, surprise_label")
+    .eq("currency_code", currencyCode)
+    .limit(1);
+  const fundamentalState = buildStatePayload(stateRows?.[0] ?? null);
 
   const { data: cbRows } = await supabase
     .from("cb_policy_state")
@@ -746,6 +780,7 @@ export async function loadCurrencyContext(currencyCode, allCalendarEvents, baske
   return {
     cot,
     fundamental,
+    fundamentalState,
     cbPolicy,
     thesis,
     scoreChange,
@@ -827,6 +862,9 @@ function findForeignScript(value, path = "$") {
 // "challenges"/"closed"/"opened" jsou interní kódy z classifyThesisUpdate() (thesis-engine.mjs),
 // ne slova, která mají skončit v textu pro čtenáře.
 const LEAKED_FIELD_NAMES = [
+  "fundamentalState",
+  "availableComponents",
+  "totalComponents",
   "recentEvents",
   "scenarioSeeds",
   "recentLedger",
@@ -1102,12 +1140,13 @@ export async function callStructuredCompletion({
 // slouží pro A/B srovnání modelů (viz níže), kde appka potřebuje vynutit konkrétní model a
 // přečíst si spotřebu tokenů bez zápisu do produkční tabulky narratives.
 export async function generateNarrativePart(currencyCode, context, model = OPENAI_MODEL, onUsage) {
-  const { cot, fundamental, cbPolicy, thesis, scoreChange, recentLedger, basketContext, upcoming, recent, flaggedEvents } = context;
+  const { cot, fundamental, fundamentalState, cbPolicy, thesis, scoreChange, recentLedger, basketContext, upcoming, recent, flaggedEvents } = context;
 
   const payload = {
     currency: currencyCode,
     cot,
     fundamental,
+    fundamentalState,
     cbPolicy,
     thesis,
     scoreChange,

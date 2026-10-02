@@ -1,0 +1,21 @@
+name: Backfill fundamental state history (jednorázově)
+
+# Dopočítá týdenní historii fundamentálního stavu z calendar_events (point-in-time). Zapisuje
+# jen do fundamental_state_history, žádná jiná tabulka se nemění. Spustit RUČNĚ.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/backfill-fundamental-state-history.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

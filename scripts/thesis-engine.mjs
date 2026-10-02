@@ -43,7 +43,7 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY ? createClient(SUPABASE_UR
 // (teze bez driveru pak přejde do "watching"). Štítky starých driverů zůstávají jen kvůli
 // čitelnosti záznamů v ledgeru.
 export const DRIVER_THRESHOLDS = {
-  fundamental_data: 1.5, // fundamentalScoreAdj, škála -5..5
+  fundamental_data: 1.5, // aktivita reálné ekonomiky (práce/růst/spotřeba/PMI) z fundamental-state.mjs, škála -5..5
   cb_policy: 0.4, // cbPolicyAdj + realYieldAdj, škála zhruba -1.75..1.75
 };
 

@@ -161,6 +161,37 @@ export interface TopOpportunity {
   computedAt: string;
 }
 
+// Fundamentální STAV měny (state-v1, scripts/fundamental-state.mjs) — hlavní skóre a pořadí.
+// score je u složky +1 / 0 / −1, null = "nemáme data" (nikdy ne tichá nula).
+export interface StateComponent {
+  key: string;
+  label: string;
+  weight: number;
+  score: -1 | 0 | 1 | null;
+  detail: string;
+}
+
+export interface FundamentalState {
+  index: number | null; // −1..+1, null = nedostatek dat (méně než 3 složky)
+  score: number | null; // index × 5
+  bandKey: "strong" | "mild_positive" | "neutral" | "mild_negative" | "weak" | "insufficient";
+  bandLabel: string;
+  availableCount: number;
+  totalCount: number;
+  components: StateComponent[];
+  inflation: { value: number; target: number | null; gap: number | null; eventDay: string } | null; // jen kontext
+  surpriseScore: number | null; // překvapení vs. konsensus — MIMO index
+  surpriseLabel: string | null;
+  asOfDay: string;
+  windowMonths: number;
+}
+
+export interface StateHistoryPoint {
+  weekEnd: string; // pátek týdne
+  score: number | null;
+  availableCount: number;
+}
+
 export interface CurrencyData {
   code: string;
   score: number; // -5..+5
@@ -186,4 +217,6 @@ export interface CurrencyData {
   scoreChange: ScoreChange | null; // null dokud nejsou dva snímky k porovnání
   thesisChangeNote: string | null; // vysvětlení posledního pohybu skóre od LLM, patří k Makro tezi
   regimeShift: RegimeShift | null; // null dokud regime_shift_state pro tuhle měnu nemá řádek
+  fundamentalState: FundamentalState | null; // null dokud přepočet fundamental_state nezapsal řádek
+  stateHistory: StateHistoryPoint[]; // týdenní historie skóre stavu, vzestupně
 }

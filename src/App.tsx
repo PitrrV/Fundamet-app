@@ -3,6 +3,8 @@ import type { Session } from "@supabase/supabase-js";
 import { CurrencyTabs } from "./components/CurrencyTabs";
 import { Gauge } from "./components/Gauge";
 import { ConvictionMeter } from "./components/ConvictionMeter";
+import { FundamentalStateCard } from "./components/FundamentalStateCard";
+import { CurrencyRanking } from "./components/CurrencyRanking";
 import { RichText } from "./components/RichText";
 import { AdminLogin } from "./components/AdminLogin";
 import { EditActualField } from "./components/EditActualField";
@@ -612,50 +614,19 @@ export default function App() {
           </Card>
         )}
 
-        {/* KDE JE DNES SIGNÁL — UX audit 2026-08-06: appka měla flow "vyber měnu → 12 sekcí",
-            ale většina měn je většinu času neutrální s nízkou konvikcí — uživatel musel
-            proklikat všech 8, aby zjistil, které z nich vůbec stojí za pozornost. Tenhle pruh
-            odpovídá na otázku, se kterou do appky trader přichází, hned za pár vteřin: kde je
-            dnes síla skóre podložená shodou signálů, ne abecedně první měna. Řadí, neskrývá —
-            zbytek appky (CurrencyTabs níž) je pořád po ruce beze změny. */}
+        {/* POŘADÍ MĚN — všech 8 měn podle fundamentálního stavu (6 složek: politika CB, reálný výnos,
+            trh práce, růst, spotřeba, PMI). Jen čtení fundamentální situace, ne předpověď ceny;
+            COT a překvapení do pořadí nevstupují. Řadí, neskrývá — výběr měny níž je beze změny. */}
         {currencies && currencies.length > 0 && (
           <Card tone="raised" className="p-4 sm:p-5">
             <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
-              Kde je dnes signál
+              Fundamentální pořadí měn
             </span>
-            <div className="flex flex-wrap gap-2 mt-3">
-              {[...currencies]
-                .map((c) => ({ ...c, _weight: Math.abs(c.score) * (c.convictionStars ?? 0) }))
-                .sort((a, b) => b._weight - a._weight)
-                .slice(0, 4)
-                .map((c) => {
-                  const dotColor = c.score > 0.05 ? "bg-pos" : c.score < -0.05 ? "bg-neg" : "bg-muted";
-                  return (
-                    <button
-                      key={c.code}
-                      onClick={() => setCurrencyCode(c.code)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-colors duration-200 ${
-                        c.code === currency?.code
-                          ? "bg-accent/[.14] border-accent/50"
-                          : "border-line hover:border-line2 hover:bg-surface2"
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-                      <span className="text-sm font-bold text-ink">{c.code}</span>
-                      <span className="font-mono text-xs text-muted">
-                        {c.score > 0 ? "+" : ""}
-                        {c.score.toFixed(1)}
-                      </span>
-                      <span className={`text-[10px] tracking-wide ${convictionColor(c.convictionLabel)}`}>
-                        {c.convictionStars ?? 0}/3
-                      </span>
-                    </button>
-                  );
-                })}
-            </div>
+            <CurrencyRanking currencies={currencies} selected={currency?.code} onSelect={setCurrencyCode} />
             <p className="text-[11px] text-faint italic mt-3">
-              Seřazeno podle síly skóre × konvikce (shody nezávislých signálů) — kde má appka
-              nejvíc co říct právě teď, ne abecedně.
+              Skóre = vážený průměr dostupných složek stavu (−5 až +5). Tečky vpravo ukazují jednotlivé složky
+              (zelená podporuje, červená zatěžuje, šedá neutrální, prázdná = data nemáme). Je to čtení
+              fundamentální situace za posledních 12 měsíců, ne předpověď ceny.
             </p>
           </Card>
         )}
@@ -718,7 +689,7 @@ export default function App() {
               <Card tone="raised" className="p-5 flex flex-col">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-[11px] font-semibold tracking-[0.14em] text-muted uppercase">
-                    Confluence skóre
+                    Fundamentální stav
                   </span>
                   {currency.dataQuality && (
                     <Badge classes={dataQualityBadgeClasses(currency.dataQuality.level)}>
@@ -878,19 +849,18 @@ export default function App() {
               )}
             </div>
 
-            {/* FUNDAMENT — vstupy, ze kterých skóre a teze vznikly. Appka je čistě fundamentální:
-                skóre tvoří jen kalendář, CB politika a real yield. */}
+            {/* FUNDAMENTÁLNÍ STAV — hlavní podklad skóre: 6 složek se znaménkem, pokrytí, kontext inflace,
+                překvapení zvlášť (mimo skóre) a týdenní vývoj. Pod tím detail politiky centrální banky. */}
             <Card className="p-5">
-              <SectionTitle hint="Fundamentální vstupy, ze kterých skóre a teze vznikly.">Fundament</SectionTitle>
+              <SectionTitle hint="Ze 6 složek (politika CB, reálný výnos, trh práce, růst, spotřeba, PMI) — chybějící data jsou označená, nic se nedomýšlí.">
+                Fundamentální stav
+              </SectionTitle>
+              <FundamentalStateCard currency={currency} />
+            </Card>
+
+            <Card className="p-5">
+              <SectionTitle hint="Detail složky „Politika centrální banky“ a „Reálný výnos“.">Politika centrální banky</SectionTitle>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
-                <Pillar
-                  label="Fundamentální skóre"
-                  value={
-                    currency.fundamentalScore !== null
-                      ? `${currency.fundamentalScore > 0 ? "+" : ""}${currency.fundamentalScore.toFixed(1)}`
-                      : "—"
-                  }
-                />
                 <Pillar
                   label="Dlouhodobý bias (CB)"
                   interpretation={longTermBiasInterpretation(currency.cbPolicy)}
@@ -1029,9 +999,10 @@ export default function App() {
 
         <footer className="text-xs text-faint pt-6 pb-10 space-y-3 border-t border-line leading-relaxed">
           <p>
-            Fundamentální skóre a CB politika/real yield (ekonomický kalendář ForexFactory) jsou reálná a
-            průběžně aktualizovaná data; COT pozicování (týdně, CFTC) je jen doplňkový údaj a do skóre
-            nevstupuje. „Zaceněnost" je u většiny měn odvozená z konsensu posledního rozhodnutí, ne z reálné
+            Fundamentální stav (politika CB, reálný výnos, trh práce, růst, spotřeba, PMI z ekonomického
+            kalendáře ForexFactory) je čtení fundamentální situace za posledních 12 měsíců, ne předpověď
+            ceny; ve zpětném testu odpovídal pořadí měn pozdějšímu pohybu ceny jen slabě. COT pozicování
+            (týdně, CFTC) je jen doplňkový údaj a do skóre nevstupuje. „Zaceněnost" je u většiny měn odvozená z konsensu posledního rozhodnutí, ne z reálné
             OIS/futures křivky — metoda je vždy uvedená u čísla.
           </p>
           <p>

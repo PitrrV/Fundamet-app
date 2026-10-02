@@ -10,7 +10,7 @@ import { planCalendarMerge } from "./calendar-merge.mjs";
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import { trackRateDecisionDrift } from "./rate-decision-drift.mjs";
 import { fetchUsd2yYield, yieldGapPricedIn } from "./market-regime.mjs";
-import { computeOverallScore, computeConviction, convictionLabelFromStars } from "./fundamental-summary.mjs";
+import { computeFundamentalState, describeSurprise, weekEndFriday, componentSigns } from "./fundamental-state.mjs";
 import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
 import { runDataQualityForCurrency } from "./data-quality.mjs";
@@ -479,7 +479,7 @@ function computeCotFreshness(currencyCode, cotReportDate, allEvents, todayIso) {
 // ÚPLNĚ chyběl. Stejný problém byl už dřív diagnostikován pro generate-narrative.mjs (NZD,
 // 3.8.2026) s komentářem, že tahle funkce už má opravu — omyl, .order() tu nikdy nebyl. Teď
 // opraveno na obou místech: explicitní `order by id` dělá stránkování deterministické.
-async function fetchAllCalendarEvents() {
+export async function fetchAllCalendarEvents() {
   const pageSize = 1000;
   const rows = [];
   for (let from = 0; ; from += pageSize) {
@@ -493,6 +493,49 @@ async function fetchAllCalendarEvents() {
     if (!data || data.length < pageSize) break;
   }
   return { data: rows, error: null };
+}
+
+// Uloží fundamentální STAV měny (state-v1, viz fundamental-state.mjs): aktuální řádek + řádek
+// týdenní historie (klíč = pátek týdne, aktuální týden se přepisuje, dokud neskončí). Nekritické —
+// chyba zápisu se jen zaloguje, přepočet skóre pokračuje.
+export async function persistFundamentalState(state, surpriseScore) {
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("fundamental_state").upsert(
+    {
+      currency_code: state.currencyCode,
+      model_version: state.modelVersion,
+      as_of_day: state.asOfDay,
+      window_months: state.windowMonths,
+      index_value: state.index,
+      score: state.score,
+      band_key: state.band.key,
+      band_label: state.band.label,
+      available_count: state.availableCount,
+      total_count: state.totalCount,
+      components: state.components.map(({ key, label, weight, score, detail }) => ({ key, label, weight, score, detail })),
+      activity_score: state.activityScore,
+      inflation: state.inflation,
+      surprise_score: surpriseScore,
+      surprise_label: describeSurprise(surpriseScore),
+      updated_at: now,
+    },
+    { onConflict: "currency_code" }
+  );
+  if (error) console.error(`[${state.currencyCode}] chyba upsertu fundamental_state:`, error.message);
+
+  const { error: histErr } = await supabase.from("fundamental_state_history").upsert(
+    {
+      currency_code: state.currencyCode,
+      week_end: weekEndFriday(state.asOfDay),
+      index_value: state.index,
+      score: state.score,
+      available_count: state.availableCount,
+      component_signs: componentSigns(state),
+      updated_at: now,
+    },
+    { onConflict: "currency_code,week_end" }
+  );
+  if (histErr) console.error(`[${state.currencyCode}] chyba upsertu fundamental_state_history:`, histErr.message);
 }
 
 export async function recomputeScores() {
@@ -628,6 +671,17 @@ export async function recomputeScores() {
     );
     if (cbErr) console.error(`[${currencyCode}] chyba upsertu cb_policy_state:`, cbErr.message);
 
+    // Fundamentální STAV měny (state-v1) = hlavní skóre a pořadí. Skládá se ze 6 složek (politika
+    // CB, reálný výnos, trh práce, růst, spotřeba, PMI) z posledních 12 měsíců kalendáře; chybějící
+    // data jsou "nemáme", ne nula. Skóre z překvapení (result.fundamentalScore) se ukládá vedle,
+    // mimo index. Viz fundamental-state.mjs (včetně výsledků backtestu).
+    const state = computeFundamentalState(currencyCode, SCORED_CURRENCIES, allEvents ?? [], { asOfDay: today, cb: cbPolicy });
+    try {
+      await persistFundamentalState(state, result.fundamentalScore);
+    } catch (stateErr) {
+      console.error(`[${currencyCode}] uložení fundamentálního stavu selhalo (nekriticky):`, stateErr.message);
+    }
+
     const { data: latestCot, error: cotSelectErr } = await supabase
       .from("latest_confluence_scores")
       .select("report_date, cot_score, cot_flow, retail_score, cot_percentile")
@@ -645,26 +699,22 @@ export async function recomputeScores() {
       continue;
     }
 
-    // Celkové skóre je ČISTĚ fundament: překvapení z kalendáře + real yield + CB politika (viz
-    // fundamental-summary.mjs). COT, retail sentiment ani VIX do něj nevstupují — appka je
-    // fundamentální (příběh měny), COT se ukládá a zobrazuje zvlášť jako doplňkový údaj.
-    // realYieldAdj může být null (chybí spolehlivé CPI) — pak tenhle pilíř nic nepřidává.
-    const { fundamentalScoreAdj, overallScore } = computeOverallScore({
-      fundamentalScore: result.fundamentalScore,
-      realYieldAdj: cbPolicy.realYieldAdj,
-      cbPolicyAdj: cbPolicy.cbPolicyAdj,
-    });
+    // Celkové skóre = fundamentální STAV měny (index × 5, viz fundamental-state.mjs). COT, retail
+    // sentiment, VIX ani cena do něj nevstupují — COT se ukládá a zobrazuje zvlášť jako doplněk.
+    // Nedostatek dat (méně než 3 složky) = skóre neexistuje: nic se nedomýšlí, uložená hodnota
+    // zůstane a UI ukáže "nedostatek dat" z fundamental_state.
+    if (state.score === null) {
+      console.log(`[${currencyCode}] stav: nedostatek dat (${state.availableCount}/${state.totalCount} složek) — overall_score se nemění.`);
+      continue;
+    }
+    const overallScore = state.score;
+    const fundamentalScoreAdj = state.activityScore ?? 0; // reálná ekonomika — driver tezí
 
     // Čerstvost COT se dál počítá a ukládá (freshness_cot/stale_reason) — už jen pro zobrazení
     // doplňkového údaje, ne jako váha ve skóre.
     const cotFreshness = computeCotFreshness(currencyCode, cotRow.report_date, allEvents ?? [], today);
 
-    const conviction = computeConviction(overallScore, {
-      cbPolicyAdj: cbPolicy.cbPolicyAdj,
-      realYieldAdj: cbPolicy.realYieldAdj,
-      fundamentalScoreAdj,
-      policyLabel: cbPolicy.policyLabel,
-    });
+    const conviction = { stars: state.convictionStars, reasons: state.convictionReasons };
 
     const { error: updErr } = await supabase
       .from("confluence_scores")
@@ -673,7 +723,7 @@ export async function recomputeScores() {
         data_tier: "partial",
         conviction_stars: conviction.stars,
         conviction_reasons: conviction.reasons,
-        conviction_label: convictionLabelFromStars(conviction.stars),
+        conviction_label: state.convictionLabel,
         freshness_cot: cotFreshness.freshness,
         stale_reason: cotFreshness.staleReason,
       })
@@ -684,8 +734,8 @@ export async function recomputeScores() {
       console.error(`[${currencyCode}] chyba aktualizace overall_score:`, updErr.message);
     } else {
       console.log(
-        `[${currencyCode}] fund_adj=${fundamentalScoreAdj.toFixed(1)} (cot ${cotRow.cot_score} jen jako doplněk, freshness ${cotFreshness.freshness ?? "N/A"}) ` +
-          `-> overall_score=${overallScore} (${conviction.stars}/3 signálů)`
+        `[${currencyCode}] stav ${state.index} (${state.availableCount}/${state.totalCount} složek, ${state.band.label}; cot ${cotRow.cot_score} jen jako doplněk, freshness ${cotFreshness.freshness ?? "N/A"}) ` +
+          `-> overall_score=${overallScore} (shoda ${state.agreeCount}/${state.availableCount})`
       );
 
       // Porovnání s tím, co cituje POSLEDNÍ uložený text (viz komentář u staleTextCurrencies výš).

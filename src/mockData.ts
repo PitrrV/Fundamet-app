@@ -19,6 +19,8 @@ export const CURRENCIES: CurrencyData[] = [
     scoreChange: null,
     thesisChangeNote: null,
     regimeShift: null,
+    fundamentalState: null,
+    stateHistory: [],
     score: -1.2,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:
@@ -87,6 +89,8 @@ export const CURRENCIES: CurrencyData[] = [
     scoreChange: null,
     thesisChangeNote: null,
     regimeShift: null,
+    fundamentalState: null,
+    stateHistory: [],
     score: 2.4,
     convictionLabel: "STŘEDNÍ CONVICTION",
     summary:
@@ -175,6 +179,8 @@ export const CURRENCIES: CurrencyData[] = [
     scoreChange: null,
     thesisChangeNote: null,
     regimeShift: null,
+    fundamentalState: null,
+    stateHistory: [],
     score: -3.1,
     convictionLabel: "VYSOKÁ CONVICTION",
     summary:
@@ -243,6 +249,8 @@ export const CURRENCIES: CurrencyData[] = [
     scoreChange: null,
     thesisChangeNote: null,
     regimeShift: null,
+    fundamentalState: null,
+    stateHistory: [],
     score: 0.3,
     convictionLabel: "NÍZKÁ CONVICTION",
     summary:

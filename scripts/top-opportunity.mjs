@@ -2,7 +2,7 @@
 // podle overall_score (žádná hvězdičková brána) — cílem je rychle ukázat, kde je teď
 // nejvýraznější fundamentální příběh, ne mlčet, když konvikce zrovna není na plné síle.
 // Poctivost se řeší odstupňovaným `confidence_tier`, ne skrýváním výsledku:
-//   "strong" — obě strany mají 2+/3 signály a kvalita dat u obou není nízká
+//   "strong" — obě strany mají shodu složek 2+/3 a kvalita dat u obou není nízká
 //   "soft"   — reálný rozestup existuje, ale konvikce/kvalita dat zatím nejsou na plné úrovni
 //   "flat"   — rozestup mezi nejsilnější a nejslabší měnou je tenhle týden malý, trh je plochý
 // Čistě INSPIRACE pro další zkoumání, NIKDY signál ke vstupu — appka neřeší timing, risk
@@ -19,7 +19,7 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
 
 const FLAT_SPREAD_THRESHOLD = 1.0;
-const STRONG_MIN_CONVICTION = 2; // z max. 3 fundamentálních signálů (viz fundamental-summary.mjs)
+const STRONG_MIN_CONVICTION = 2; // stupnice 0–3 = podíl složek stavu, co souhlasí se směrem (viz fundamental-state.mjs)
 const STRONG_MIN_DATA_QUALITY = 50;
 
 function dirLabel(d) {
@@ -42,9 +42,9 @@ function computeTier(strongest, weakest, spread) {
 
 function buildRationale(strongest, weakest, tier) {
   const base =
-    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, ${strongest.convictionStars}/3 signály, ` +
+    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, shoda složek ${strongest.convictionStars}/3, ` +
     `skóre ${strongest.overallScore > 0 ? "+" : ""}${strongest.overallScore}. ` +
-    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, ${weakest.convictionStars}/3 signály, ` +
+    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, shoda složek ${weakest.convictionStars}/3, ` +
     `skóre ${weakest.overallScore > 0 ? "+" : ""}${weakest.overallScore}.`;
 
   if (tier === "flat") {
@@ -53,7 +53,7 @@ function buildRationale(strongest, weakest, tier) {
   if (tier === "soft") {
     return `${base} Nejvýraznější dostupný rozdíl tenhle týden, ale konvikce nebo kvalita dat zatím nejsou na plné úrovni — ber to jako slabší podnět k dalšímu zkoumání.`;
   }
-  return `${base} Obě teze jsou podpořené více nezávislými signály a kvalita dat u obou není nízká.`;
+  return `${base} Obě teze jsou podpořené souhlasem většiny složek stavu a kvalita dat u obou není nízká.`;
 }
 
 // Vrací { strongest, weakest } (stejné objekty, co se ukládají do weekly_top_opportunity),
