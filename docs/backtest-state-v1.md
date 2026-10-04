@@ -40,3 +40,22 @@ IC 1/2/4/8/13 týdnů: −0,02 / −0,02 / 0,01 / 0,00 / −0,08 (t kolem 0) —
 - Rank-IC ≈ 0,10 je slabá a po letech nestabilní souvislost (2025 ≈ 0). Index je čtení fundamentální situace, ne předpověď ceny.
 - Průřez má jen 8 měn; týdenní pozorování se překrývají (proto přepočtené `t`).
 - `calendar_events` drží poslední známé hodnoty (actual se po vydání může revidovat); historie je tedy point-in-time jen přibližně.
+
+## Varianty oprav dat (testováno 2026-10-04, produkce beze změny)
+
+Stejný postup, stejné váhy a okno; mění se jen přepínače `STATE_OPTIONS_DEFAULT` ve `scripts/fundamental-state.mjs`. Rank-IC (t přepočtené na nepřekrývající se vzorky):
+
+| Varianta | IC 1t | IC 2t | IC 4t | IC 8t | IC 13t |
+|---|---|---|---|---|---|
+| V0 současná produkce | 0,08 (3,3) | 0,09 (2,4) | 0,13 (2,5) | 0,12 (1,4) | 0,09 (0,8) |
+| V1 HDP v jedné jednotce | 0,08 (3,2) | 0,09 (2,4) | 0,13 (2,5) | 0,11 (1,3) | 0,08 (0,8) |
+| V2 PMI jen úplné měsíce | 0,08 (3,1) | 0,09 (2,4) | 0,13 (2,5) | 0,12 (1,5) | 0,09 (0,9) |
+| V3 nové řady AUD/NZD | 0,07 (2,9) | 0,09 (2,3) | 0,12 (2,3) | 0,11 (1,3) | 0,07 (0,7) |
+| V4 spotřeba po blocích | 0,07 (2,7) | 0,09 (2,5) | 0,13 (2,6) | 0,13 (1,6) | 0,11 (1,1) |
+| V5 vše dohromady | 0,05 (1,9) | 0,08 (2,0) | 0,12 (2,1) | 0,11 (1,4) | 0,09 (0,8) |
+| V6 opravy dat (V1+V2+V3) | 0,07 (2,7) | 0,08 (2,1) | 0,11 (2,1) | 0,10 (1,2) | 0,06 (0,6) |
+
+- Žádná varianta backtest nezlepšila; V1 a V2 jsou neutrální (opravy chyb), V3 a V6 o ~0,01–0,02 níž (v rámci šumu), V5 nejhorší na krátkém horizontu.
+- Pokrytí: NZD 4,0 → 5,0 složek (BusinessNZ Manufacturing + Services Index); AUD beze změny v historii (Retail Sales m/m existoval do roku 2025), nová řada pomáhá jen v posledních měsících.
+- Samotná složka spotřeba: jednotlivý tisk IC 4t 0,01 (t 0,1, n=1546) vs. průměr po blocích 0,05 (t 0,8, n=1341) — lepší, ale pořád nevýznamné a s nižším pokrytím (potřebuje 6 tisků).
+- Po letech (IC 4t) V0: 0,10 / 0,18 / 0,02 / 0,26; V6: 0,07 / 0,18 / −0,00 / 0,25 (2023–2026).
