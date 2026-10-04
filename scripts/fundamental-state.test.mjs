@@ -125,3 +125,66 @@ test("výpočet nepoužívá COT/retail/VIX ani cenu (žádné takové vstupy)",
   const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [53, 53, 53, 53, 53]), { asOfDay: "2026-09-30", cb: cbUp });
   assert.equal(JSON.stringify(Object.keys(s)).match(/cot|retail|vix|price/i), null);
 });
+
+// ── přepínače oprav (STATE_OPTIONS_DEFAULT) ────────────────────────────────────────────────
+const ev2 = (title, day, actual, code) => ev(title, day, actual, code);
+const gbpGdp = [
+  ev2("Final GDP q/q", "2025-12-22", 0.1, "GBP"),
+  ev2("Final GDP q/q", "2026-03-31", 0.1, "GBP"),
+  ev2("Final GDP q/q", "2026-06-30", 0.6, "GBP"),
+  ev2("GDP m/m", "2026-09-11", 0.4, "GBP"),
+  ev2("Final GDP q/q", "2026-09-30", 0.5, "GBP"),
+];
+const cbNone = { policyScore: 0, policyLabel: "hold", realYieldAdj: null };
+
+test("výchozí přepínače jsou vypnuté (produkce se nemění do ověření)", async () => {
+  const { STATE_OPTIONS_DEFAULT } = await import("./fundamental-state.mjs");
+  assert.deepEqual({ ...STATE_OPTIONS_DEFAULT }, { consistentGrowthUnit: false, completePmiMonths: false, extraSeries: false, smoothDemand: false });
+});
+
+test("HDP v jedné jednotce: měsíční m/m netlačí čtvrtletní q/q (GBP)", () => {
+  const off = computeFundamentalState("GBP", CODES, gbpGdp, { asOfDay: "2026-10-02", cb: cbNone });
+  const on = computeFundamentalState("GBP", CODES, gbpGdp, { asOfDay: "2026-10-02", cb: cbNone, options: { consistentGrowthUnit: true } });
+  const detail = (s) => s.components.find((c) => c.key === "growth").detail;
+  assert.match(detail(on), /poslední 0,5 % \(norma 0,27 %\)/); // q/q: 0,1; 0,1; 0,6 → 0,5
+  assert.notEqual(detail(off), detail(on)); // původní série míchá jednotky
+});
+
+test("PMI: měsíc bez služeb se s completePmiMonths nepočítá (EUR)", () => {
+  const eur = [
+    ev2("Final Manufacturing PMI", "2026-08-03", 50, "EUR"), ev2("Final Services PMI", "2026-08-05", 52, "EUR"),
+    ev2("Final Manufacturing PMI", "2026-09-01", 51, "EUR"), ev2("Final Services PMI", "2026-09-03", 53, "EUR"),
+    ev2("Final Manufacturing PMI", "2026-10-01", 52.9, "EUR"), // služby ještě nevyšly
+  ];
+  const off = computeFundamentalState("EUR", CODES, eur, { asOfDay: "2026-10-02", cb: cbNone });
+  const on = computeFundamentalState("EUR", CODES, eur, { asOfDay: "2026-10-02", cb: cbNone, options: { completePmiMonths: true } });
+  const pmi = (s) => s.components.find((c) => c.key === "pmi").detail;
+  assert.match(pmi(off), /52,9/);
+  assert.match(pmi(on), /52 \(/); // září: (51+53)/2
+});
+
+test("extraSeries: AUD Household Spending jako spotřeba, NZD BusinessNZ jako PMI", () => {
+  const aud = monthly("Household Spending m/m", [0.1, 0.1, 0.1, 0.1, 0.9], "2026-09-01", "AUD");
+  const nzd = [
+    ...monthly("BusinessNZ Manufacturing Index", [48, 48, 49, 51, 52], "2026-09-01", "NZD"),
+    ...monthly("BusinessNZ Services Index", [49, 49, 50, 52, 53], "2026-09-01", "NZD"),
+  ];
+  const a0 = computeFundamentalState("AUD", CODES, aud, { asOfDay: "2026-09-30", cb: cbNone });
+  const a1 = computeFundamentalState("AUD", CODES, aud, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: true } });
+  assert.equal(a0.components.find((c) => c.key === "demand").score, null);
+  assert.equal(a1.components.find((c) => c.key === "demand").score, 1);
+  const n0 = computeFundamentalState("NZD", CODES, nzd, { asOfDay: "2026-09-30", cb: cbNone });
+  const n1 = computeFundamentalState("NZD", CODES, nzd, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: true } });
+  assert.equal(n0.components.find((c) => c.key === "pmi").score, null);
+  assert.equal(n1.components.find((c) => c.key === "pmi").score, 1); // (52+53)/2 = 52,5 > 50,5
+});
+
+test("smoothDemand: střídavý šum m/m už složku nepřepíná, trvalý posun ano", () => {
+  const noisy = monthly("Retail Sales m/m", [0.9, -0.7, 1.0, -0.6, 0.9, -0.5, 1.1], "2026-09-01", "USD");
+  const shift = monthly("Retail Sales m/m", [0.1, 0.0, 0.1, 0.0, 0.9, 1.0, 1.1], "2026-09-01", "USD");
+  const get = (events, smooth) =>
+    computeFundamentalState("USD", CODES, events, { asOfDay: "2026-09-30", cb: cbNone, options: { smoothDemand: smooth } }).components.find((c) => c.key === "demand").score;
+  assert.equal(get(noisy, false), 1); // poslední tisk 1,1 vs. norma ≈ 0,3 → raw skáče na +1
+  assert.equal(get(noisy, true), 0); // vyhlazený průměr se pohybuje kolem 0,2 — žádný trend
+  assert.equal(get(shift, true), 1); // skutečný posun nahoru zůstává vidět
+});

@@ -253,6 +253,51 @@ async function main() {
   line("rovné váhy", evaluate(equal), `n=${equal.length}`);
   console.log(`${"po letech (vážený)".padEnd(12)} ` + years0(fridays).map((y) => { const e = evaluate(weighted.filter((r) => r.f.startsWith(y))); return `${y}: IC4=${fmt(e[4].ic)} IC13=${fmt(e[13].ic)}`; }).join("  "));
 
+  // varianty oprav (kroky 2–4 plánu) — stejné váhy a okno, mění se jen přepínače
+  console.log(`\n=== Varianty oprav state-v1 (události striktně před pátkem) ===`);
+  console.log(head);
+  const VARIANTS = [
+    ["V0 současná produkce", {}],
+    ["V1 HDP v jedné jednotce", { consistentGrowthUnit: true }],
+    ["V2 PMI jen úplné měsíce", { completePmiMonths: true }],
+    ["V3 nové řady AUD/NZD", { extraSeries: true }],
+    ["V4 spotřeba po blocích", { smoothDemand: true }],
+    ["V5 vše dohromady", { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: true }],
+  ];
+  const vrows = {}, vdemand = {}, vcover = {};
+  for (const [name, options] of VARIANTS) {
+    const rows = [], dem = [];
+    const cov = { AUD: [0, 0, 0], NZD: [0, 0, 0] }; // [týdnů s indexem, součet složek, týdnů celkem]
+    for (const f of fridays) for (const c of CODES) {
+      const st = computeFundamentalState(c, CODES, events, { asOfDay: iso(new Date(f).getTime() - DAY), options });
+      if (cov[c]) { cov[c][2]++; if (st.index !== null) { cov[c][0]++; cov[c][1] += st.availableCount; } }
+      if (st.index !== null) rows.push({ f, c, v: st.index, n: st.availableCount });
+      const d = st.components.find((x) => x.key === "demand");
+      if (d.score !== null) dem.push({ f, c, v: d.score });
+    }
+    vrows[name] = rows; vdemand[name] = dem; vcover[name] = cov;
+    line(name, evaluate(rows), `n=${rows.length}`);
+  }
+  const keyOf = (r) => `${r.f}|${r.c}`;
+  const commonV = new Set(vrows[VARIANTS[0][0]].map(keyOf));
+  for (const [name] of VARIANTS) { const k = new Set(vrows[name].map(keyOf)); for (const x of [...commonV]) if (!k.has(x)) commonV.delete(x); }
+  console.log(`\n--- společný vzorek variant (${commonV.size} pozorování) ---`);
+  console.log(head);
+  for (const [name] of VARIANTS) line(name, evaluate(vrows[name].filter((r) => commonV.has(keyOf(r)))));
+  console.log(`\n--- samotná složka spotřeba: tisk vs. průměr po blocích ---`);
+  console.log(head);
+  line("spotřeba — jednotlivý tisk", evaluate(vdemand[VARIANTS[0][0]]), `n=${vdemand[VARIANTS[0][0]].length}`);
+  line("spotřeba — po blocích (V4)", evaluate(vdemand[VARIANTS[4][0]]), `n=${vdemand[VARIANTS[4][0]].length}`);
+  console.log(`\n--- pokrytí AUD / NZD (týdnů s indexem z N, prům. složek) ---`);
+  for (const [name] of [VARIANTS[0], VARIANTS[3], VARIANTS[5]]) {
+    const c = vcover[name];
+    console.log(`${name.padEnd(26)} AUD ${c.AUD[0]}/${c.AUD[2]} (${(c.AUD[1] / Math.max(1, c.AUD[0])).toFixed(1)})   NZD ${c.NZD[0]}/${c.NZD[2]} (${(c.NZD[1] / Math.max(1, c.NZD[0])).toFixed(1)})`);
+  }
+  console.log(`\n--- po letech, IC 4 týdny / 13 týdnů ---`);
+  for (const [name] of [VARIANTS[0], VARIANTS[5]]) {
+    console.log(`${name.padEnd(26)} ` + years0(fridays).map((y) => { const e = evaluate(vrows[name].filter((r) => r.f.startsWith(y))); return `${y}: ${fmt(e[4].ic)}/${fmt(e[13].ic)}`; }).join("  "));
+  }
+
   // stabilita po letech (h=4 t., k=3)
   console.log(`\n=== Stabilita po letech: IC pro 4 týdny dopředu (k=3) ===`);
   const years = [...new Set(fridays.map((f) => f.slice(0, 4)))];
