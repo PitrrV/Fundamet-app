@@ -146,6 +146,7 @@ export interface LedgerEntry {
   classification: "confirms" | "challenges" | "invalidates_driver" | "opened" | "closed";
   reasoning: string;
   occurredAt: string;
+  legacyModel: boolean; // vzniklo před/při změně metodiky (2. 10. 2026), ne vlivem trhu
 }
 
 export interface TopOpportunity {

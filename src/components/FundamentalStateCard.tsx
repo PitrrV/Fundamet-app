@@ -19,6 +19,14 @@ export function bandClasses(bandKey: FundamentalState["bandKey"]): string {
   }
 }
 
+// Hranice pásem indexu (viz BANDS ve scripts/fundamental-state.mjs). Když je index blízko hranice,
+// UI to řekne — jeden tisk jedné složky může měnu přehodit do sousedního pásma.
+const BAND_EDGES = [-0.5, -0.2, 0.2, 0.5];
+const EDGE_TOLERANCE = 0.05;
+export function nearBandEdge(index: number | null): boolean {
+  return index !== null && BAND_EDGES.some((e) => Math.abs(index - e) <= EDGE_TOLERANCE);
+}
+
 export function componentSymbol(score: StateComponent["score"]): { text: string; classes: string; title: string } {
   if (score === null) return { text: "n/a", classes: "text-faint border-line", title: "Data nemáme — nic se nedomýšlí" };
   if (score > 0) return { text: "+", classes: "text-pos border-pos/50 bg-pos/10", title: "Podporuje měnu" };
@@ -86,6 +94,14 @@ export function FundamentalStateCard({ currency }: { currency: CurrencyData }) {
           {st.bandLabel}
         </span>
         <span className="font-mono text-2xl font-bold text-ink">{st.score === null ? "—" : fmtSigned(st.score)}</span>
+        {nearBandEdge(st.index) && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded border border-warn/40 text-warn bg-warn/10"
+            title="Index je těsně u hranice pásma — jedno nové číslo ho může přehodit do sousedního pásma."
+          >
+            na hraně pásma
+          </span>
+        )}
         <span className="text-[11px] text-muted">
           pokrytí <span className="font-mono text-ink">{st.availableCount}/{st.totalCount}</span> složek
           {missing > 0 ? ` · ${missing} bez dat` : ""}
@@ -124,7 +140,7 @@ export function FundamentalStateCard({ currency }: { currency: CurrencyData }) {
           {st.inflation.target !== null && st.inflation.gap !== null
             ? ` (cíl banky ${st.inflation.target.toFixed(1).replace(".", ",")} %, ${fmtSigned(st.inflation.gap)} p. b.)`
             : ""}
-          . Do skóre nevstupuje — jen ukazuje, jak daleko je cenový tlak od cíle.
+          . Přímo do skóre nevstupuje; nepřímo ho ovlivňuje přes složku Reálný výnos (sazba − inflace), takže vyšší inflace při stejné sazbě reálný výnos snižuje.
         </p>
       )}
 

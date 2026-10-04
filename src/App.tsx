@@ -771,6 +771,13 @@ export default function App() {
                       {thesisStatusBadge(currency.thesis.status).label}
                     </Badge>
                   </div>
+                  {currency.thesis.status === "invalidated" &&
+                    currency.ledgerFeed.find((e) => e.classification === "closed")?.legacyModel && (
+                      <p className="text-[11px] text-warn border-l-2 border-warn/60 bg-warn/5 rounded-r-lg px-3 py-2 mb-3 leading-relaxed">
+                        Tahle teze byla zrušena při změně metodiky (2. 10. 2026), ne vlivem trhu. Nová teze se otevře,
+                        až některý fundamentální driver překročí práh.
+                      </p>
+                    )}
 
                   {/* Nezávislý post-fix audit (ChatGPT/Cowork Opus, 4.9.2026), bod #3: teze bez
                       jediného driveru (status "watching", drivers.length === 0) se dřív pořád
@@ -931,14 +938,17 @@ export default function App() {
             <div className="grid lg:grid-cols-2 gap-4">
               {currency.ledgerFeed.length > 0 && (
                 <Card tone="quiet" className="p-5">
-                  <SectionTitle hint="Kdy a proč appka tezi potvrdila nebo zpochybnila.">Co se změnilo?</SectionTitle>
+                  <SectionTitle hint="Kdy a proč appka tezi potvrdila nebo zpochybnila. Záznamy před 2. 10. 2026 vznikly ze starého modelu (s COT a retailem) — změny směru v té době způsobila změna metodiky, ne trh.">Co se změnilo?</SectionTitle>
                   <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
                     {currency.ledgerFeed.map((entry, i) => {
                       const meta = ledgerEntryMeta(entry);
                       return (
                         <div key={`${entry.occurredAt}-${i}`} className="border-l border-line pl-3">
-                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <div className={`flex flex-wrap items-center gap-2 mb-1 ${entry.legacyModel ? "opacity-60" : ""}`}>
                             <Badge classes={meta.classes}>{meta.label}</Badge>
+                            {entry.legacyModel && (
+                              <Badge classes="border-line2 text-faint bg-surface2">PŘED ZMĚNOU METODIKY</Badge>
+                            )}
                             <span className="text-[10px] text-faint font-mono">
                               {new Date(entry.occurredAt).toLocaleDateString("cs-CZ")}
                             </span>

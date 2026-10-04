@@ -10,7 +10,8 @@
 // pohybu ceny měny, skóre z překvapení vs. konsenzus ≈ 0. Okno 12 měsíců dopadlo nejlépe a delší
 // historie index nezlepšila. Index je ČTENÍ fundamentální situace, ne předpověď ceny — IC je
 // slabé a po letech nestabilní. Překvapení (už "v ceně") se proto zobrazuje zvlášť, mimo skóre.
-// COT, retail sentiment, VIX ani cena do výpočtu NEVSTUPUJÍ.
+// COT, retail sentiment, VIX ani cena do výpočtu NEVSTUPUJÍ. Inflace vstupuje jen nepřímo: složka
+// Reálný výnos = sazba − CPI y/y (vůči průměru koše), vyšší inflace ji tedy snižuje.
 import { computeCbPolicyState } from "./cb-policy.mjs";
 import {
   extractUnemploymentHistory,

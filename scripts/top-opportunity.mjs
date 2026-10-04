@@ -22,6 +22,13 @@ const FLAT_SPREAD_THRESHOLD = 1.0;
 const STRONG_MIN_CONVICTION = 2; // stupnice 0–3 = podíl složek stavu, co souhlasí se směrem (viz fundamental-state.mjs)
 const STRONG_MIN_DATA_QUALITY = 50;
 
+// convictionStars je stupnice 0–3 podle podílu složek stavu, které souhlasí se směrem (ne počet
+// složek ze 6) — proto se v textu ukazuje slovně.
+function agreementLabel(stars) {
+  const word = stars >= 3 ? "vysoká" : stars >= 2 ? "střední" : "nízká";
+  return `${word} shoda složek stavu`;
+}
+
 function dirLabel(d) {
   return d === "bullish" ? "bullish" : d === "bearish" ? "bearish" : "neutrální";
 }
@@ -42,9 +49,9 @@ function computeTier(strongest, weakest, spread) {
 
 function buildRationale(strongest, weakest, tier) {
   const base =
-    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, shoda složek ${strongest.convictionStars}/3, ` +
+    `${strongest.currencyCode}: ${dirLabel(strongest.direction)} teze, ${agreementLabel(strongest.convictionStars)}, ` +
     `skóre ${strongest.overallScore > 0 ? "+" : ""}${strongest.overallScore}. ` +
-    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, shoda složek ${weakest.convictionStars}/3, ` +
+    `${weakest.currencyCode}: ${dirLabel(weakest.direction)} teze, ${agreementLabel(weakest.convictionStars)}, ` +
     `skóre ${weakest.overallScore > 0 ? "+" : ""}${weakest.overallScore}.`;
 
   if (tier === "flat") {

@@ -126,6 +126,20 @@ interface LedgerFeedRow {
 
 const LEDGER_FEED_LIMIT_PER_CURRENCY = 10;
 
+// Změna metodiky skóre (2. 10. 2026): COT/retail/VIX pryč a stav měny (state-v1) jako hlavní skóre.
+// Historie tezí před tímhle okamžikem vznikla ze starého modelu — drivery cot_positioning,
+// retail_sentiment a risk_regime už neexistují a uzavření tezí v okně přepnutí způsobila změna
+// metodiky, ne trh. Záznamy se NEMAŽOU, jen se označí (viz App.tsx).
+const LEGACY_DRIVER_KEYS = new Set(["cot_positioning", "retail_sentiment", "risk_regime"]);
+const MODEL_CUTOVER_START = "2026-10-02T17:56:30Z";
+const MODEL_CUTOVER_END = "2026-10-02T18:00:00Z";
+
+function isLegacyModelEntry(l: { classification: string; occurred_at: string }): boolean {
+  if (l.occurred_at < MODEL_CUTOVER_START) return true;
+  // V okně přepnutí jsou zrušení tezí následek změny metodiky, ne trhu.
+  return l.occurred_at < MODEL_CUTOVER_END && l.classification === "closed";
+}
+
 interface WeeklyTopOpportunityRow {
   strongest_currency: string | null;
   strongest_score: number | null;
@@ -416,12 +430,14 @@ export async function fetchCurrencies(): Promise<CurrencyData[]> {
     }));
 
     const ledgerFeed: LedgerEntry[] = (ledgerFeedByCode.get(row.currency_code) ?? [])
+      .filter((l) => !(l.driver_key && LEGACY_DRIVER_KEYS.has(l.driver_key))) // zrušené drivery se nezobrazují
       .slice(0, LEDGER_FEED_LIMIT_PER_CURRENCY)
       .map((l) => ({
         driverKey: l.driver_key,
         classification: l.classification,
         reasoning: l.reasoning,
         occurredAt: l.occurred_at,
+        legacyModel: isLegacyModelEntry(l),
       }));
 
     return {

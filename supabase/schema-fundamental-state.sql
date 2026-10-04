@@ -16,7 +16,7 @@ create table if not exists fundamental_state (
   total_count      integer not null,
   components       jsonb not null,     -- [{key,label,weight,score(+1/0/-1/null),detail}]
   activity_score   numeric(4,1),       -- jen reálná ekonomika (práce/růst/spotřeba/PMI), −5..+5 — driver tezí
-  inflation        jsonb,              -- {value,target,gap,eventDay} — kontext, do indexu nevstupuje
+  inflation        jsonb,              -- {value,target,gap,eventDay} — kontext; do indexu jen nepřímo přes reálný výnos
   surprise_score   numeric,            -- skóre z překvapení vs. konsenzus (starý fundamental_score) — mimo index
   surprise_label   text,
   updated_at       timestamptz not null default now()
