@@ -61,3 +61,20 @@ Stejný postup, stejné váhy a okno; mění se jen přepínače `STATE_OPTIONS_
 - Po letech (IC 4t) V0: 0,10 / 0,18 / 0,02 / 0,26; V6: 0,07 / 0,18 / −0,00 / 0,25 (2023–2026).
 
 **Rozhodnutí (2026-10-04):** nasazeno V1 + V2 + V3 (`STATE_OPTIONS_DEFAULT`); V4 (spotřeba po blocích) zůstává vypnuté. Důvod: V1/V2 jsou opravy chyb bez dopadu na backtest, V3 zvyšuje pokrytí NZD za cenu rozdílu ~0,01–0,02 IC v rámci šumu; V4 zhoršila krátký horizont a snižuje pokrytí spotřeby.
+
+## Audit 2026-10-04: trh práce se zaměstnaností a mzdami, práh materiality (produkce beze změny)
+
+Základ = produkce po V1+V2+V3. Přepínače `laborComposite` a `materialityFloor` v `fundamental-state.mjs` zůstávají VYPNUTÉ.
+
+| Varianta | IC 1t | IC 2t | IC 4t | IC 8t | IC 13t |
+|---|---|---|---|---|---|
+| W0 současná produkce | 0,07 (2,7) | 0,08 (2,1) | 0,11 (2,1) | 0,10 (1,2) | 0,06 (0,6) |
+| W1 práh materiality (0,2 / 0,2 / 0,3 p. b.) | 0,04 (1,7) | 0,06 (1,6) | 0,08 (1,5) | 0,08 (0,9) | 0,05 (0,4) |
+| W2 práce = nezaměstnanost + zaměstnanost + mzdy | 0,05 (1,9) | 0,06 (1,5) | 0,09 (1,7) | 0,08 (1,0) | 0,05 (0,5) |
+| W3 obojí | 0,05 (1,7) | 0,06 (1,6) | 0,07 (1,3) | 0,07 (0,9) | 0,04 (0,4) |
+
+Samotná složka trh práce (IC 4 týdny): W0 0,15 (t 3,2) · W1 0,12 · W2 0,08 · W3 0,06. Práh materiality vynuluje 66 % nenulových signálů trhu práce (24 % u HDP, 4 % u spotřeby) — a právě malé pohyby míry nezaměstnanosti nesou informaci. Přidání zaměstnanosti a mezd složku trhu práce zhoršilo.
+
+Samotná složka růst (HDP): IC 4 týdny −0,03 (t −0,7), 13 týdnů −0,11 (t −1,3) — v tomto vzorku bez informace (nevýznamně záporná).
+
+**Rozhodnutí:** nic z toho se nenasazuje. Audit tvrdil, že drobné odchylky a chybějící NFP/mzdy zkreslují trh práce; data to nepotvrdila — současná definice (míra nezaměstnanosti proti vlastní normě) je nejlepší ze čtyř variant. NFP a mzdy zůstávají v aplikaci jako překvapení/kontext, ne ve skóre.
