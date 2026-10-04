@@ -263,6 +263,7 @@ async function main() {
     ["V3 nové řady AUD/NZD", { extraSeries: true }],
     ["V4 spotřeba po blocích", { smoothDemand: true }],
     ["V5 vše dohromady", { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: true }],
+    ["V6 opravy dat (V1+V2+V3)", { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true }],
   ];
   const vrows = {}, vdemand = {}, vcover = {};
   for (const [name, options] of VARIANTS) {
@@ -289,12 +290,12 @@ async function main() {
   line("spotřeba — jednotlivý tisk", evaluate(vdemand[VARIANTS[0][0]]), `n=${vdemand[VARIANTS[0][0]].length}`);
   line("spotřeba — po blocích (V4)", evaluate(vdemand[VARIANTS[4][0]]), `n=${vdemand[VARIANTS[4][0]].length}`);
   console.log(`\n--- pokrytí AUD / NZD (týdnů s indexem z N, prům. složek) ---`);
-  for (const [name] of [VARIANTS[0], VARIANTS[3], VARIANTS[5]]) {
+  for (const [name] of [VARIANTS[0], VARIANTS[3], VARIANTS[6]]) {
     const c = vcover[name];
     console.log(`${name.padEnd(26)} AUD ${c.AUD[0]}/${c.AUD[2]} (${(c.AUD[1] / Math.max(1, c.AUD[0])).toFixed(1)})   NZD ${c.NZD[0]}/${c.NZD[2]} (${(c.NZD[1] / Math.max(1, c.NZD[0])).toFixed(1)})`);
   }
   console.log(`\n--- po letech, IC 4 týdny / 13 týdnů ---`);
-  for (const [name] of [VARIANTS[0], VARIANTS[5]]) {
+  for (const [name] of [VARIANTS[0], VARIANTS[5], VARIANTS[6]]) {
     console.log(`${name.padEnd(26)} ` + years0(fridays).map((y) => { const e = evaluate(vrows[name].filter((r) => r.f.startsWith(y))); return `${y}: ${fmt(e[4].ic)}/${fmt(e[13].ic)}`; }).join("  "));
   }
 
