@@ -36,17 +36,20 @@ export const PMI_BAND = { low: 49.5, high: 50.5 }; // kolem hranice 50 expanze/k
 // Váhy ve třech úrovních (ne jemné ladění): reálný výnos a trh práce nesly v backtestu největší
 // informaci, HDP (zřídka, se zpožděním) nejmenší.
 // Opravy dat a vyhlazení spotřeby — přepínače, aby šly otestovat v backtestu (scripts/
-// research-lookback-backtest.mjs) PŘED nasazením. Produkce používá jen to, co je zapnuté ve
-// STATE_OPTIONS_DEFAULT; výchozí hodnoty se mění až po ověření.
+// research-lookback-backtest.mjs) PŘED nasazením. Produkce používá to, co je zapnuté ve
+// STATE_OPTIONS_DEFAULT; výchozí hodnoty se mění až po ověření v backtestu.
 //  consistentGrowthUnit — HDP: série v JEDNÉ jednotce (q/q, jinak nejčastější), ne mix m/m a q/q (GBP)
 //  completePmiMonths    — PMI: měsíc se počítá, jen když má všechny subindexy, které měna má (EUR: bez
 //                         měsíce, kdy služby ještě nevyšly)
 //  extraSeries          — AUD: Household Spending m/m jako spotřeba; NZD: BusinessNZ Manufacturing/Services Index jako PMI
 //  smoothDemand         — spotřeba: průměr posledních 3 tisků vs. předchozích 3 místo jednotlivého tisku (m/m tržby jsou převážně šum)
+// Stav k 2026-10-04: V1+V2+V3 zapnuté (opravy dat — HDP v jedné jednotce, PMI jen úplné měsíce, řady
+// AUD/NZD), V4 vypnuté (spotřeba po blocích zlepšila jen dlouhé horizonty, krátký zhoršila, a snižuje
+// pokrytí). Výsledky v docs/backtest-state-v1.md.
 export const STATE_OPTIONS_DEFAULT = Object.freeze({
-  consistentGrowthUnit: false,
-  completePmiMonths: false,
-  extraSeries: false,
+  consistentGrowthUnit: true,
+  completePmiMonths: true,
+  extraSeries: true,
   smoothDemand: false,
 });
 

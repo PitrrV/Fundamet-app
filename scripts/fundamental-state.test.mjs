@@ -18,6 +18,8 @@ const monthly = (title, values, endDay = "2026-09-01", code = "USD", stepMonths 
     d.setUTCMonth(d.getUTCMonth() - (values.length - 1 - i) * stepMonths);
     return ev(title, d.toISOString().slice(0, 10), v, code);
   });
+// USD má Manufacturing i Services PMI — kvůli completePmiMonths musí mít oba, jinak měsíc nepočítá se.
+const pmiBoth = (values) => [...monthly("ISM Manufacturing PMI", values), ...monthly("ISM Services PMI", values)];
 const cbUp = { policyScore: 1, policyLabel: "hiking", realYieldAdj: 0.2 };
 
 test("všech 6 složek kladných → index 1, skóre 5, silný, conviction 3", () => {
@@ -25,7 +27,8 @@ test("všech 6 složek kladných → index 1, skóre 5, silný, conviction 3", (
     ...monthly("Unemployment Rate", [5.0, 5.0, 5.0, 5.0, 4.5]),
     ...monthly("GDP q/q", [0.1, 0.1, 0.1, 0.8], "2026-09-01", "USD", 3), // HDP je čtvrtletní
     ...monthly("Retail Sales m/m", [0.1, 0.1, 0.1, 0.1, 0.9]),
-    ...monthly("ISM Manufacturing PMI", [51, 51, 51, 51, 53]),
+    ...pmiBoth([51, 51, 51, 51, 53]),
+    ...monthly("ISM Services PMI", [51, 51, 51, 51, 53]),
   ];
   const s = computeFundamentalState("USD", CODES, events, { asOfDay: "2026-09-30", cb: cbUp });
   assert.equal(s.availableCount, 6);
@@ -43,7 +46,7 @@ test("rostoucí nezaměstnanost je záporná složka (obrácený směr)", () => 
 });
 
 test("chybějící data jsou null (nemáme), ne nula, a nezapočítají se", () => {
-  const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [53, 53, 53, 53, 53]), {
+  const s = computeFundamentalState("USD", CODES, pmiBoth([53, 53, 53, 53, 53]), {
     asOfDay: "2026-09-30",
     cb: { policyScore: 1, policyLabel: "hiking", realYieldAdj: null },
   });
@@ -53,7 +56,7 @@ test("chybějící data jsou null (nemáme), ne nula, a nezapočítají se", () 
 });
 
 test("pod minimem složek index neexistuje (nedostatek dat)", () => {
-  const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [53, 53, 53, 53, 53]), {
+  const s = computeFundamentalState("USD", CODES, pmiBoth([53, 53, 53, 53, 53]), {
     asOfDay: "2026-09-30",
     cb: { policyScore: 1, policyLabel: "hiking", realYieldAdj: null },
   });
@@ -66,7 +69,7 @@ test("pod minimem složek index neexistuje (nedostatek dat)", () => {
 
 test("váhy: reálný výnos (1,5) převáží politiku (1,0)", () => {
   // policy +1 (w1), realYield −1 (w1.5), PMI 0 (w1) → (1 − 1.5 + 0) / 3.5
-  const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [50, 50, 50, 50, 50]), {
+  const s = computeFundamentalState("USD", CODES, pmiBoth([50, 50, 50, 50, 50]), {
     asOfDay: "2026-09-30",
     cb: { policyScore: 1, policyLabel: "hiking", realYieldAdj: -0.3 },
   });
@@ -114,7 +117,7 @@ test("překvapení se popisuje odděleně od stavu", () => {
 });
 
 test("kompaktní znaky složek pro historii", () => {
-  const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [53, 53, 53, 53, 53]), { asOfDay: "2026-09-30", cb: cbUp });
+  const s = computeFundamentalState("USD", CODES, pmiBoth([53, 53, 53, 53, 53]), { asOfDay: "2026-09-30", cb: cbUp });
   const signs = componentSigns(s);
   assert.deepEqual(Object.keys(signs), ["policy", "realYield", "labor", "growth", "demand", "pmi"]);
   assert.equal(signs.pmi, 1);
@@ -122,7 +125,7 @@ test("kompaktní znaky složek pro historii", () => {
 });
 
 test("výpočet nepoužívá COT/retail/VIX ani cenu (žádné takové vstupy)", () => {
-  const s = computeFundamentalState("USD", CODES, monthly("ISM Manufacturing PMI", [53, 53, 53, 53, 53]), { asOfDay: "2026-09-30", cb: cbUp });
+  const s = computeFundamentalState("USD", CODES, pmiBoth([53, 53, 53, 53, 53]), { asOfDay: "2026-09-30", cb: cbUp });
   assert.equal(JSON.stringify(Object.keys(s)).match(/cot|retail|vix|price/i), null);
 });
 
@@ -137,13 +140,13 @@ const gbpGdp = [
 ];
 const cbNone = { policyScore: 0, policyLabel: "hold", realYieldAdj: null };
 
-test("výchozí přepínače jsou vypnuté (produkce se nemění do ověření)", async () => {
+test("výchozí přepínače: opravy dat zapnuté, vyhlazení spotřeby vypnuté (rozhodnuto podle backtestu)", async () => {
   const { STATE_OPTIONS_DEFAULT } = await import("./fundamental-state.mjs");
-  assert.deepEqual({ ...STATE_OPTIONS_DEFAULT }, { consistentGrowthUnit: false, completePmiMonths: false, extraSeries: false, smoothDemand: false });
+  assert.deepEqual({ ...STATE_OPTIONS_DEFAULT }, { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: false });
 });
 
 test("HDP v jedné jednotce: měsíční m/m netlačí čtvrtletní q/q (GBP)", () => {
-  const off = computeFundamentalState("GBP", CODES, gbpGdp, { asOfDay: "2026-10-02", cb: cbNone });
+  const off = computeFundamentalState("GBP", CODES, gbpGdp, { asOfDay: "2026-10-02", cb: cbNone, options: { consistentGrowthUnit: false } });
   const on = computeFundamentalState("GBP", CODES, gbpGdp, { asOfDay: "2026-10-02", cb: cbNone, options: { consistentGrowthUnit: true } });
   const detail = (s) => s.components.find((c) => c.key === "growth").detail;
   assert.match(detail(on), /poslední 0,5 % \(norma 0,27 %\)/); // q/q: 0,1; 0,1; 0,6 → 0,5
@@ -156,7 +159,7 @@ test("PMI: měsíc bez služeb se s completePmiMonths nepočítá (EUR)", () => 
     ev2("Final Manufacturing PMI", "2026-09-01", 51, "EUR"), ev2("Final Services PMI", "2026-09-03", 53, "EUR"),
     ev2("Final Manufacturing PMI", "2026-10-01", 52.9, "EUR"), // služby ještě nevyšly
   ];
-  const off = computeFundamentalState("EUR", CODES, eur, { asOfDay: "2026-10-02", cb: cbNone });
+  const off = computeFundamentalState("EUR", CODES, eur, { asOfDay: "2026-10-02", cb: cbNone, options: { completePmiMonths: false } });
   const on = computeFundamentalState("EUR", CODES, eur, { asOfDay: "2026-10-02", cb: cbNone, options: { completePmiMonths: true } });
   const pmi = (s) => s.components.find((c) => c.key === "pmi").detail;
   assert.match(pmi(off), /52,9/);
@@ -169,11 +172,11 @@ test("extraSeries: AUD Household Spending jako spotřeba, NZD BusinessNZ jako PM
     ...monthly("BusinessNZ Manufacturing Index", [48, 48, 49, 51, 52], "2026-09-01", "NZD"),
     ...monthly("BusinessNZ Services Index", [49, 49, 50, 52, 53], "2026-09-01", "NZD"),
   ];
-  const a0 = computeFundamentalState("AUD", CODES, aud, { asOfDay: "2026-09-30", cb: cbNone });
+  const a0 = computeFundamentalState("AUD", CODES, aud, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: false } });
   const a1 = computeFundamentalState("AUD", CODES, aud, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: true } });
   assert.equal(a0.components.find((c) => c.key === "demand").score, null);
   assert.equal(a1.components.find((c) => c.key === "demand").score, 1);
-  const n0 = computeFundamentalState("NZD", CODES, nzd, { asOfDay: "2026-09-30", cb: cbNone });
+  const n0 = computeFundamentalState("NZD", CODES, nzd, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: false } });
   const n1 = computeFundamentalState("NZD", CODES, nzd, { asOfDay: "2026-09-30", cb: cbNone, options: { extraSeries: true } });
   assert.equal(n0.components.find((c) => c.key === "pmi").score, null);
   assert.equal(n1.components.find((c) => c.key === "pmi").score, 1); // (52+53)/2 = 52,5 > 50,5

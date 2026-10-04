@@ -59,3 +59,5 @@ Stejný postup, stejné váhy a okno; mění se jen přepínače `STATE_OPTIONS_
 - Pokrytí: NZD 4,0 → 5,0 složek (BusinessNZ Manufacturing + Services Index); AUD beze změny v historii (Retail Sales m/m existoval do roku 2025), nová řada pomáhá jen v posledních měsících.
 - Samotná složka spotřeba: jednotlivý tisk IC 4t 0,01 (t 0,1, n=1546) vs. průměr po blocích 0,05 (t 0,8, n=1341) — lepší, ale pořád nevýznamné a s nižším pokrytím (potřebuje 6 tisků).
 - Po letech (IC 4t) V0: 0,10 / 0,18 / 0,02 / 0,26; V6: 0,07 / 0,18 / −0,00 / 0,25 (2023–2026).
+
+**Rozhodnutí (2026-10-04):** nasazeno V1 + V2 + V3 (`STATE_OPTIONS_DEFAULT`); V4 (spotřeba po blocích) zůstává vypnuté. Důvod: V1/V2 jsou opravy chyb bez dopadu na backtest, V3 zvyšuje pokrytí NZD za cenu rozdílu ~0,01–0,02 IC v rámci šumu; V4 zhoršila krátký horizont a snižuje pokrytí spotřeby.

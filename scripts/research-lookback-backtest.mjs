@@ -249,15 +249,16 @@ async function main() {
     const av = st.components.filter((x) => x.score !== null);
     equal.push({ f, c, v: av.reduce((a, x) => a + x.score, 0) / av.length });
   }
-  line("vážený (produkce)", evaluate(weighted), `n=${weighted.length}`);
+  line("vážený (produkce od 4.10. = V6)", evaluate(weighted), `n=${weighted.length}`);
   line("rovné váhy", evaluate(equal), `n=${equal.length}`);
   console.log(`${"po letech (vážený)".padEnd(12)} ` + years0(fridays).map((y) => { const e = evaluate(weighted.filter((r) => r.f.startsWith(y))); return `${y}: IC4=${fmt(e[4].ic)} IC13=${fmt(e[13].ic)}`; }).join("  "));
 
   // varianty oprav (kroky 2–4 plánu) — stejné váhy a okno, mění se jen přepínače
   console.log(`\n=== Varianty oprav state-v1 (události striktně před pátkem) ===`);
   console.log(head);
-  const VARIANTS = [
-    ["V0 současná produkce", {}],
+  const OFF = { consistentGrowthUnit: false, completePmiMonths: false, extraSeries: false, smoothDemand: false };
+  const VARIANTS0 = [
+    ["V0 původní state-v1 (vše vypnuto)", {}],
     ["V1 HDP v jedné jednotce", { consistentGrowthUnit: true }],
     ["V2 PMI jen úplné měsíce", { completePmiMonths: true }],
     ["V3 nové řady AUD/NZD", { extraSeries: true }],
@@ -265,6 +266,8 @@ async function main() {
     ["V5 vše dohromady", { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: true }],
     ["V6 opravy dat (V1+V2+V3)", { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true }],
   ];
+  // Výchozí hodnoty v produkci se od 2026-10-04 liší (V6 zapnuto) — varianty proto vždy od vypnutého základu.
+  const VARIANTS = VARIANTS0.map(([name, options]) => [name, { ...OFF, ...options }]);
   const vrows = {}, vdemand = {}, vcover = {};
   for (const [name, options] of VARIANTS) {
     const rows = [], dem = [];
