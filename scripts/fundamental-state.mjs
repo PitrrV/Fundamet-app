@@ -32,6 +32,8 @@ export const MIN_COMPONENTS = 3; // pod tímto počtem dostupných složek index
 export const SCORE_SCALE = 5; // index (−1..+1) → skóre (−5..+5)
 export const REAL_YIELD_DEADBAND = 0.05;
 export const PMI_BAND = { low: 49.5, high: 50.5 }; // kolem hranice 50 expanze/kontrakce
+// Minimální praktická velikost odchylky (procentní body) pro materialityFloor.
+export const MATERIALITY_FLOOR = { labor: 0.2, growth: 0.2, demand: 0.3 };
 
 // Váhy ve třech úrovních (ne jemné ladění): reálný výnos a trh práce nesly v backtestu největší
 // informaci, HDP (zřídka, se zpožděním) nejmenší.
@@ -46,11 +48,16 @@ export const PMI_BAND = { low: 49.5, high: 50.5 }; // kolem hranice 50 expanze/k
 // Stav k 2026-10-04: V1+V2+V3 zapnuté (opravy dat — HDP v jedné jednotce, PMI jen úplné měsíce, řady
 // AUD/NZD), V4 vypnuté (spotřeba po blocích zlepšila jen dlouhé horizonty, krátký zhoršila, a snižuje
 // pokrytí). Výsledky v docs/backtest-state-v1.md.
+//  materialityFloor     — trend se počítá jen při odchylce aspoň o praktickou velikost (nezam. 0,2 p. b., HDP 0,2 p. b.,
+//                         spotřeba 0,3 p. b.): u krátkých řad má malá směrodatná odchylka jinak drobnost jako 0,1 p. b. za trend
+//  laborComposite       — trh práce = míra nezaměstnanosti + změna zaměstnanosti + mzdy (kde je kalendář má), ne jen míra
 export const STATE_OPTIONS_DEFAULT = Object.freeze({
   consistentGrowthUnit: true,
   completePmiMonths: true,
   extraSeries: true,
   smoothDemand: false,
+  materialityFloor: false,
+  laborComposite: false,
 });
 
 const EXTRA_DEMAND_TITLE = { AUD: /^household spending m\/m$/i };
@@ -97,7 +104,7 @@ function addMonths(day, months) {
 }
 
 // Trend série vůči vlastní nedávné normě. null = málo tisků (nemáme, ne nula).
-function trendComponent(history, { invert = false, unit = "" } = {}) {
+function trendComponent(history, { invert = false, unit = "", minAbs = 0 } = {}) {
   const n = history.length;
   if (n < TREND_BASE_PRINTS + 1) {
     return { score: null, detail: n === 0 ? "data nemáme" : `málo tisků (${n}) na určení trendu` };
@@ -107,6 +114,7 @@ function trendComponent(history, { invert = false, unit = "" } = {}) {
   const norm = mean(values.slice(-1 - TREND_BASE_PRINTS, -1));
   const z = (last - norm) / (sd(values) || 1);
   let s = z >= TREND_THRESHOLD ? 1 : z <= -TREND_THRESHOLD ? -1 : 0;
+  if (minAbs > 0 && Math.abs(last - norm) < minAbs) s = 0; // odchylka je pod praktickou materialitou
   if (invert) s = -s;
   return { score: s === 0 ? 0 : s, detail: `poslední ${fmtNum(last)}${unit} (norma ${fmtNum(norm)}${unit})` };
 }
@@ -157,6 +165,52 @@ function growthHistoryConsistent(code, events) {
   const qoq = series.get("pct_qoq");
   if (qoq && qoq.length >= TREND_BASE_PRINTS + 1) return qoq;
   return [...series.values()].sort((a, b) => b.length - a.length)[0] ?? [];
+}
+
+
+// Trh práce jako souhrn: míra nezaměstnanosti (obrácený směr) + změna zaměstnanosti + mzdy, kde je
+// kalendář má. Claimant Count (GBP) roste = horší trh práce, proto obrácený směr. Ostatní měny
+// (EUR, CHF, NZD) mají jen míru nezaměstnanosti — zaměstnanost/mzdy tam nejsou dost často nebo vůbec.
+const EMPLOYMENT_SERIES = {
+  USD: { titles: ["Non-Farm Employment Change"], invert: false },
+  CAD: { titles: ["Employment Change"], invert: false },
+  AUD: { titles: ["Employment Change"], invert: false },
+  GBP: { titles: ["Claimant Count Change"], invert: true },
+};
+const WAGE_SERIES = {
+  USD: ["Average Hourly Earnings m/m"],
+  GBP: ["Average Earnings Index 3m/y"],
+  JPY: ["Average Cash Earnings y/y"],
+};
+const LABOR_COMPOSITE_THRESHOLD = 0.25; // průměr dílčích znamének nad ±0,25 = +1 / −1
+
+function parsePrint(actual) {
+  const v = parseFloat(String(actual).replace(",", "."));
+  if (Number.isNaN(v)) return NaN;
+  return /m\s*$/i.test(String(actual)) ? v * 1000 : v; // 1.2M → 1200 (K)
+}
+
+function seriesByTitles(code, events, titles) {
+  return events
+    .filter((e) => e.currency_code === code && e.actual != null && titles.includes(e.event_title))
+    .map((e) => ({ value: parsePrint(e.actual), eventDay: e.event_day }))
+    .filter((o) => !Number.isNaN(o.value))
+    .sort((a, b) => (a.eventDay < b.eventDay ? -1 : 1));
+}
+
+function laborComponent(code, events, opts) {
+  const floor = opts.materialityFloor ? MATERIALITY_FLOOR.labor : 0;
+  const ur = trendComponent(extractUnemploymentHistory(code, events), { invert: true, unit: " %", minAbs: floor });
+  if (!opts.laborComposite) return ur;
+  const parts = [{ name: "nezaměstnanost", ...ur }];
+  const emp = EMPLOYMENT_SERIES[code];
+  if (emp) parts.push({ name: "zaměstnanost", ...trendComponent(seriesByTitles(code, events, emp.titles), { invert: emp.invert }) });
+  if (WAGE_SERIES[code]) parts.push({ name: "mzdy", ...trendComponent(seriesByTitles(code, events, WAGE_SERIES[code]), { unit: " %" }) });
+  const have = parts.filter((p) => p.score !== null);
+  if (have.length === 0) return { score: null, detail: ur.detail };
+  const avg = have.reduce((a, p) => a + p.score, 0) / have.length;
+  const score = avg > LABOR_COMPOSITE_THRESHOLD ? 1 : avg < -LABOR_COMPOSITE_THRESHOLD ? -1 : 0;
+  return { score, detail: have.map((p) => `${p.name}: ${p.detail}`).join("; ") };
 }
 
 // Trend po blocích: průměr posledních 3 tisků vs. průměr 3 tisků předtím, v jednotkách směrodatné
@@ -256,12 +310,15 @@ export function computeFundamentalState(currencyCode, allCodes, events, { asOfDa
             score: cbState.realYieldAdj > REAL_YIELD_DEADBAND ? 1 : cbState.realYieldAdj < -REAL_YIELD_DEADBAND ? -1 : 0,
             detail: `${cbState.realYieldAdj > 0 ? "+" : ""}${fmtNum(cbState.realYieldAdj)} vůči průměru koše`,
           },
-    labor: trendComponent(extractUnemploymentHistory(currencyCode, windowed), { invert: true, unit: " %" }),
+    labor: laborComponent(currencyCode, windowed, opts),
     growth: trendComponent(
       opts.consistentGrowthUnit ? growthHistoryConsistent(currencyCode, windowed) : extractGrowthHistory(currencyCode, windowed),
-      { unit: " %" }
+      { unit: " %", minAbs: opts.materialityFloor ? MATERIALITY_FLOOR.growth : 0 }
     ),
-    demand: (opts.smoothDemand ? blockTrendComponent : trendComponent)(demandHistory(currencyCode, windowed, opts), { unit: " %" }),
+    demand: (opts.smoothDemand ? blockTrendComponent : trendComponent)(demandHistory(currencyCode, windowed, opts), {
+      unit: " %",
+      ...(opts.smoothDemand ? {} : { minAbs: opts.materialityFloor ? MATERIALITY_FLOOR.demand : 0 }),
+    }),
     pmi: pmiComponent(pmiHistoryState(currencyCode, windowed, opts)),
   };
 

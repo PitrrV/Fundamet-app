@@ -142,7 +142,7 @@ const cbNone = { policyScore: 0, policyLabel: "hold", realYieldAdj: null };
 
 test("výchozí přepínače: opravy dat zapnuté, vyhlazení spotřeby vypnuté (rozhodnuto podle backtestu)", async () => {
   const { STATE_OPTIONS_DEFAULT } = await import("./fundamental-state.mjs");
-  assert.deepEqual({ ...STATE_OPTIONS_DEFAULT }, { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: false });
+  assert.deepEqual({ ...STATE_OPTIONS_DEFAULT }, { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: false, materialityFloor: false, laborComposite: false });
 });
 
 test("HDP v jedné jednotce: měsíční m/m netlačí čtvrtletní q/q (GBP)", () => {
@@ -190,4 +190,43 @@ test("smoothDemand: střídavý šum m/m už složku nepřepíná, trvalý posun
   assert.equal(get(noisy, false), 1); // poslední tisk 1,1 vs. norma ≈ 0,3 → raw skáče na +1
   assert.equal(get(noisy, true), 0); // vyhlazený průměr se pohybuje kolem 0,2 — žádný trend
   assert.equal(get(shift, true), 1); // skutečný posun nahoru zůstává vidět
+});
+
+test("materialityFloor: drobná odchylka (0,1 p. b.) složku nepřepne, velká ano", () => {
+  const small = monthly("Unemployment Rate", [6.3, 6.3, 6.3, 6.3, 6.4], "2026-09-01", "EUR");
+  const big = monthly("Unemployment Rate", [6.3, 6.3, 6.3, 6.3, 6.7], "2026-09-01", "EUR");
+  const lab = (events, floor) =>
+    computeFundamentalState("EUR", CODES, events, { asOfDay: "2026-09-30", cb: cbNone, options: { materialityFloor: floor } }).components.find((c) => c.key === "labor").score;
+  assert.equal(lab(small, false), -1); // bez prahu 0,1 p. b. = trend (malá směrodatná odchylka)
+  assert.equal(lab(small, true), 0); // pod prahem 0,2 p. b.
+  assert.equal(lab(big, true), -1); // 0,4 p. b. je materiální
+});
+
+test("laborComposite: slabé NFP a mzdy stáhnou USD trh práce i při stabilní míře nezaměstnanosti", () => {
+  const events = [
+    ...monthly("Unemployment Rate", [4.1, 4.1, 4.1, 4.1, 4.2]),
+    ...monthly("Non-Farm Employment Change", [150, 160, 170, 162, 29]),
+    ...monthly("Average Hourly Earnings m/m", [0.3, 0.3, 0.4, 0.3, 0.1]),
+  ];
+  const get = (composite) =>
+    computeFundamentalState("USD", CODES, events, { asOfDay: "2026-09-30", cb: cbNone, options: { laborComposite: composite, materialityFloor: true } }).components.find((c) => c.key === "labor");
+  assert.equal(get(false).score, 0); // jen míra: 4,2 vs 4,1 pod prahem
+  assert.equal(get(true).score, -1); // zaměstnanost −1, mzdy −1, míra 0 → průměr −0,67
+  assert.match(get(true).detail, /zaměstnanost/);
+  assert.match(get(true).detail, /mzdy/);
+});
+
+test("laborComposite: měna bez dalších řad (CHF) zůstane u míry nezaměstnanosti", () => {
+  const events = monthly("Unemployment Rate", [3.0, 3.0, 3.0, 3.0, 3.6], "2026-09-01", "CHF");
+  const s = computeFundamentalState("CHF", CODES, events, { asOfDay: "2026-09-30", cb: cbNone, options: { laborComposite: true } });
+  assert.equal(s.components.find((c) => c.key === "labor").score, -1);
+});
+
+test("Claimant Count (GBP) roste = horší trh práce", () => {
+  const events = [
+    ...monthly("Unemployment Rate", [4.9, 4.9, 4.9, 4.9, 4.9], "2026-09-01", "GBP"),
+    ...monthly("Claimant Count Change", [5, 6, 4, 5, 40], "2026-09-01", "GBP"),
+  ];
+  const s = computeFundamentalState("GBP", CODES, events, { asOfDay: "2026-09-30", cb: cbNone, options: { laborComposite: true } });
+  assert.equal(s.components.find((c) => c.key === "labor").score, -1); // UR 0, claimants −1 → průměr −0,5
 });

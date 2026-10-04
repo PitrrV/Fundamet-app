@@ -302,6 +302,54 @@ async function main() {
     console.log(`${name.padEnd(26)} ` + years0(fridays).map((y) => { const e = evaluate(vrows[name].filter((r) => r.f.startsWith(y))); return `${y}: ${fmt(e[4].ic)}/${fmt(e[13].ic)}`; }).join("  "));
   }
 
+  // kroky 2–3 auditu (4. 10.): trh práce se zaměstnaností a mzdami, práh materiality. Základ = současná produkce.
+  console.log(`\n=== Audit: trh práce (zaměstnanost + mzdy) a práh materiality (události striktně před pátkem) ===`);
+  console.log(head);
+  const BASE = { consistentGrowthUnit: true, completePmiMonths: true, extraSeries: true, smoothDemand: false, materialityFloor: false, laborComposite: false };
+  const WV = [
+    ["W0 současná produkce", {}],
+    ["W1 práh materiality", { materialityFloor: true }],
+    ["W2 práce: zaměstn.+mzdy", { laborComposite: true }],
+    ["W3 obojí", { materialityFloor: true, laborComposite: true }],
+  ].map(([n, o]) => [n, { ...BASE, ...o }]);
+  const wrows = {}, wcomp = {};
+  for (const [name, options] of WV) {
+    const rows = [], comp = { labor: [], growth: [], demand: [] };
+    const scoreMap = new Map();
+    for (const f of fridays) for (const c of CODES) {
+      const st = computeFundamentalState(c, CODES, events, { asOfDay: iso(new Date(f).getTime() - DAY), options });
+      if (st.index !== null) rows.push({ f, c, v: st.index, n: st.availableCount });
+      for (const key of ["labor", "growth", "demand"]) {
+        const x = st.components.find((k) => k.key === key);
+        if (x.score !== null) comp[key].push({ f, c, v: x.score });
+        scoreMap.set(`${f}|${c}|${key}`, x.score);
+      }
+    }
+    wrows[name] = rows; wcomp[name] = { comp, scoreMap };
+    line(name, evaluate(rows), `n=${rows.length}`);
+  }
+  const wkeys = (n) => new Set(wrows[n].map((r) => `${r.f}|${r.c}`));
+  const wcommon = [...wkeys(WV[0][0])].filter((k) => WV.every(([n]) => wkeys(n).has(k)));
+  const wcs = new Set(wcommon);
+  console.log(`\n--- společný vzorek (${wcs.size} pozorování) ---`);
+  console.log(head);
+  for (const [n] of WV) line(n, evaluate(wrows[n].filter((r) => wcs.has(`${r.f}|${r.c}`))));
+  console.log(`\n--- samotné složky: práce / HDP / spotřeba (IC 1/2/4/8/13 t) ---`);
+  console.log(head);
+  for (const key of ["labor", "growth", "demand"]) for (const [n] of WV) line(`${key} · ${n.slice(0, 2)}`, evaluate(wcomp[n].comp[key]), `n=${wcomp[n].comp[key].length}`);
+  console.log(`\n--- jak často práh materiality zruší nenulovou složku (W1 vs W0) ---`);
+  for (const key of ["labor", "growth", "demand"]) {
+    let nz = 0, zeroed = 0;
+    for (const [k, v0] of wcomp[WV[0][0]].scoreMap) {
+      if (!k.endsWith(`|${key}`) || v0 === null || v0 === 0) continue;
+      nz++;
+      if (wcomp[WV[1][0]].scoreMap.get(k) === 0) zeroed++;
+    }
+    console.log(`${key.padEnd(8)} nenulových ${nz}, z toho vynulováno ${zeroed} (${((100 * zeroed) / Math.max(1, nz)).toFixed(0)} %)`);
+  }
+  console.log(`\n--- po letech, IC 4 týdny / 13 týdnů ---`);
+  for (const [n] of WV) console.log(`${n.padEnd(26)} ` + years0(fridays).map((y) => { const e = evaluate(wrows[n].filter((r) => r.f.startsWith(y))); return `${y}: ${fmt(e[4].ic)}/${fmt(e[13].ic)}`; }).join("  "));
+
   // stabilita po letech (h=4 t., k=3)
   console.log(`\n=== Stabilita po letech: IC pro 4 týdny dopředu (k=3) ===`);
   const years = [...new Set(fridays.map((f) => f.slice(0, 4)))];
