@@ -1,0 +1,45 @@
+name: AI Narrative (Claude)
+
+# Texty příběhů píše Claude; tenhle workflow je jen exportuje (MODE=export) a před uložením pustí přes
+# stejné kontroly jako generátor (MODE=apply, výchozí DRY_RUN=1 = nic nezapíše). Žádný OpenAI klíč.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "export | apply"
+        default: "export"
+      currencies:
+        description: "Měny oddělené čárkou (např. AUD,CAD,NZD)"
+        default: "AUD,CAD,NZD"
+      file:
+        description: "Pro apply: data/ai-narratives/<soubor>.json"
+        default: ""
+      dry_run:
+        description: "1 = jen zkontrolovat (výchozí), 0 = uložit do DB"
+        default: "1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-narrative
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: node scripts/ai-narrative.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          MODE: ${{ inputs.mode }}
+          CURRENCIES: ${{ inputs.currencies }}
+          FILE: ${{ inputs.file }}
+          DRY_RUN: ${{ inputs.dry_run }}

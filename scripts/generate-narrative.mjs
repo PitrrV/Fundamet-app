@@ -47,13 +47,15 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error("Chybí SUPABASE_URL nebo SUPABASE_SERVICE_KEY v prostředí.");
   process.exit(1);
 }
-if (!OPENAI_API_KEY) {
+// Klíč je povinný jen při přímém spuštění generátoru. Skripty, co si z tohohle souboru jen importují
+// kontext a kontroly (scripts/ai-narrative.mjs), OpenAI nepotřebují.
+if (!OPENAI_API_KEY && process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
   console.error("Chybí OPENAI_API_KEY v prostředí.");
   process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const openai = new OpenAI({ apiKey: OPENAI_API_KEY || "not-configured" });
 
 const UPCOMING_DAYS = 21;
 // Nákladový audit (2026-08-06): recentEvents s RECENT_DAYS=90 tvořilo 60 % vstupních tokenů
@@ -292,7 +294,7 @@ function formatCzechDate(isoDate) {
 // proto deterministický fallback, co poskládá větu přímo z nadcházejících eventů appky.
 const MIN_FORWARD_FLAG_WORDS = 6;
 
-function isTooShortForwardFlag(text) {
+export function isTooShortForwardFlag(text) {
   return !text || text.trim().split(/\s+/).length < MIN_FORWARD_FLAG_WORDS;
 }
 
@@ -301,7 +303,7 @@ function isTooShortForwardFlag(text) {
 // mléčný cenový index místo skutečně důležitého Employment Change/Unemployment Rate o den
 // později). Kontrola délky by tohle nikdy nechytila — proto ověřujeme, že text doslova obsahuje
 // datum aspoň jednoho z "flaggedEvents" (appkou předvybraných podle důležitosti).
-function forwardFlagCitesFlaggedEvent(text, flaggedEvents) {
+export function forwardFlagCitesFlaggedEvent(text, flaggedEvents) {
   if (!text || !flaggedEvents || flaggedEvents.length === 0) return false;
   return flaggedEvents.some((e) => text.includes(formatCzechDate(e.date)));
 }
@@ -311,7 +313,7 @@ function forwardFlagCitesFlaggedEvent(text, flaggedEvents) {
 // DRUHÝ nejbližší den, pokud existuje, aby fallback pokryl i případ "napřed méně důležitý event,
 // pak zásadní rozhodnutí", který appka v UI zobrazuje jako "navazující eventy" — ne jen jeden
 // izolovaný event bez návaznosti.
-function buildFallbackForwardFlag(flaggedEvents) {
+export function buildFallbackForwardFlag(flaggedEvents) {
   if (!flaggedEvents || flaggedEvents.length === 0) return null;
 
   const firstDate = flaggedEvents[0].date;
@@ -525,7 +527,7 @@ export function buildRankingSummary(ownScore, otherCurrencies) {
   return `Podle aktuálního skóre koše je tahle měna ${parts.join(" a zároveň ")}.`;
 }
 
-function buildInputFingerprint(context) {
+export function buildInputFingerprint(context) {
   const { cot, fundamental, fundamentalState, cbPolicy, thesis, basketContext, scenarioSeeds } = context;
 
   return {
@@ -834,7 +836,7 @@ const FOREIGN_SCRIPT_RE = new RegExp(`[${FOREIGN_SCRIPT_RANGES}]`, "u");
 
 // Projde celou strukturu odpovědi a vrátí cesty ke všem textovým polím s cizím písmem — appka
 // pak přesně ví, KTERÉ pole je špatně (pro log i pro to, aby šlo případně cíleně opakovat).
-function findForeignScript(value, path = "$") {
+export function findForeignScript(value, path = "$") {
   if (typeof value === "string") {
     return FOREIGN_SCRIPT_RE.test(value) ? [path] : [];
   }
@@ -899,7 +901,7 @@ const LEAKED_FIELD_NAMES = [
 ];
 const LEAKED_FIELD_RE = new RegExp(LEAKED_FIELD_NAMES.map((n) => `\\b${n}\\b`).join("|"));
 
-function findLeakedFieldNames(value, path = "$") {
+export function findLeakedFieldNames(value, path = "$") {
   if (typeof value === "string") {
     return LEAKED_FIELD_RE.test(value) ? [path] : [];
   }
@@ -1348,7 +1350,7 @@ const FRESHNESS_EPSILON = 0.05;
 
 // Skóre POUŽITÉ v promptu (z kontextu, který šel do OpenAI) — tohle appka porovnává s tím, co je
 // PRÁVĚ TEĎ v DB, aby zjistila, jestli text ještě odpovídá tomu, co UI zobrazuje v gauge.
-function contextScoreSnapshot(context) {
+export function contextScoreSnapshot(context) {
   return {
     overall_score: context.cot?.overallScore ?? null,
     fundamental_score: context.fundamental?.fundamental_score ?? null,
