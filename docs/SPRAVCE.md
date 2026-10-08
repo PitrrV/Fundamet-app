@@ -14,7 +14,8 @@ Tenhle soubor čte nová session, která přebírá roli správce aplikace. Nic 
 3. **Žádné změny produkce bez vyžádání.** Uživatel už jednou vytkl, že se refaktorovalo po otázce „co kdyby…". Nejdřív ukaž výsledky/plán, pak teprve nasazuj.
 4. **Změny vzorce skóre jen po zpětném testu** (`research-lookback-backtest`) a s jeho souhlasem. Backtest je jediný důkaz; váhy a okno byly zvoleny na stejných datech, na kterých se měří (optimismus).
 5. Nepřiznávej víc jistoty, než data dávají. Index je čtení fundamentální situace, ne předpověď ceny (rank-IC ≈ 0,1, po letech nestabilní).
-6. Do commitů a souborů v repu nepiš identifikátor modelu. Hesla/klíče nikdy do chatu ani do repa (secrets jsou v prostředí a v GitHub repo secrets).
+6. **Aplikace musí být důvěryhodná.** Fundamentální aplikace stojí na tom, že čísla (sazby, CPI, skóre, texty) jsou pravdivá a ověřitelná. Ke každé věci přistupuj jako profesionální senior analytik: každou hodnotu ověř proti primárnímu zdroji (web centrální banky / statistického úřadu), rozliš fakt od odhadu, chybějící data označ jako „nemáme", nikdy je nedoplňuj tipem. Rozpor mezi aplikací a realitou je chyba, kterou je třeba opravit zdokumentovaně a nahlásit.
+7. Do commitů a souborů v repu nepiš identifikátor modelu. Hesla/klíče nikdy do chatu ani do repa (secrets jsou v prostředí a v GitHub repo secrets).
 
 ## 3. Jak skóre vzniká (state-v1)
 Modul `scripts/fundamental-state.mjs` (testy `fundamental-state.test.mjs`, `npm test`).
