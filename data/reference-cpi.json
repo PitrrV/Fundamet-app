@@ -1,0 +1,41 @@
+{
+  "_popis": "Záložní roční CPI (y/y) pro měny, kterým ForexFactory headline CPI y/y nedává (CHF, CAD, NZD). Použije se JEN když kalendář hodnotu nemá a jen po dobu max_age_dní od data vydání; po uplynutí se pole vrací na „nemáme“ (null). Každou hodnotu je nutné po novém vydání aktualizovat ručně a ověřit proti primárnímu zdroji. Zdroj schválení: uživatel, 2026-10-09.",
+  "entries": [
+    {
+      "currency": "CHF",
+      "cpi_yoy_pct": 1.0,
+      "measure": "headline CPI y/y (FSO/BFS)",
+      "reference_period": "2026-09",
+      "release_date": "2026-10-01",
+      "max_age_dni": 50,
+      "source": "Swiss Federal Statistical Office (BFS)",
+      "url": "https://www.bfs.admin.ch/bfs/en/home/statistics/prices/consumer-price-index.html",
+      "retrieved_at": "2026-10-09",
+      "overeni": "FX.co a Frontaliere Ticino citující FSO; shoda se složením 12 měsíčních změn v kalendáři = 1,00 %"
+    },
+    {
+      "currency": "CAD",
+      "cpi_yoy_pct": 3.0,
+      "measure": "headline CPI y/y (Statistics Canada)",
+      "reference_period": "2026-08",
+      "release_date": "2026-09-14",
+      "max_age_dni": 50,
+      "source": "Statistics Canada, The Daily",
+      "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/260914/dq260914a-eng.htm",
+      "retrieved_at": "2026-10-09",
+      "overeni": "ForexFactory news a Retail Insider citující StatCan; shoda se složením 12 měsíčních změn v kalendáři = 3,03 %"
+    },
+    {
+      "currency": "NZD",
+      "cpi_yoy_pct": 4.1,
+      "measure": "headline CPI y/y, čtvrtletní (Stats NZ)",
+      "reference_period": "2026-Q2",
+      "release_date": "2026-07-21",
+      "max_age_dni": 110,
+      "source": "Stats NZ",
+      "url": "https://www.stats.govt.nz/news/annual-inflation-at-4-1-percent-in-june-2026/",
+      "retrieved_at": "2026-10-09",
+      "overeni": "titulek Stats NZ a Westpac IQ; shoda se složením 4 čtvrtletních změn v kalendáři = 4,06 %"
+    }
+  ]
+}

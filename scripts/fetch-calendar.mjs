@@ -15,6 +15,13 @@ import { runThesisEngineForCurrency } from "./thesis-engine.mjs";
 import { runMarketExpectationsForCurrency } from "./market-expectations.mjs";
 import { runDataQualityForCurrency } from "./data-quality.mjs";
 import { computeTopOpportunity } from "./top-opportunity.mjs";
+import { readFileSync } from "node:fs";
+
+// Ověřené záložní roční CPI pro měny, kterým ForexFactory headline CPI y/y nedává (CHF, CAD, NZD).
+// Zdroj, období a datum vydání jsou v souboru; po uplynutí max_age_dni se hodnota nepoužije.
+const REFERENCE_CPI = JSON.parse(
+  readFileSync(new URL("../data/reference-cpi.json", import.meta.url), "utf8")
+).entries;
 
 // "Den eventu" appka počítá podle pražského (uživatelova) místního času, ne podle UTC — živě
 // nahlášená chyba (NZD, audit 2026-08-03): event v 22:45 UTC je 4.8. v UTC, ale 5.8. i v Praze
@@ -622,7 +629,7 @@ export async function recomputeScores() {
     );
     if (regimeShiftErr) console.error(`[${currencyCode}] chyba upsertu regime_shift_state:`, regimeShiftErr.message);
 
-    const cbPolicy = computeCbPolicyState(currencyCode, SCORED_CURRENCIES, allEvents ?? []);
+    const cbPolicy = computeCbPolicyState(currencyCode, SCORED_CURRENCIES, allEvents ?? [], { referenceCpi: REFERENCE_CPI });
 
     // USD má jediné ověřené live tržní "priced-in" data (FRED DGS2 2Y výnos) — kde je
     // k dispozici, přepiš decision_consensus proxy kvalitnější yield_gap metodou.

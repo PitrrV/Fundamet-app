@@ -27,6 +27,10 @@ export function extractRateHistory(currencyCode, calendarEvents) {
   return history;
 }
 
+// Preferovaný titul ročního CPI pro měny, kde ForexFactory nemá prosté "CPI y/y" a mezi více
+// variantami musí vyhrát oficiální míra (viz komentář v extractLatestCpi).
+const PREFERRED_CPI_TITLE = { JPY: /^national core cpi y\/y$/i };
+
 // Poslední známá roční inflace (kategorie "Inflation"), preferuje YoY pojmenované eventy
 // (m/m hodnota by rozbila real yield výpočet, který počítá s roční mírou).
 export function extractLatestCpi(currencyCode, calendarEvents) {
@@ -82,7 +86,14 @@ export function extractLatestCpi(currencyCode, calendarEvents) {
   const isAltMeasureOnly = (title) => /\b(trimmed|median|common)\b/i.test(title || "");
 
   const yoyEvents = inflationEvents.filter((ev) => isYoY(ev.event_title) && isCpiTitle(ev.event_title));
+  // Schváleno uživatelem 2026-10-09 (audit CPI, bod B): u JPY je oficiální míra NÁRODNÍ Core CPI
+  // (Statistics Bureau of Japan). "Tokyo Core CPI" je regionální předstihový údaj, který bývá
+  // čerstvější, ale zkreslený jednorázovými efekty (září 2026: 2,7 % vs. národní 1,7 %), a
+  // "BOJ Core CPI" je jiná, očištěná míra. Pokud národní údaj existuje, použije se vždy on.
+  const preferred = PREFERRED_CPI_TITLE[currencyCode] ?? null;
+  const preferredEvent = preferred ? yoyEvents.find((ev) => preferred.test(ev.event_title || "")) : null;
   const candidate =
+    preferredEvent ??
     yoyEvents.find((ev) => !isCoreVariant(ev.event_title)) ??
     yoyEvents.find((ev) => !isAltMeasureOnly(ev.event_title)) ??
     null;
@@ -360,7 +371,27 @@ export function upcomingRateDecision(currencyCode, calendarEvents, currentRate) 
  * @param {string[]} allCurrencyCodes
  * @param {Array} allCalendarEvents
  */
-export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendarEvents) {
+/**
+ * Záložní roční CPI z ověřeného referenčního souboru (data/reference-cpi.json) — jen pro měny,
+ * kterým kalendář headline CPI y/y nedává. Vrací číslo, nebo null, když záznam chybí nebo je
+ * starší než jeho max_age_dni od data vydání (radši "nemáme" než zastaralé číslo).
+ * @param {Array} entries záznamy ze souboru
+ * @param {string} currencyCode
+ * @param {Date} [now]
+ */
+export function referenceCpiFallback(entries, currencyCode, now = new Date()) {
+  const e = (entries ?? []).find((x) => x.currency === currencyCode);
+  if (!e || typeof e.cpi_yoy_pct !== "number") return null;
+  const ageDays = (now.getTime() - new Date(`${e.release_date}T00:00:00Z`).getTime()) / 86400000;
+  if (!(ageDays >= 0) || ageDays > e.max_age_dni) return null;
+  return Math.round(e.cpi_yoy_pct * 10) / 10;
+}
+
+/**
+ * Hlavní orchestrátor — viz níže. `options.referenceCpi` (volitelné, jen produkce) = záznamy
+ * záložního CPI; bez něj (zpětný test, shadow) se chování nemění a nevzniká look-ahead.
+ */
+export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendarEvents, options = {}) {
   const ratesByCode = {};
   const cpiByCode = {};
   const policyByCode = {};
@@ -371,7 +402,7 @@ export function computeCbPolicyState(currencyCode, allCurrencyCodes, allCalendar
     histories[code] = history;
     if (history.length > 0) ratesByCode[code] = history[history.length - 1].rate;
 
-    const cpi = extractLatestCpi(code, allCalendarEvents);
+    const cpi = extractLatestCpi(code, allCalendarEvents) ?? referenceCpiFallback(options.referenceCpi, code);
     if (cpi !== null) cpiByCode[code] = cpi;
 
     policyByCode[code] = autoDetectPolicy(history).score;

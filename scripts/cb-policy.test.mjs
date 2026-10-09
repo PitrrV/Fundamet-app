@@ -3,7 +3,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { autoDetectPolicy } from "./cb-policy.mjs";
+import { autoDetectPolicy, extractLatestCpi, referenceCpiFallback, computeCbPolicyState } from "./cb-policy.mjs";
 
 function addDays(isoDate, days) {
   const d = new Date(`${isoDate}T00:00:00Z`);
@@ -126,4 +126,54 @@ test("nedostatek dat vrací neutrální stav beze změny chování", () => {
     label: "nedostatek dat",
     confidence: "LOW",
   });
+});
+
+// --- Audit CPI 2026-10-09 (schváleno uživatelem): JPY národní Core CPI + záložní CPI ---
+
+const ev = (currency_code, event_title, event_day, actual, estimate = null) => ({ currency_code, event_title, event_day, actual, estimate });
+
+test("JPY: národní Core CPI má přednost před čerstvějším Tokyo Core CPI i BOJ Core CPI", () => {
+  const events = [
+    ev("JPY", "National Core CPI y/y", "2026-09-18", "1.7%"),
+    ev("JPY", "BOJ Core CPI y/y", "2026-09-25", "1.8%"),
+    ev("JPY", "Tokyo Core CPI y/y", "2026-10-02", "2.7%"),
+  ];
+  assert.equal(extractLatestCpi("JPY", events), 1.7);
+});
+
+test("JPY: bez národního údaje se chování nemění (fallback na dostupnou core variantu)", () => {
+  const events = [ev("JPY", "Tokyo Core CPI y/y", "2026-10-02", "2.7%")];
+  assert.equal(extractLatestCpi("JPY", events), 2.7);
+});
+
+const REF = [
+  { currency: "CHF", cpi_yoy_pct: 1.0, release_date: "2026-10-01", max_age_dni: 50 },
+  { currency: "NZD", cpi_yoy_pct: 4.1, release_date: "2026-07-21", max_age_dni: 110 },
+];
+
+test("záložní CPI: platné v rámci max_age_dni, po uplynutí se nepoužije (radši null než zastaralé)", () => {
+  assert.equal(referenceCpiFallback(REF, "CHF", new Date("2026-10-09T00:00:00Z")), 1.0);
+  assert.equal(referenceCpiFallback(REF, "NZD", new Date("2026-10-09T00:00:00Z")), 4.1);
+  assert.equal(referenceCpiFallback(REF, "CHF", new Date("2026-11-25T00:00:00Z")), null); // 55 dní > 50
+  assert.equal(referenceCpiFallback(REF, "NZD", new Date("2026-11-15T00:00:00Z")), null); // 117 dní > 110
+  assert.equal(referenceCpiFallback(REF, "USD", new Date("2026-10-09T00:00:00Z")), null); // není v souboru
+  assert.equal(referenceCpiFallback(REF, "CHF", new Date("2026-09-30T00:00:00Z")), null); // před vydáním
+});
+
+test("computeCbPolicyState: záložní CPI se použije jen na vyžádání a nepřebije CPI z kalendáře", () => {
+  const rate = (c, day, v) => ev(c, c === "CHF" ? "SNB Policy Rate" : "Official Bank Rate", day, `${v}%`);
+  const events = [
+    rate("CHF", "2026-09-24", 0), rate("CHF", "2026-06-18", 0),
+    rate("GBP", "2026-09-17", 3.75), rate("GBP", "2026-06-18", 3.75),
+    ev("GBP", "CPI y/y", "2026-09-16", "3.1%"),
+  ];
+  const withoutRef = computeCbPolicyState("CHF", ["CHF", "GBP"], events);
+  assert.equal(withoutRef.cpi, null);
+  assert.equal(withoutRef.realYieldAdj, null);
+  const RECENT = [{ currency: "CHF", cpi_yoy_pct: 1.0, release_date: new Date().toISOString().slice(0, 10), max_age_dni: 50 }];
+  const withRef = computeCbPolicyState("CHF", ["CHF", "GBP"], events, { referenceCpi: RECENT });
+  assert.equal(withRef.cpi, 1.0);
+  assert.notEqual(withRef.realYieldAdj, null);
+  const gbp = computeCbPolicyState("GBP", ["CHF", "GBP"], events, { referenceCpi: RECENT });
+  assert.equal(gbp.cpi, 3.1); // CPI z kalendáře zůstává
 });
