@@ -323,6 +323,13 @@ export async function mergeUpsert(events) {
 // ne jen na skutečně relevantní změnu. Bez explicitního omezení appka radši přegeneruje víc, ne
 // míň (chybějící/prázdné `currencyCodes` = starý plošný běh, viz volání níž u forceNarrative).
 async function triggerNarrativeRegeneration(reason, currencyCodes) {
+  // Texty příběhů od 2026-10 píše správce (Claude) přes ai-narrative.yml, ne OpenAI. Automatické
+  // spouštění OpenAI generátoru je proto VYPNUTÉ (bez kreditu každý běh selhával a chodily e-maily).
+  // Zapnutí zpět: repo variable OPENAI_NARRATIVE_ENABLED=1 (Settings → Variables).
+  if (process.env.OPENAI_NARRATIVE_ENABLED !== "1") {
+    console.log(`Přegenerování textů přes OpenAI je vypnuté (${reason}) — texty píše správce; neshodu ukáže check-narrative-freshness.`);
+    return;
+  }
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_REPOSITORY;
   const ref = process.env.GITHUB_REF_NAME;

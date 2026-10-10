@@ -1,8 +1,10 @@
+# Texty příběhů od 2026-10 píše správce (Claude), viz ai-narrative.yml a docs/SPRAVCE.md. Tenhle
+# OpenAI generátor je VYPNUTÝ: bez cronu a fetch-calendar ho už nespouští (bez kreditu každý běh
+# selhával). Zůstává jen ručně (workflow_dispatch) pro případný návrat. Zapnutí automatiky: vrať
+# `schedule` níž a nastav repo variable OPENAI_NARRATIVE_ENABLED=1.
 name: Generate Fundamental Narrative
 
 on:
-  schedule:
-    - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
       force:
