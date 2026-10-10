@@ -1,0 +1,341 @@
+{
+ "_popis": "Záloha tabulky category_expectations PŘED úpravou 10. 10. 2026 (56 řádků, snímek z produkční DB).",
+ "rows": [
+  {
+   "currency_code": "AUD",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "AUD",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "AUD",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "AUD",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "AUD",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "AUD",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "AUD",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CAD",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "CAD",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CAD",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "CAD",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CAD",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CAD",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CAD",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CHF",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "CHF",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CHF",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "CHF",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CHF",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CHF",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "CHF",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "EUR",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "EUR",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "EUR",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "EUR",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "EUR",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "EUR",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "EUR",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "GBP",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "GBP",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "GBP",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "GBP",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "GBP",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "GBP",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "GBP",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "JPY",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "JPY",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "JPY",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "JPY",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "JPY",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "JPY",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "JPY",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "NZD",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "NZD",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "NZD",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "NZD",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "NZD",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "NZD",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "NZD",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "USD",
+   "category": "GDP",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 95
+  },
+  {
+   "currency_code": "USD",
+   "category": "Inflation",
+   "importance_tier": "critical",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "USD",
+   "category": "Interest Rates",
+   "importance_tier": "critical",
+   "expected_frequency_days": 42
+  },
+  {
+   "currency_code": "USD",
+   "category": "Labor -Unemployment",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "USD",
+   "category": "Labor +Jobs",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "USD",
+   "category": "PMI",
+   "importance_tier": "major",
+   "expected_frequency_days": 32
+  },
+  {
+   "currency_code": "USD",
+   "category": "Retail Sales",
+   "importance_tier": "supporting",
+   "expected_frequency_days": 32
+  }
+ ]
+}
