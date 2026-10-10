@@ -29,3 +29,11 @@ update category_expectations set expected_frequency_days = 32 where currency_cod
 update category_expectations set expected_frequency_days = 42 where currency_code='NZD' and category='Interest Rates';
 ```
 Celá původní tabulka: `data/backup/category_expectations-2026-10-10.json`.
+
+## Výsledek (ověřeno v produkční DB po přepočtu, 10. 10. 2026 20:01 UTC)
+- NZD: skóre kvality dat **35 → 80**, pokrytí **43 % → 86 %**; zbývá jediné pravdivé upozornění „PMI" (strukturální nepřítomnost) a `pending_actual_overdue`.
+- AUD (Retail Sales), CHF (Labor +Jobs) a všechny ostatní měny: beze změny.
+- Skóre (`fundamental_state`, `confluence_scores`, `cb_policy_state`): porovnání před/po — všechna produkční skóre, složky, sazby, CPI i COT/retail beze změny.
+
+## Hlídač děr v kalendáři (`scripts/check-calendar-gaps.mjs`)
+Jen detekce a upozornění (nic nezapisuje, nemaže ani neopravuje). Běží jako krok v hodinovém workflow `Check Narrative Freshness`; nález = varování v Actions. Hlásí (1) týdny pod 40 % mediánu událostí, (2) neobvykle dlouhé odstupy mezi sazbovými rozhodnutími (výchozí 65 dní, NZD 95, CHF 120). První ostrý běh: 5 465 událostí, medián 97/týden, žádná mezera. Testy: `scripts/check-calendar-gaps.test.mjs`.

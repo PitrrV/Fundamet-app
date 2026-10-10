@@ -48,6 +48,8 @@ Makro agenda (`scenarios`) se zatím z předchozího textu přenáší, nepřepi
 2. **Denní kontrola faktů** — ověř sazby, čerstvá čísla a konsenzus na internetu proti `cb_policy_state` a `calendar_events`; chyby dat opravuj jen zdokumentovaně (`scripts/manual-override.mjs`, záznam v logu); odchylky hlas uživateli.
 3. **Změny vzorce skóre** — jen návrh + backtest + souhlas uživatele. Žádné tiché přepisování skóre podle názoru.
 
+Hlídač děr v kalendáři (`scripts/check-calendar-gaps.mjs`, krok v hodinovém `Check Narrative Freshness`) varuje před řídkými týdny a chybějícími zasedáními bank; jen detekce, nic neopravuje (viz `docs/zmena-kvalita-dat-2026-10-10.md`).
+
 Denní kontrola (návrh): čerstvost kalendáře/cen/COT, shoda textů se skóre (`check-narrative-freshness`), shoda CB rozhodnutí s internetem, díry v datech, nadcházející události, krátký report uživateli.
 
 ## 8. Otevřené věci
