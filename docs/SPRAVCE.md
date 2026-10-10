@@ -51,6 +51,7 @@ Makro agenda (`scenarios`) se zatím z předchozího textu přenáší, nepřepi
 Denní kontrola (návrh): čerstvost kalendáře/cen/COT, shoda textů se skóre (`check-narrative-freshness`), shoda CB rozhodnutí s internetem, díry v datech, nadcházející události, krátký report uživateli.
 
 ## 8. Otevřené věci
+- **Úkol 1** (zvýšení důvěryhodnosti aplikace, plán v `docs/UKOL1.md`): ČEKÁ NA POKYN. Rozjet až na uživatelovu větu „vracíme se k úkolu1".
 - Dobít OpenAI kredit (uživatel udělá později) — nebo definitivně přejít na texty od Clauda a odstranit `generate-narrative` z workflow.
 - Varování v UI u měny, jejíž text je starší než skóre (nabídnuto, neodsouhlaseno).
 - Makro agenda a texty ostatních 5 měn z dnešních dat.
