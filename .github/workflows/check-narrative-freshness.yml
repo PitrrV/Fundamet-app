@@ -23,3 +23,9 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      # Hlídač děr v kalendáři: POUZE detekce a upozornění (nic nezapisuje ani neopravuje). Nález se
+      # zobrazí jako varování v Actions; běh kvůli němu neselhává (žádné e-maily "Run failed").
+      - run: node scripts/check-calendar-gaps.mjs || echo "::warning::Hlídač děr v kalendáři našel podezřelou mezeru v datech — viz log kroku."
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
