@@ -17,7 +17,9 @@ jobs:
         with:
           node-version: 22
       - run: npm install
-      - run: node scripts/check-narrative-freshness.mjs
+      # Neshoda textu se skóre je informace pro správce (napíše nový text), ne selhání běhu — aby
+      # nechodily e-maily "Run failed". Zobrazí se jako varování v Actions.
+      - run: node scripts/check-narrative-freshness.mjs || echo "::warning::Některý text příběhu neodpovídá aktuálnímu skóre — správce má napsat nový."
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

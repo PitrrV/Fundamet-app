@@ -36,7 +36,7 @@ Modul `scripts/fundamental-state.mjs` (testy `fundamental-state.test.mjs`, `npm 
 - DDL přes MCP bývá pomalé (časový limit) — dělej po jednom příkazu.
 
 ## 6. Texty příběhů — dnes píše Claude, ne OpenAI
-OpenAI kredit je vyčerpaný (`429 no credits`), proto `generate-narrative` selhává. Náhrada: `scripts/ai-narrative.mjs` + workflow `AI Narrative (Claude)`.
+OpenAI kredit je vyčerpaný (`429 no credits`). Od 2026-10-10 je OpenAI generátor VYPNUTÝ: `generate-narrative.yml` nemá cron (jen ruční spuštění), `fetch-calendar` ho nespouští (jen s repo variable `OPENAI_NARRATIVE_ENABLED=1`), krok v `manual-override.yml` je za stejnou podmínkou a `Check Narrative Freshness` hlásí neshodu jako varování, ne jako selhání (aby nechodily e-maily). Náhrada: `scripts/ai-narrative.mjs` + workflow `AI Narrative (Claude)`.
 1. `mode=export`, `currencies=AUD,CAD,NZD` → v logu `===PAYLOAD XXX===` jsou přesné podklady (stejné, co by dostal OpenAI).
 2. Napiš `data/ai-narratives/<datum>.json` (pole objektů: `currency_code`, `narrative`, `forward_flag`, `conviction_note`, `thesis_change_note`). Pravidla zadání jsou v `NARRATIVE_PROMPT` v `scripts/generate-narrative.mjs` — přečti je.
 3. Commit + push, pak `mode=apply`, `dry_run=1` (kontroly: cizí písmo, uniklé názvy polí, srovnání vůči skóre koše, forward_flag o předvybraných eventech s datem jako „15. října"; `thesis_change_note` = null, když není `scoreChange`).
@@ -51,7 +51,7 @@ Makro agenda (`scenarios`) se zatím z předchozího textu přenáší, nepřepi
 Denní kontrola (návrh): čerstvost kalendáře/cen/COT, shoda textů se skóre (`check-narrative-freshness`), shoda CB rozhodnutí s internetem, díry v datech, nadcházející události, krátký report uživateli.
 
 ## 8. Otevřené věci
-- Dobít OpenAI kredit (uživatel udělá později) — nebo definitivně přejít na texty od Clauda a odstranit `generate-narrative` z workflow.
+- OpenAI automatika je vypnutá (viz sekce 6); texty drží správce. Neshodu textu se skóre uvidíš jako varování v `Check Narrative Freshness` nebo SQL porovnáním `latest_narratives.score_snapshot` s `latest_confluence_scores` — po každé větší změně skóre napiš nový text.
 - Varování v UI u měny, jejíž text je starší než skóre (nabídnuto, neodsouhlaseno).
 - Makro agenda a texty ostatních 5 měn z dnešních dat.
 - Naplánovaný denní běh (Routine) s konektorem Supabase; předtím změřit spotřebu limitu (uživatel: procento z pětihodinového okna před/po — já ho nevidím).
