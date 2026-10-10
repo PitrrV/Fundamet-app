@@ -7,9 +7,10 @@ name: Ingest Intraday Retail Sentiment
 # ČISTĚ SBĚR DAT — nevstupuje do overall_score/BLEND_WEIGHTS/UI. Viz scripts/
 # ingest-retail-intraday.mjs a schema-retail-sentiment-intraday.sql.
 
+# VYPNUTO (2026-10-10): retail sentiment už aplikace nepoužívá (není fundament, řeší ho Fx Analyzer) a tabulku
+# retail_sentiment_intraday nečte nic. Každý selhaný běh posílal e-mail. Zůstává jen ruční spuštění;
+# zapnutí zpět = vrátit `schedule` s cronem '*/30 * * * *'.
 on:
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 permissions:
