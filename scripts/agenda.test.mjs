@@ -46,6 +46,21 @@ test("události bez váhy se vynechají", () => {
   assert.equal(selectScenarioSeeds([ev("2026-10-15", "Bank Holiday")], TODAY).length, 0);
 });
 
+test("hlavní ukazatel kategorie má přednost před týdenními žádostmi a PPI", () => {
+  const seeds = selectScenarioSeeds(
+    [
+      ev("2026-10-15", "Unemployment Claims"),
+      ev("2026-10-15", "Unemployment Rate"),
+      ev("2026-10-13", "PPI y/y"),
+      ev("2026-10-22", "National Core CPI y/y"),
+    ],
+    TODAY
+  );
+  const titles = seeds.map((s) => s.title);
+  assert.ok(titles.includes("Unemployment Rate") && titles.includes("National Core CPI y/y"));
+  assert.equal(seeds.length, 4, "zbylé sloty se doplní i méně důležitými");
+});
+
 const seeds = [ev("2026-10-14", "CPI y/y", null, { estimate: null }), ev("2026-10-10", "Retail Sales m/m", "1.2")];
 const item = (o) => ({
   event: "CPI y/y", date: "2026-10-14", tier: "klíčový",

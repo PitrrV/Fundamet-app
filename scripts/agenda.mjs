@@ -23,6 +23,17 @@ export function agendaWeight(title) {
   return getWeight(title) * damp;
 }
 
+// Méně výpovědní ukazatele uvnitř téže kategorie (týdenní žádosti, ADP, mzdy, ceny výrobců) ustoupí
+// hlavním (míra nezaměstnanosti, zaměstnanost, CPI). Bez toho týdenní žádosti o podporu obsadily
+// slot celé kategorie práce a PPI slot inflace (japonské národní CPI se do agendy nedostalo).
+// Platí jen pro výběr agendy; forward_flag a skóre dál používají agendaWeight.
+const LOW_PRIORITY = /\b(ppi|adp|weekly)\b|producer price|claims|claimant|earnings|wage|payrolls/i;
+const LOW_PRIORITY_PENALTY = 0.6;
+
+export function seedPriority(title) {
+  return agendaWeight(title) - (LOW_PRIORITY.test(title || "") ? LOW_PRIORITY_PENALTY : 0);
+}
+
 function isoToday() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -39,8 +50,8 @@ function isoToday() {
  */
 export function selectScenarioSeeds(candidates, today = isoToday()) {
   const weighted = candidates
-    .map((ev) => ({ ...ev, _weight: agendaWeight(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
-    .filter((ev) => ev._weight > 0);
+    .map((ev) => ({ ...ev, _weight: seedPriority(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
+    .filter((ev) => agendaWeight(ev.title) > 0);
 
   const resolved = weighted
     .filter((ev) => ev.actual && ev._weight >= MIN_RESOLVED_WEIGHT)

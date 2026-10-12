@@ -106,17 +106,32 @@ async function main() {
   if (!/^data\/ai-narratives\/[\w.-]+\.json$/.test(FILE)) throw new Error("FILE musí být data/ai-narratives/<soubor>.json");
   const entries = JSON.parse(readFileSync(FILE, "utf8"));
   let failed = 0;
-  for (const entry of entries) {
-    const code = entry.currency_code;
+  for (const rawEntry of entries) {
+    const code = rawEntry.currency_code;
     if (CURRENCIES.length && !CURRENCIES.includes(code)) continue;
     const ctx = await loadCurrencyContext(code, events, basket);
+    // Záznam bez pole "narrative" = jen aktualizace agendy / forward_flag: text příběhu se převezme
+    // z posledního uloženého řádku (vznikne nová verze, historie zůstává). Platí jen pro případ, kdy
+    // se skóre od uloženého textu nezměnilo — jinak je třeba napsat text znovu.
+    const { data: prev } = await supabase.from("latest_narratives").select("narrative, forward_flag, conviction_note, thesis_change_note, scenarios, score_snapshot").eq("currency_code", code).limit(1);
+    let entry = rawEntry;
+    if (rawEntry.narrative === undefined) {
+      const p0 = prev?.[0];
+      const snapScore = Number(p0?.score_snapshot?.overall_score);
+      const nowScore = Number(ctx.cot?.overallScore);
+      if (!p0 || !(Math.abs(snapScore - nowScore) < 0.05)) {
+        failed++;
+        console.error(`[${code}] NEPROŠLO: záznam bez "narrative", ale skóre se od uloženého textu změnilo (${snapScore} → ${nowScore}) — napiš text znovu.`);
+        continue;
+      }
+      entry = { currency_code: code, narrative: p0.narrative, forward_flag: p0.forward_flag, conviction_note: p0.conviction_note, thesis_change_note: p0.thesis_change_note, ...rawEntry };
+    }
     const problems = check(entry, ctx);
     if (problems.length) {
       failed++;
       console.error(`[${code}] NEPROŠLO kontrolou:\n  - ${problems.join("\n  - ")}`);
       continue;
     }
-    const { data: prev } = await supabase.from("latest_narratives").select("scenarios").eq("currency_code", code).limit(1);
     const row = {
       currency_code: code,
       narrative: entry.narrative.trim(),
