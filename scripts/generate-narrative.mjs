@@ -6,7 +6,8 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import OpenAI from "openai";
-import { getEventHistoryTrend, getWeight, eventDirection, matchRule } from "./fundamental-scoring.mjs";
+import { getEventHistoryTrend, eventDirection, matchRule } from "./fundamental-scoring.mjs";
+import { agendaWeight, selectScenarioSeeds, MAX_AGENDA_ITEMS, MAX_KEY_ITEMS, VALID_TIERS, VALID_REACTIONS } from "./agenda.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -65,31 +66,10 @@ const UPCOMING_DAYS = 21;
 // use-case beze změny chování (nejnovější napřed zůstává zachováno).
 const RECENT_DAYS = 30;
 const MAX_RECENT_EVENTS = 15;
-// 8 položek, ne 3 — agenda má pokrýt VŠECHNY kategorie, co reálně hýbou tezí (sazby, inflace/PCE,
-// nezaměstnanost, zaměstnanost/mzdy, HDP, PMI, maloobchod = 7 kategorií z EVENT_RULES) + jeden
-// slot navíc. Se starým limitem 3 a čistě váhovým výběrem se PMI/maloobchod/HDP do agendy
-// prakticky nikdy nedostaly, protože je vždy vytlačily sazby (w 3.5) a inflace/práce (w 3.0).
-const MAX_AGENDA_ITEMS = 8;
-const MAX_KEY_ITEMS = 2; // strop na tier "klíčový" — viz degradace po parsování odpovědi
 const SCENARIO_LOOKBACK_DAYS = 5; // jak dlouho po zveřejnění actual event ještě zůstává v agendě (s komentářem k výsledku)
 
 // Enumy, které smí model použít. Normalizujeme deterministicky (viz zpracování odpovědi níž) —
 // UI se musí spolehnout na to, že tam nikdy nepřistane nečekaná hodnota.
-const VALID_TIERS = new Set(["klíčový", "druhořadý", "kontext"]);
-const VALID_REACTIONS = new Set(["silná", "omezená", "asymetrická"]);
-
-// Sub-národní printy uvnitř eurozóny spadají do stejných kategorií EVENT_RULES jako
-// celoeurozónové agregáty, ale tezí o EUR hýbou míň. Bez tohohle útlumu obsadil kategorii
-// "GDP" francouzský Flash GDP a eurozónový agregát se do agendy vůbec nedostal (ověřeno
-// živě). Útlum, ne vyřazení — německé CPI je pořád předstihový ukazatel pro eurozónu.
-const SUBNATIONAL_PREFIXES = ["french", "german", "spanish", "italian"];
-const SUBNATIONAL_DAMP = 0.6;
-
-function agendaWeight(title) {
-  const lower = (title || "").toLowerCase();
-  const damp = SUBNATIONAL_PREFIXES.some((p) => lower.startsWith(p)) ? SUBNATIONAL_DAMP : 1;
-  return getWeight(title) * damp;
-}
 
 // Směrový dopad překvapení je ČISTÁ LOGIKA (EVENT_RULES.dir × směr teze), ne úsudek — a model
 // ho v živém běhu opakovaně obracel: "růst zaměstnanosti nad 20 000 by posílil naši bearish
@@ -336,58 +316,6 @@ export async function loadBasketContext() {
     map[row.currency_code] = { overallScore: row.overall_score, convictionLabel: row.conviction_label };
   }
   return map;
-}
-
-// Vybere eventy pro makro agendu z kombinovaného okna (nedávno vyšlé + nadcházející).
-// Eventy, co ve svém okně `actual` UŽ mají, zůstávají v agendě pár dní
-// (SCENARIO_LOOKBACK_DAYS) po zveřejnění, aby appka mohla okomentovat i skutečný výsledek,
-// ne jen hypotézu — viz `outcome` v system promptu. `candidates` je filtrované jen na PŘÍMÉ
-// eventy tyhle měny (viz loadCurrencyContext), takže relevance faktor je vždy 1.
-//
-// Výběr jde ve TŘECH kolech, ne čistě podle váhy. Čistě váhový výběr (původní chování) totiž
-// systematicky zahazoval celé kategorie: sazby (3.5) a inflace/práce (3.0) vždy obsadily
-// všechny sloty a HDP (2.2) / PMI (1.8) / maloobchod (1.7) se do agendy nedostaly nikdy,
-// i když právě ty často testují růstovou část teze.
-function selectScenarioSeeds(candidates) {
-  const weighted = candidates
-    .map((ev) => ({ ...ev, _weight: agendaWeight(ev.title), _cat: matchRule(ev.title)?.cat ?? null }))
-    .filter((ev) => ev._weight > 0)
-    .sort((a, b) => b._weight - a._weight || a.date.localeCompare(b.date));
-
-  // 1. kolo — zaručený slot pro NEJČERSTVĚJŠÍ již známý výsledek (ne nutně nejvýše váhou
-  // ohodnocený v okně): jinak by ho vytlačil jak vyšší váhou ohodnocený budoucí event
-  // (typicky sazby), tak starší stejně važený resolvnutý event. Mezi eventy ze stejného dne
-  // rozhoduje váha.
-  const topResolved = weighted
-    .filter((ev) => ev.actual)
-    .sort((a, b) => b.date.localeCompare(a.date) || b._weight - a._weight)[0];
-
-  const seeds = [];
-  const seen = new Set();
-  const usedCats = new Set();
-  const addSeed = (ev) => {
-    const key = `${ev.date}|${ev.title}`;
-    if (seen.has(key) || seeds.length >= MAX_AGENDA_ITEMS) return;
-    seen.add(key);
-    usedCats.add(ev._cat);
-    seeds.push(ev);
-  };
-
-  if (topResolved) addSeed(topResolved);
-
-  // 2. kolo — nejvýše vážený event z KAŽDÉ dosud nepokryté kategorie (weighted je řazené
-  // podle váhy, takže první nalezený z kategorie je ten nejdůležitější).
-  for (const ev of weighted) {
-    if (!usedCats.has(ev._cat)) addSeed(ev);
-  }
-
-  // 3. kolo — zbylé sloty doplní nejvýše vážené eventy bez ohledu na kategorii.
-  for (const ev of weighted) addSeed(ev);
-
-  // Chronologicky — agenda se čte jako časová osa "co nás čeká", ne jako žebříček vah.
-  return seeds
-    .map(({ _weight, _cat, ...ev }) => ev)
-    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 const MAX_FLAGGED_EVENTS = 3;

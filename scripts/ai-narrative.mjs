@@ -21,6 +21,7 @@ import {
   isTooShortForwardFlag,
   forwardFlagCitesFlaggedEvent,
 } from "./generate-narrative.mjs";
+import { validateAgenda } from "./agenda.mjs";
 
 const MODEL_LABEL = "claude-writer-v1";
 const MODE = (process.env.MODE ?? "export").toLowerCase();
@@ -60,6 +61,8 @@ function payloadOf(code, ctx) {
     upcomingEvents: ctx.upcoming,
     recentEvents: ctx.recent,
     flaggedEvents: ctx.flaggedEvents,
+    // události, ze kterých se skládá agenda; entry.scenarios musí pokrýt přesně tyhle
+    scenarioSeeds: ctx.scenarioSeeds,
   };
 }
 
@@ -81,6 +84,7 @@ function check(entry, ctx) {
   } else if (entry.forward_flag) problems.push("forward_flag má být null, když nejsou žádné předvybrané eventy");
   if (ctx.scoreChange && !entry.thesis_change_note) problems.push("thesis_change_note chybí, ale appka má dva snímky skóre k porovnání");
   if (!ctx.scoreChange && entry.thesis_change_note) problems.push("thesis_change_note má být null, když nejsou dva snímky skóre");
+  if (entry.scenarios !== undefined) problems.push(...validateAgenda(entry.scenarios, ctx.scenarioSeeds ?? []));
   return problems;
 }
 
@@ -119,11 +123,13 @@ async function main() {
       forward_flag: entry.forward_flag ?? null,
       conviction_note: entry.conviction_note.trim(),
       thesis_change_note: ctx.scoreChange ? entry.thesis_change_note : null,
-      scenarios: prev?.[0]?.scenarios ?? [], // makro agenda se v tomhle kroku nepřepisuje
+      // Agenda: nová (zkontrolovaná proti výběru událostí), jinak přenesená beze změny.
+      scenarios: entry.scenarios !== undefined ? entry.scenarios : prev?.[0]?.scenarios ?? [],
       model: MODEL_LABEL,
       input_fingerprint: buildInputFingerprint(ctx),
       score_snapshot: contextScoreSnapshot(ctx),
     };
+    if (entry.scenarios === undefined) console.log(`[${code}] POZOR: agenda se nemění (v souboru chybí "scenarios") — přenáší se stará.`);
     if (DRY_RUN) {
       console.log(`[${code}] prošlo kontrolou — DRY_RUN, neukládám (${row.narrative.length} znaků, skóre ${JSON.stringify(row.score_snapshot)}).`);
       continue;

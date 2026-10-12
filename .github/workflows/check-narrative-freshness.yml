@@ -29,3 +29,8 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      # Kontrola agendy: POUZE čtení. Hlásí hotové události bez výsledku, staré položky a chybějící důležité události.
+      - run: node scripts/check-agenda-freshness.mjs || echo "::warning::Agenda je zastaralá nebo jí chybí důležité události — viz log kroku."
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
