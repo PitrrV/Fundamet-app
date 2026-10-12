@@ -1,0 +1,652 @@
+[
+  {
+    "currency_code": "USD",
+    "scenarios": [
+      {
+        "event": "Unemployment Claims",
+        "date": "2026-10-08",
+        "tier": "kontext",
+        "why_it_matters": "Týdenní žádosti jsou rychlý test trhu práce, který je ve skóre USD neutrální; slabší zaměstnanost mimo skóre je hlavní výhrada vůči jinak silnému obrazu.",
+        "market_expectation": "Čekalo se 200 tisíc proti předchozím 197 tisícům, tedy mírné zhoršení.",
+        "thesis_test": "Trvalý růst žádostí by potvrdil slabost trhu práce mimo skóre; hodnoty kolem 200 tisíc tezi nehýbou.",
+        "reaction": "omezená",
+        "reaction_note": "Týdenní číslo trh bere jen jako doplněk k měsíčním reportům a do skóre nevstupuje.",
+        "outcome": "Žádosti vyšly na 197 tisíc, tedy pod odhadem 200 tisíc a beze změny proti předchozímu týdnu; je to lepší výsledek, který bullish tezi mírně potvrzuje, ale týdenní data do skóre nevstupují."
+      },
+      {
+        "event": "CPI y/y",
+        "date": "2026-10-14",
+        "tier": "klíčový",
+        "why_it_matters": "Roční inflace je vstup reálného výnosu, jedné ze šesti složek skóre, a teze stojí na kladném reálném výnosu a utahování Fedu.",
+        "market_expectation": "Čeká se zrychlení na 3,6 % z 3,4 %; jádro m/m se čeká 0,2 % proti předchozím 0,3 %.",
+        "thesis_test": "CPI nad 3,6 % by zmenšilo reálný výnos při sazbě 4,00 % a zpochybnilo jeden pilíř teze, i když by zároveň podpořilo další zvyšování; výrazně pod 3,6 % by oslabilo cenění dalších hiků.",
+        "reaction": "asymetrická",
+        "reaction_note": "Trh už cení další zvyšování (2Y výnos 4,75 % nad sazbou 4,00 %), takže víc váží překvapení směrem dolů, které by to cenění zpochybnilo.",
+        "outcome": null
+      },
+      {
+        "event": "Core Retail Sales m/m",
+        "date": "2026-10-15",
+        "tier": "druhořadý",
+        "why_it_matters": "Maloobchod patří do složky spotřeba, která je u USD kladná; propad by oslabil jednu z pěti kladných složek skóre.",
+        "market_expectation": "Čeká se zpomalení na 0,5 % z 1,4 %; celkové Retail Sales m/m se čekají 0,3 % proti 1,2 %.",
+        "thesis_test": "Záporné číslo by zpochybnilo kladnou složku spotřeba; hodnota kolem odhadu 0,5 % jen potvrdí postupné zpomalení.",
+        "reaction": "omezená",
+        "reaction_note": "Zpomalení z vysoké základny je už v odhadu, reálně hýbe jen výrazná odchylka.",
+        "outcome": null
+      },
+      {
+        "event": "Flash Manufacturing PMI",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "PMI je kladná složka skóre USD a předchozí hodnota 57,0 je hluboko v expanzi.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 57,0.",
+        "thesis_test": "Propad pod hranici expanze 50 by složku PMI otočil; pokles v rámci expanze tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Úroveň je daleko nad hranicí expanze, k obratu složky by musel přijít velký propad.",
+        "outcome": null
+      },
+      {
+        "event": "Revised UoM Consumer Sentiment",
+        "date": "2026-10-23",
+        "tier": "kontext",
+        "why_it_matters": "Spotřebitelská nálada vyšla předběžně na 46,3 pod odhadem 47,5, tedy jako měkký údaj proti silnému skóre; do skóre nevstupuje.",
+        "market_expectation": "Bez konsenzu: předchozí (předběžná) hodnota je 46,3.",
+        "thesis_test": "Další pokles by podpořil opatrné čtení silného stavu; ke změně teze by sám nestačil.",
+        "reaction": "omezená",
+        "reaction_note": "Revize bývá malá a ukazatel nevstupuje do skóre.",
+        "outcome": null
+      },
+      {
+        "event": "Federal Funds Rate",
+        "date": "2026-10-28",
+        "tier": "klíčový",
+        "why_it_matters": "Politika Fedu je jedna ze složek skóre a teze stojí na utahování; čerstvý hike na 4,00 % drží složku politiky kladnou.",
+        "market_expectation": "Bez konsenzu: sazba je nyní 4,00 % a 2Y výnos 4,75 % ukazuje, že trh cení další zvyšování.",
+        "thesis_test": "Další hike by tezi potvrdil; ponechání sazby při výnosu 2Y nad ní by zpochybnilo cenění dalších hiků a oslabilo argument pro silnější USD.",
+        "reaction": "asymetrická",
+        "reaction_note": "Cenění dalšího hiku je vysoké, takže víc váží opačné překvapení, tedy pauza.",
+        "outcome": null
+      },
+      {
+        "event": "Advance GDP q/q",
+        "date": "2026-10-29",
+        "tier": "druhořadý",
+        "why_it_matters": "Růst je kladná složka skóre; první odhad ukáže, zda ekonomika drží tempo, na kterém stojí část teze.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 1,5 %.",
+        "thesis_test": "Výrazné zpomalení pod předchozích 1,5 % by zpochybnilo složku růstu; zrychlení ji potvrdí.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází až po rozhodnutí Fedu, takže politiku už neovlivní, jen potvrdí či oslabí růstovou složku.",
+        "outcome": null
+      },
+      {
+        "event": "Employment Cost Index q/q",
+        "date": "2026-10-30",
+        "tier": "kontext",
+        "why_it_matters": "Náklady práce ukazují mzdový tlak na inflaci a tím na Fed, ale do skóre nevstupují.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,9 %.",
+        "thesis_test": "Výrazně vyšší číslo by podpořilo další utahování; nižší by tezi nezměnilo.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází den po rozhodnutí Fedu a do skóre nevstupuje.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "EUR",
+    "scenarios": [
+      {
+        "event": "ZEW Economic Sentiment",
+        "date": "2026-10-13",
+        "tier": "kontext",
+        "why_it_matters": "Německý ZEW je předstihový ukazatel nálady, který do skóre EUR nevstupuje; žádná teze není otevřená.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Bez konsenzu a bez otevřené teze nemáme laťku, která by něco změnila; slouží jako kontext k PMI.",
+        "reaction": "omezená",
+        "reaction_note": "Regionální ukazatel bez dat, ke kterým by šel poměřit.",
+        "outcome": null
+      },
+      {
+        "event": "Final CPI y/y",
+        "date": "2026-10-16",
+        "tier": "klíčový",
+        "why_it_matters": "Inflace 3,8 % stojí za záporným reálným výnosem EUR, tedy za jednou ze složek, které skóre drží nízko.",
+        "market_expectation": "Čeká se potvrzení 3,8 %, shodně s předchozí hodnotou; jádro se čeká 2,5 %.",
+        "thesis_test": "Potvrzení drží reálný výnos záporný; revize dolů by ho zmírnila, revize nahoru prohloubila.",
+        "reaction": "omezená",
+        "reaction_note": "Konečné číslo bývá jen potvrzením předběžného, takže velké překvapení není pravděpodobné.",
+        "outcome": null
+      },
+      {
+        "event": "Flash Manufacturing PMI",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "PMI nad hranicí expanze je jedna z kladných složek EUR; výrobní PMI ukáže, zda ji drží.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 52,7.",
+        "thesis_test": "Pád pod hranici expanze 50 by složku otočil; pokles v rámci expanze ji nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Úroveň je nad hranicí expanze, k obratu složky by musel přijít výrazný propad.",
+        "outcome": null
+      },
+      {
+        "event": "Main Refinancing Rate",
+        "date": "2026-10-29",
+        "tier": "klíčový",
+        "why_it_matters": "ECB je v cyklu zvyšování sazeb (poslední krok na 2,65 % odpovídal konsenzu) a složka politiky na tom stojí.",
+        "market_expectation": "Bez konsenzu: sazba je nyní 2,65 %.",
+        "thesis_test": "Další zvýšení by potvrdilo cyklus; ponechání sazby při inflaci 3,8 % by cyklus zastavilo a reálný výnos nechalo záporný.",
+        "reaction": "silná",
+        "reaction_note": "Poslední rozhodnutí odpovídalo konsenzu, cenění dalšího kroku z dostupných dat určit neumíme.",
+        "outcome": null
+      },
+      {
+        "event": "German Retail Sales m/m",
+        "date": "2026-10-29",
+        "tier": "kontext",
+        "why_it_matters": "Německý maloobchod je jen dílčí část spotřeby eurozóny a tezí o EUR hýbe méně než celoeurozónový agregát.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Bez dat k poměření nelze říct, co by tezi změnilo; slouží jako doplněk ke složce spotřeba.",
+        "reaction": "omezená",
+        "reaction_note": "Dílčí národní údaj bez konsenzu.",
+        "outcome": null
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-10-30",
+        "tier": "druhořadý",
+        "why_it_matters": "Trh práce je u EUR záporná složka, protože nezaměstnanost 6,4 % mírně převyšuje svou normu 6,3 %.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 6,4 %.",
+        "thesis_test": "Pokles směrem k normě 6,3 % by tlak na složku zmírnil, další růst by ho prohloubil.",
+        "reaction": "omezená",
+        "reaction_note": "Míra nezaměstnanosti se hýbe pomalu, malé odchylky skóre nezmění.",
+        "outcome": null
+      },
+      {
+        "event": "Prelim Flash GDP q/q",
+        "date": "2026-10-30",
+        "tier": "druhořadý",
+        "why_it_matters": "Růst je kladná složka skóre EUR a předběžný odhad ukáže, zda drží.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,4 %.",
+        "thesis_test": "Zpomalení výrazně pod 0,4 % by zpochybnilo složku růstu; zrychlení ji potvrdí.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází až po rozhodnutí ECB, takže politiku neovlivní.",
+        "outcome": null
+      },
+      {
+        "event": "French Prelim Private Payrolls q/q",
+        "date": "2026-10-30",
+        "tier": "kontext",
+        "why_it_matters": "Francouzská zaměstnanost je dílčí národní údaj, který do skóre EUR nevstupuje.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je -0,1 %.",
+        "thesis_test": "Sám o sobě nemůže změnit čtení EUR; má smysl jen jako doplněk k míře nezaměstnanosti.",
+        "reaction": "omezená",
+        "reaction_note": "Dílčí národní údaj mimo skóre.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "GBP",
+    "scenarios": [
+      {
+        "event": "BRC Retail Sales Monitor y/y",
+        "date": "2026-10-13",
+        "tier": "kontext",
+        "why_it_matters": "Ukazatel maloobchodu nevstupuje do skóre GBP, spotřeba je v něm neutrální; slouží jako rychlý kontext.",
+        "market_expectation": "Čeká se 0,8 % proti předchozím 0,5 %.",
+        "thesis_test": "Nižší číslo než odhad by nic nezměnilo; ke zpochybnění teze by byl potřeba propad hlavních údajů.",
+        "reaction": "omezená",
+        "reaction_note": "Soukromý index bez přímé vazby na skóre.",
+        "outcome": null
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-10-15",
+        "tier": "druhořadý",
+        "why_it_matters": "Trh práce je u GBP neutrální složka (4,9 % je přesně na normě); růst nezaměstnanosti by ji mohl otočit do záporu.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech; poslední čtení je 4,9 %.",
+        "thesis_test": "Růst nad normu 4,9 % by otočil složku trhu práce do záporu; pokles ji udrží neutrální.",
+        "reaction": "asymetrická",
+        "reaction_note": "Víc váží zhoršení, protože složka je dnes neutrální a pozitivní směr by ji neposunul.",
+        "outcome": null
+      },
+      {
+        "event": "Average Earnings Index 3m/y",
+        "date": "2026-10-15",
+        "tier": "kontext",
+        "why_it_matters": "Mzdy ukazují inflační tlak, ale do skóre nevstupují; poslouží jako kontext k trhu práce a Bank of England.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Silnější mzdy by udržely inflační tlak; bez konsenzu nelze říct, co je překvapení.",
+        "reaction": "omezená",
+        "reaction_note": "Do skóre nevstupuje a chybí konsenzus.",
+        "outcome": null
+      },
+      {
+        "event": "GDP m/m",
+        "date": "2026-10-15",
+        "tier": "druhořadý",
+        "why_it_matters": "Růst je kladná složka skóre GBP a teze na ní stojí; měsíční HDP ukáže, zda drží.",
+        "market_expectation": "Čeká se pokles o 0,1 % po předchozích 0,4 %.",
+        "thesis_test": "Hlubší pokles než -0,1 % by zpochybnil kladnou složku růstu; hodnota podle odhadu tezi nezmění.",
+        "reaction": "asymetrická",
+        "reaction_note": "Mírný pokles je v odhadu, takže víc váží další propad.",
+        "outcome": null
+      },
+      {
+        "event": "Goods Trade Balance",
+        "date": "2026-10-15",
+        "tier": "kontext",
+        "why_it_matters": "Obchodní bilance zboží do skóre nevstupuje a je jen doplňkem k obrazu růstu.",
+        "market_expectation": "Čeká se deficit 21,8 miliardy proti předchozím 21,0 miliardám.",
+        "thesis_test": "Větší deficit než odhad by obraz mírně zhoršil, tezi by ale nezměnil.",
+        "reaction": "omezená",
+        "reaction_note": "Nevstupuje do skóre a patří k nejméně významným ukazatelům.",
+        "outcome": null
+      },
+      {
+        "event": "GfK Consumer Confidence",
+        "date": "2026-10-16",
+        "tier": "kontext",
+        "why_it_matters": "Spotřebitelská důvěra nevstupuje do skóre; poslouží jako měkký kontext ke spotřebě.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Měkký ukazatel bez dat k poměření.",
+        "outcome": null
+      },
+      {
+        "event": "CPI y/y",
+        "date": "2026-10-21",
+        "tier": "klíčový",
+        "why_it_matters": "Roční inflace 3,1 % je vstup reálného výnosu, který je u GBP kladný a patří k pilířům teze.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 3,1 %.",
+        "thesis_test": "Zrychlení nad 3,1 % by kladný reálný výnos zmenšilo (sazba zůstává 3,75 %), zpomalení by ho zlepšilo; velký pohyb by posunul čtení složky.",
+        "reaction": "silná",
+        "reaction_note": "Bank of England drží sazbu bez překvapení vůči konsenzu, takže inflace je hlavní proměnná pro další vývoj.",
+        "outcome": null
+      },
+      {
+        "event": "Flash Manufacturing PMI",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "PMI nad hranicí expanze je jedna z kladných složek GBP.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 52,0.",
+        "thesis_test": "Pád pod 50 by složku otočil; pokles v rámci expanze ji nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Úroveň je těsně nad hranicí expanze, takže citlivost je vyšší než u USD.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "JPY",
+    "forward_flag": "13. října vyjde PPI y/y (odhad 7,6 % shodně s předchozími 7,6 %) a 30. října rozhodnutí o BOJ Policy Rate; protože teze stojí na zvyšování sazeb a reálný výnos je jen těsně pod nulou, vyšší ceny výrobců by podpořily další utahování, zatímco jejich zpomalení by ho zpochybnilo.",
+    "scenarios": [
+      {
+        "event": "Average Cash Earnings y/y",
+        "date": "2026-10-07",
+        "tier": "kontext",
+        "why_it_matters": "Mzdy jsou argument pro další utahování BoJ, ale do skóre nevstupují.",
+        "market_expectation": "Čekalo se 3,7 % proti předchozím 4,7 %.",
+        "thesis_test": "Mzdy nad 3,5 % drží argument pro další hike; propad pod něj by ho oslabil.",
+        "reaction": "omezená",
+        "reaction_note": "Mzdy jsou jen jeden z podkladů pro BoJ a do skóre nevstupují.",
+        "outcome": "Mzdy vyšly na 3,8 % proti čekaným 3,7 %, tedy mírně nad konsenzem, i když pod předchozími 4,7 %; je to malé pozitivní překvapení, které tezi o utahování BoJ podporuje, ale do skóre nevstupuje."
+      },
+      {
+        "event": "Trade Balance",
+        "date": "2026-10-21",
+        "tier": "kontext",
+        "why_it_matters": "Obchodní bilance nevstupuje do skóre JPY a je jen kontextem k vnější rovnováze.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je -0,84 bilionu.",
+        "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
+        "outcome": null
+      },
+      {
+        "event": "National Core CPI y/y",
+        "date": "2026-10-23",
+        "tier": "klíčový",
+        "why_it_matters": "Právě z tohoto údaje se počítá inflace v reálném výnosu JPY, který je s hodnotou -0,02 vůči koši těsně na hranici mezi neutrálním a záporným.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 1,7 %.",
+        "thesis_test": "Zrychlení nad 1,7 % by posunulo reálný výnos do záporu (sazba 1,25 %) a podpořilo další hike BoJ; zpomalení by ho nechalo neutrální.",
+        "reaction": "asymetrická",
+        "reaction_note": "Víc váží zrychlení, které složku reálného výnosu posune přes hranici do záporu.",
+        "outcome": null
+      },
+      {
+        "event": "Flash Manufacturing PMI",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "PMI hluboko v expanzi je jedna z kladných složek JPY.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 54,1.",
+        "thesis_test": "Pád pod 50 by složku otočil; pokles v rámci expanze ji nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Úroveň je daleko nad hranicí expanze.",
+        "outcome": null
+      },
+      {
+        "event": "Consumer Confidence",
+        "date": "2026-10-29",
+        "tier": "kontext",
+        "why_it_matters": "Spotřebitelská důvěra nevstupuje do skóre JPY; slouží jako měkký kontext ke spotřebě.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 35,4.",
+        "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Měkký ukazatel mimo skóre.",
+        "outcome": null
+      },
+      {
+        "event": "BOJ Policy Rate",
+        "date": "2026-10-30",
+        "tier": "klíčový",
+        "why_it_matters": "Politika Bank of Japan je kladná složka a teze stojí na zvyšování sazeb; poslední krok byl 18. září o 25 bodů na 1,25 %.",
+        "market_expectation": "Bez konsenzu: kalendář uvádí předchozí hodnotu jako <1,25 %, sazba je po zářijovém zvýšení 1,25 %.",
+        "thesis_test": "Další zvýšení by tezi potvrdilo; ponechání sazby při slabém mzdovém a cenovém tlaku by ji oslabilo.",
+        "reaction": "silná",
+        "reaction_note": "Poslední rozhodnutí odpovídalo konsenzu, cenění dalšího kroku z dat určit neumíme.",
+        "outcome": null
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-10-30",
+        "tier": "druhořadý",
+        "why_it_matters": "Trh práce je u JPY neutrální složka (2,5 % proti normě 2,47 %).",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 2,5 %.",
+        "thesis_test": "Výrazný růst nad normu by složku otočil do záporu; hodnoty kolem 2,5 % ji drží neutrální.",
+        "reaction": "omezená",
+        "reaction_note": "Míra nezaměstnanosti se hýbe pomalu.",
+        "outcome": null
+      },
+      {
+        "event": "Retail Sales y/y",
+        "date": "2026-10-30",
+        "tier": "druhořadý",
+        "why_it_matters": "Spotřeba je u JPY neutrální složka, protože maloobchod 2,7 % zůstává pod normou 3,27 %.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 2,7 %.",
+        "thesis_test": "Zrychlení nad normu by složku posunulo do kladné; další zpomalení do záporné.",
+        "reaction": "omezená",
+        "reaction_note": "Maloobchod kolísá, jediný tisk složku zřídka přepne.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "CHF",
+    "scenarios": [
+      {
+        "event": "PPI m/m",
+        "date": "2026-10-15",
+        "tier": "kontext",
+        "why_it_matters": "Ceny výrobců do skóre CHF nevstupují; roční inflace 1,0 % pro reálný výnos pochází ze záložního zdroje, protože ji kalendář neobsahuje.",
+        "market_expectation": "Čeká se 0,5 % proti předchozím 0,7 %.",
+        "thesis_test": "Výrazně vyšší číslo by ukázalo tlak na ceny, ale reálný výnos ve skóre se z něj nepřepočítá; tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Nevstupuje do skóre a CHF je v nejbližších týdnech skoro bez dalších velkých ukazatelů.",
+        "outcome": null
+      },
+      {
+        "event": "Retail Sales y/y",
+        "date": "2026-10-29",
+        "tier": "druhořadý",
+        "why_it_matters": "Spotřeba je u CHF součástí skóre a teze stojí na silné reálné ekonomice.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Slábnoucí maloobchod by oslabil jednu z opor teze; bez konsenzu nelze určit, co je překvapení.",
+        "reaction": "omezená",
+        "reaction_note": "Chybí konsenzus i předchozí hodnota, takže čtení je jen směrové.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "CAD",
+    "narrative": "CAD má mírně negativní stav se skóre -1,5 a všech šest složek má data. Do skóre vstupuje reálný výnos: roční inflace 3,0 % za srpen (vydáno 14. září) při sazbě Bank of Canada 2,25 % dává vůči koši mírně záporné číslo (-0,07). Politika zůstává neutrální: banka 2. září ponechala sazbu na 2,25 % v souladu s konsensem. Ekonomika vychází slabě: HDP stagnovalo (0,0 %, jak se čekalo) pod normou 0,37 % a maloobchodní tržby klesly o 0,7 % (čekáno -0,8 %, předtím +0,6 %). Trh práce je ve skóre neutrální, protože míra nezaměstnanosti vyšla 9. října na 6,5 % v souladu s odhadem a leží těsně nad normou 6,43 %; zaměstnanost ale klesla o 68,3 tisíce proti čekanému růstu o 6,1 tisíce (předtím -41,7 tisíce), což do skóre nevstupuje a slouží jen jako kontext, který slabost potvrzuje. Jedinou kladnou složkou je výrobní PMI 51,5, který sice klesl z 53,0, ale zůstává v expanzi; Ivey PMI vyšlo na 58,2 proti čekaným 65,2. Podle aktuálního skóre koše je tahle měna silnější než NZD a zároveň slabší než AUD, CHF, EUR, GBP, JPY, USD. Pozicování velkých spekulantů je bez extrémního přeplnění (28. percentil).",
+    "forward_flag": "19. října vyjde CPI m/m (předchozí -0,1 %) a 28. října rozhodnutí o Overnight Rate (odhad 2,25 %) spolu s BOC Rate Statement; protože reálný výnos leží těsně u hranice mezi neutrálním a záporným stavem, vyšší inflace by ho prohloubila do záporu, zatímco slabší by ho zlepšila, a po propadu zaměstnanosti ukáže banka, jestli při inflaci 3,0 % zůstane u držení sazby.",
+    "conviction_note": "Jistota čtení je střední až nízká: se záporným směrem souhlasí 3 ze 6 složek (reálný výnos, růst, spotřeba), jedna stojí proti (PMI) a dvě jsou neutrální; propad zaměstnanosti mimo skóre čtení podporuje, ale žádná teze není otevřená a reálný výnos leží těsně u hranice mezi neutrálním a záporným.",
+    "thesis_change_note": "Skóre kleslo z -0,5 na -1,5, ale fundamentální složka zůstala beze změny na -0,6, takže pokles není tržní. Je metodický: 9. října se do skóre doplnila dřív chybějící složka reálný výnos z ověřené roční inflace 3,0 % a ta je mírně záporná. Příběh se nemění: dřívější teze byla 4. října zrušena při obratu směru a nová se zatím neotevřela.",
+    "scenarios": [
+      {
+        "event": "Employment Change",
+        "date": "2026-10-09",
+        "tier": "druhořadý",
+        "why_it_matters": "Zaměstnanost nevstupuje do skóre CAD, ale ukazuje, zda je slabost ekonomiky širší než ve složkách skóre.",
+        "market_expectation": "Čekal se růst o 6,1 tisíce po poklesu o 41,7 tisíce.",
+        "thesis_test": "Druhý propad v řadě potvrzuje slabý obraz; ke změně složky trhu práce ve skóre by ale musela vzrůst míra nezaměstnanosti.",
+        "reaction": "silná",
+        "reaction_note": "Výrazná odchylka od odhadu, ale mimo skóre.",
+        "outcome": "Zaměstnanost klesla o 68,3 tisíce proti čekanému růstu o 6,1 tisíce a po poklesu o 41,7 tisíce v předchozím měsíci; je to výrazné zaostání, které slabý obraz CAD potvrzuje, ale zaměstnanost do skóre nevstupuje."
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-10-09",
+        "tier": "druhořadý",
+        "why_it_matters": "Míra nezaměstnanosti je jediný údaj trhu práce, který vstupuje do skóre CAD.",
+        "market_expectation": "Čekalo se 6,5 % po předchozích 6,4 %.",
+        "thesis_test": "Růst výrazně nad normu 6,43 % by složku otočil do záporu; hodnota kolem 6,5 % ji drží neutrální.",
+        "reaction": "omezená",
+        "reaction_note": "Údaj vyšel podle odhadu, takže složka se nemění.",
+        "outcome": "Míra nezaměstnanosti vyšla 6,5 % v souladu s odhadem (předtím 6,4 %) a leží těsně nad normou 6,43 %, takže složka trhu práce zůstává neutrální, i když sousední propad zaměstnanosti ukazuje na slabost."
+      },
+      {
+        "event": "CPI m/m",
+        "date": "2026-10-19",
+        "tier": "klíčový",
+        "why_it_matters": "Inflace je vstup reálného výnosu CAD, který leží těsně u hranice mezi neutrálním a záporným; roční míra v kalendáři chybí, proto ji správce po vydání ručně ověří a obnoví záložní hodnotu 3,0 %.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je -0,1 %.",
+        "thesis_test": "Silné m/m číslo by roční míru zvedlo a reálný výnos prohloubilo do záporu; slabé by ho zlepšilo.",
+        "reaction": "asymetrická",
+        "reaction_note": "Banka drží sazbu na 2,25 % a inflace nad ní je pro skóre horší než inflace pod ní.",
+        "outcome": null
+      },
+      {
+        "event": "Median CPI y/y",
+        "date": "2026-10-19",
+        "tier": "kontext",
+        "why_it_matters": "Jádrová míra inflace ukazuje, zda je tlak na ceny širší; do skóre nevstupuje.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 2,0 %.",
+        "thesis_test": "Zrychlení nad 2,0 % by zvýšilo tlak na banku k zachování sazby; zpomalení by ho uvolnilo.",
+        "reaction": "omezená",
+        "reaction_note": "Do skóre nevstupuje a chybí konsenzus.",
+        "outcome": null
+      },
+      {
+        "event": "Core Retail Sales m/m",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "Spotřeba je u CAD záporná složka (maloobchod -0,7 % pod normou 0,7 %).",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je -0,7 %.",
+        "thesis_test": "Další pokles by záporný stav potvrdil; obrat do kladných čísel by složku zlepšil, ale sám by ji do neutrálu nepřepnul.",
+        "reaction": "omezená",
+        "reaction_note": "Dva tisky v řadě jsou potřeba, aby se složka změnila.",
+        "outcome": null
+      },
+      {
+        "event": "BOC Rate Statement",
+        "date": "2026-10-28",
+        "tier": "druhořadý",
+        "why_it_matters": "Komentář banky k rozhodnutí ukáže, jak vidí slabý trh práce a inflaci 3,0 %.",
+        "market_expectation": "Bez konsenzu a bez předchozí hodnoty; jde o textový dokument.",
+        "thesis_test": "Zmínka o dalším uvolňování nebo zvyšování by změnila čtení politiky; tón beze změny ji nechá neutrální.",
+        "reaction": "silná",
+        "reaction_note": "Vychází spolu s rozhodnutím o sazbě.",
+        "outcome": null
+      },
+      {
+        "event": "Overnight Rate",
+        "date": "2026-10-28",
+        "tier": "klíčový",
+        "why_it_matters": "Politika Bank of Canada je neutrální složka (sazba 2,25 % beze změny od posledního rozhodnutí).",
+        "market_expectation": "Čeká se ponechání na 2,25 %, shodně s předchozí hodnotou.",
+        "thesis_test": "Změna sazby proti odhadu by složku politiky přepnula; ponechání ji udrží neutrální.",
+        "reaction": "asymetrická",
+        "reaction_note": "Odhad je ponechání, takže víc váží jakékoli překvapení.",
+        "outcome": null
+      },
+      {
+        "event": "GDP m/m",
+        "date": "2026-10-30",
+        "tier": "druhořadý",
+        "why_it_matters": "Růst je záporná složka skóre CAD (HDP 0,0 % pod normou 0,37 %).",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,0 %.",
+        "thesis_test": "Kladné číslo by zlepšilo složku růstu; další stagnace nebo pokles ji nechá záporné.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází až po rozhodnutí banky.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "AUD",
+    "scenarios": [
+      {
+        "event": "Westpac Consumer Sentiment",
+        "date": "2026-10-13",
+        "tier": "kontext",
+        "why_it_matters": "Spotřebitelská nálada do skóre AUD nevstupuje; slouží jako měkký kontext k bearish tezi.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Zlepšení nálady by bearish tezi zpochybnilo jen slabě; bez konsenzu nelze určit překvapení.",
+        "reaction": "omezená",
+        "reaction_note": "Měkký ukazatel bez dat k poměření.",
+        "outcome": null
+      },
+      {
+        "event": "Employment Change",
+        "date": "2026-10-15",
+        "tier": "druhořadý",
+        "why_it_matters": "Zaměstnanost nevstupuje do skóre, ale doplňuje míru nezaměstnanosti, která je ve skóre trhu práce.",
+        "market_expectation": "Čeká se růst o 20,0 tisíce po předchozích 39,5 tisících.",
+        "thesis_test": "Pokles zaměstnanosti by bearish tezi potvrdil; růst nad odhad by ji zpochybnil.",
+        "reaction": "silná",
+        "reaction_note": "Trh práce je pro AUD hlavní krátkodobý test teze.",
+        "outcome": null
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-10-15",
+        "tier": "klíčový",
+        "why_it_matters": "Míra nezaměstnanosti je jediný údaj trhu práce ve skóre AUD a bearish teze stojí na slábnoucí ekonomice.",
+        "market_expectation": "Čeká se 4,6 %, shodně s předchozí hodnotou.",
+        "thesis_test": "Růst nad 4,6 % by bearish tezi potvrdil; pokles by argument pro slabší AUD oslabil.",
+        "reaction": "asymetrická",
+        "reaction_note": "Odhad je beze změny, takže odchylka v obou směrech hýbe čtením složky.",
+        "outcome": null
+      },
+      {
+        "event": "Flash Manufacturing PMI",
+        "date": "2026-10-23",
+        "tier": "druhořadý",
+        "why_it_matters": "PMI pod hranicí expanze je pro AUD slabé místo ekonomiky.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 49,3.",
+        "thesis_test": "Návrat nad 50 by bearish tezi zpochybnil; další pokles ji potvrdí.",
+        "reaction": "omezená",
+        "reaction_note": "Úroveň je těsně u hranice expanze, takže malý pohyb může změnit signál.",
+        "outcome": null
+      },
+      {
+        "event": "CPI y/y",
+        "date": "2026-10-28",
+        "tier": "klíčový",
+        "why_it_matters": "Roční inflace 4,0 % je vstup reálného výnosu AUD, který je při sazbě 4,60 % kladný.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 4,0 %.",
+        "thesis_test": "Zrychlení nad 4,0 % by kladný reálný výnos zmenšilo; zpomalení by ho zlepšilo a podpořilo AUD.",
+        "reaction": "silná",
+        "reaction_note": "Inflace přímo mění reálný výnos i očekávání dalšího kroku RBA.",
+        "outcome": null
+      },
+      {
+        "event": "CPI m/m",
+        "date": "2026-10-28",
+        "tier": "druhořadý",
+        "why_it_matters": "Měsíční inflace ukazuje, kam míří roční míra.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,4 %.",
+        "thesis_test": "Silné číslo by naznačilo zrychlení roční míry a zmenšení reálného výnosu.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází spolu s ročním číslem, které rozhoduje.",
+        "outcome": null
+      },
+      {
+        "event": "Trimmed Mean CPI m/m",
+        "date": "2026-10-28",
+        "tier": "kontext",
+        "why_it_matters": "Jádrová inflace ukazuje, zda je tlak na ceny trvalý; do skóre nevstupuje.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,2 %.",
+        "thesis_test": "Zrychlení nad 0,2 % by podpořilo další utahování RBA; zpomalení ho oslabí.",
+        "reaction": "omezená",
+        "reaction_note": "Do skóre nevstupuje a chybí konsenzus.",
+        "outcome": null
+      },
+      {
+        "event": "PPI q/q",
+        "date": "2026-10-30",
+        "tier": "kontext",
+        "why_it_matters": "Ceny výrobců do skóre AUD nevstupují.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 1,3 %.",
+        "thesis_test": "Samotné číslo tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "NZD",
+    "scenarios": [
+      {
+        "event": "Trade Balance",
+        "date": "2026-10-18",
+        "tier": "kontext",
+        "why_it_matters": "Obchodní bilance do skóre NZD nevstupuje a je jen kontextem k vnější rovnováze.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je -1 349 milionů.",
+        "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
+        "outcome": null
+      },
+      {
+        "event": "CPI q/q",
+        "date": "2026-10-19",
+        "tier": "klíčový",
+        "why_it_matters": "Čtvrtletní inflace přepíše starší údaj za druhé čtvrtletí (roční míra 4,1 %), z něhož se počítá reálný výnos NZD; po vydání ji správce ručně ověří a záložní hodnotu obnoví. Kalendář má stejný údaj zapsaný dvakrát (19. a 21. října); Stats NZ uvádí vydání 22. října novozélandského času.",
+        "market_expectation": "Bez konsenzu a bez předchozí hodnoty u tohoto záznamu v kalendáři; roční míra za druhé čtvrtletí byla 4,1 %.",
+        "thesis_test": "Zrychlení roční míry nad 4,1 % by reálný výnos prohloubilo do záporu, zpomalení by ho zlepšilo; směr bearish teze to zpochybní jen výrazný pokles.",
+        "reaction": "silná",
+        "reaction_note": "Údaj vychází krátce před rozhodnutím RBNZ o sazbě a měnit bude cenění dalšího kroku.",
+        "outcome": null
+      },
+      {
+        "event": "Official Cash Rate",
+        "date": "2026-10-28",
+        "tier": "klíčový",
+        "why_it_matters": "Politika RBNZ je kladná složka (čerstvý hike na 2,75 %), která stojí proti slabé reálné ekonomice v bearish tezi.",
+        "market_expectation": "Bez konsenzu: sazba je nyní 2,75 %.",
+        "thesis_test": "Další zvýšení by posílilo složku politiky a zpochybnilo bearish tezi; ponechání ji nechá bez změny.",
+        "reaction": "silná",
+        "reaction_note": "Poslední rozhodnutí odpovídalo konsenzu, cenění dalšího kroku z dat určit neumíme.",
+        "outcome": null
+      },
+      {
+        "event": "RBNZ Rate Statement",
+        "date": "2026-10-28",
+        "tier": "druhořadý",
+        "why_it_matters": "Komentář banky ukáže, jak vidí inflaci 4,1 % a slabou ekonomiku.",
+        "market_expectation": "Bez konsenzu a bez předchozí hodnoty; jde o textový dokument.",
+        "thesis_test": "Signál dalšího utahování by bearish tezi zpochybnil; opatrný tón ji potvrdí.",
+        "reaction": "silná",
+        "reaction_note": "Vychází spolu s rozhodnutím o sazbě.",
+        "outcome": null
+      },
+      {
+        "event": "ANZ Business Confidence",
+        "date": "2026-10-29",
+        "tier": "kontext",
+        "why_it_matters": "Podniková důvěra do skóre NZD nevstupuje a slouží jako měkký kontext k výhledu ekonomiky.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 51,9.",
+        "thesis_test": "Pokles pod předchozí hodnotu by bearish tezi podpořil; bez konsenzu je ale směr jen orientační.",
+        "reaction": "omezená",
+        "reaction_note": "Měkký průzkum mimo skóre.",
+        "outcome": null
+      }
+    ]
+  }
+]
