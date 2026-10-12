@@ -30,8 +30,17 @@ export function agendaWeight(title) {
 const LOW_PRIORITY = /\b(ppi|adp|weekly)\b|producer price|claims|claimant|earnings|wage|payrolls/i;
 const LOW_PRIORITY_PENALTY = 0.6;
 
+// Roční inflace, ze které se počítá reálný výnos (viz extractLatestCpi v cb-policy.mjs), má v rámci
+// kategorie malou přednost před jádrovou m/m verzí.
+const SCORE_INFLATION = /^(?:(?:final|flash|prelim)\s+)?(?:cpi|hicp)\s+(?:y\/y|q\/q)$|^national core cpi y\/y$/i;
+const SCORE_INPUT_BONUS = 0.3;
+
 export function seedPriority(title) {
-  return agendaWeight(title) - (LOW_PRIORITY.test(title || "") ? LOW_PRIORITY_PENALTY : 0);
+  return (
+    agendaWeight(title) -
+    (LOW_PRIORITY.test(title || "") ? LOW_PRIORITY_PENALTY : 0) +
+    (SCORE_INFLATION.test((title || "").trim()) ? SCORE_INPUT_BONUS : 0)
+  );
 }
 
 function isoToday() {
@@ -81,12 +90,14 @@ export function selectScenarioSeeds(candidates, today = isoToday()) {
     }
   }
 
+  // Stejný ukazatel dvakrát (např. týdenní žádosti o podporu) se do agendy nedává.
+  const titleTaken = (ev) => seeds.some((s) => s.title === ev.title);
   const pendingCats = new Set();
   for (const ev of pending) {
-    if (pendingCats.has(ev._cat)) continue;
+    if (pendingCats.has(ev._cat) || titleTaken(ev)) continue;
     if (add(ev)) pendingCats.add(ev._cat);
   }
-  for (const ev of pending) add(ev);
+  for (const ev of pending) if (!titleTaken(ev)) add(ev);
 
   return seeds
     .map(({ _weight, _cat, ...ev }) => ev)

@@ -28,7 +28,7 @@ test("zveřejněné události zabírají nejvýš 2 místa a nadcházející se 
   const titles = seeds.map((s) => s.title);
   assert.ok(titles.includes("Federal Funds Rate"));
   assert.ok(titles.some((t) => /CPI/.test(t) && !seeds.find((s) => s.title === t).actual), "CPI 14. 10. musí být v agendě");
-  assert.ok(seeds.filter((s) => !s.actual).length >= 5);
+  assert.ok(seeds.filter((s) => !s.actual).length >= 4);
 });
 
 test("výsledek je chronologicky řazený", () => {
@@ -59,6 +59,21 @@ test("hlavní ukazatel kategorie má přednost před týdenními žádostmi a PP
   const titles = seeds.map((s) => s.title);
   assert.ok(titles.includes("Unemployment Rate") && titles.includes("National Core CPI y/y"));
   assert.equal(seeds.length, 4, "zbylé sloty se doplní i méně důležitými");
+});
+
+test("CPI y/y (vstup do skóre) předběhne jádrové m/m a stejný ukazatel se neopakuje", () => {
+  const seeds = selectScenarioSeeds(
+    [
+      ev("2026-10-14", "Core CPI m/m"),
+      ev("2026-10-14", "CPI y/y"),
+      ev("2026-10-08", "Unemployment Claims", "197K"),
+      ev("2026-10-15", "Unemployment Claims"),
+    ],
+    TODAY
+  );
+  const titles = seeds.map((s) => s.title);
+  assert.ok(titles.includes("CPI y/y"));
+  assert.equal(titles.filter((t) => t === "Unemployment Claims").length, 1);
 });
 
 const seeds = [ev("2026-10-14", "CPI y/y", null, { estimate: null }), ev("2026-10-10", "Retail Sales m/m", "1.2")];
