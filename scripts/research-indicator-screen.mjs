@@ -315,6 +315,72 @@ async function main() {
   const med = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
   const trs = results.map((r) => r.tr.r).filter((x) => x !== null), tes = results.map((r) => r.te.r).filter((x) => x !== null);
   console.log(`\nKontrola přeučení: medián korelace přes všech ${results.length} kombinací: trénink ${f2(med(trs))}, test ${f2(med(tes))}; nejlepší tréninková ${f2(Math.max(...trs))}, test u ní ${f2(results[0].te.r)}.`);
+
+  // ---- 3) VÁHY současných 6 složek: mřížka na tréninku, ověření na testu (a obráceně) ----
+  const COMP = ["cur_policy", "cur_realYield", "cur_labor", "cur_growth", "cur_demand", "cur_pmi"];
+  const LAB = ["politika", "reál.výnos", "práce", "HDP", "spotřeba", "PMI"];
+  const GRID = [0, 0.5, 1, 2, 4];
+  const idxW = (o, w) => {
+    let sw = 0, sm = 0, n = 0, pos = 0;
+    for (let i = 0; i < COMP.length; i++) {
+      if (w[i] === 0) continue;
+      pos++;
+      const v = o.feats[COMP[i]];
+      if (v === null || v === undefined) continue;
+      sm += w[i] * v; sw += w[i]; n++;
+    }
+    return n >= Math.min(3, pos) && pos > 0 ? sm / sw : null;
+  };
+  const objFn = (rows, fn, h = 4) => {
+    const byWeek = new Map();
+    for (const o of rows) { const v = fn(o); if (v === null || o.y[h] === null) continue; if (!byWeek.has(o.f)) byWeek.set(o.f, []); byWeek.get(o.f).push([v, o.y[h]]); }
+    const px = [], py = [], ics = [];
+    for (const arr of byWeek.values()) {
+      if (arr.length < 3) continue;
+      const mv = mean(arr.map((a) => a[0]));
+      for (const a of arr) { px.push(a[0] - mv); py.push(a[1]); }
+      if (arr.length >= 5) { const ic = pearson(ranks(arr.map((a) => a[0])), ranks(arr.map((a) => a[1]))); if (ic !== null) ics.push(ic); }
+    }
+    const r = pearson(px, py);
+    return { r, n: px.length, t: tStat(r, px.length, h), ic: ics.length ? mean(ics) : null };
+  };
+  const wl = (w) => w.map((x, i) => `${LAB[i]} ${x}`).join(" · ");
+  const grid = [];
+  const w = new Array(6).fill(0);
+  const rec = (i) => {
+    if (i === 6) { if (w.some((x) => x > 0)) grid.push([...w]); return; }
+    for (const g of GRID) { w[i] = g; rec(i + 1); }
+  };
+  rec(0);
+  const SPLITS = [
+    { name: "trénink 2023–2024 → test 2025–2026", tr: obs.filter((o) => o.f < SPLIT), te: obs.filter((o) => o.f >= SPLIT) },
+    { name: "OBRÁCENĚ: trénink 2025–2026 → test 2023–2024", tr: obs.filter((o) => o.f >= SPLIT), te: obs.filter((o) => o.f < SPLIT) },
+  ];
+  console.log(`\n=== 3) VÁHY šesti současných složek (mřížka ${GRID.join("/")}, ${grid.length} kombinací vah) ===`);
+  const named = [
+    ["PRODUKCE (1 / 1,5 / 1,5 / 0,5 / 1 / 1)", [1, 1.5, 1.5, 0.5, 1, 1]],
+    ["rovné váhy", [1, 1, 1, 1, 1, 1]],
+    ["jen trh práce", [0, 0, 1, 0, 0, 0]],
+    ["trh práce 2 + reálný výnos 1", [0, 1, 2, 0, 0, 0]],
+    ["práce 4, reál.výnos 1,5, ostatní 0,5", [0.5, 1.5, 4, 0.5, 0.5, 0.5]],
+    ["práce 4, ostatní 1", [1, 1, 4, 1, 1, 1]],
+  ];
+  const fmtO = (o) => `r=${f2(o.r)} (t ${f2(o.t, 1)}) IC=${f2(o.ic)}`;
+  for (const sp of SPLITS) {
+    console.log(`\n--- ${sp.name} (trénink ${sp.tr.length}, test ${sp.te.length} poz.) ---`);
+    for (const [nm, ww] of named) console.log(`${nm.padEnd(42)} TRÉNINK ${fmtO(objFn(sp.tr, (o) => idxW(o, ww)))} | TEST ${fmtO(objFn(sp.te, (o) => idxW(o, ww)))}`);
+    const scored = grid.map((ww) => ({ ww, tr: objFn(sp.tr, (o) => idxW(o, ww)) })).filter((x) => x.tr.r !== null && x.tr.n >= 0.6 * sp.tr.filter((o) => o.y[4] !== null).length);
+    scored.sort((a, b) => b.tr.r - a.tr.r);
+    console.log(`Nejlepších 8 vah podle tréninku (a jejich TEST):`);
+    for (const x of scored.slice(0, 8)) console.log(`  ${wl(x.ww).padEnd(70)} TRÉNINK ${fmtO(x.tr)} | TEST ${fmtO(objFn(sp.te, (o) => idxW(o, x.ww)))}`);
+    // zploštění: průměr normalizovaných vah top 20 (méně náchylné k šumu jedné kombinace)
+    const top20 = scored.slice(0, 20).map((x) => { const sum = x.ww.reduce((a, b) => a + b, 0); return x.ww.map((v) => v / sum); });
+    const avgW = COMP.map((_, i) => mean(top20.map((t) => t[i])) * 6);
+    console.log(`Průměr top 20 (zploštěné váhy): ${wl(avgW.map((v) => Math.round(v * 100) / 100))}  → TRÉNINK ${fmtO(objFn(sp.tr, (o) => idxW(o, avgW)))} | TEST ${fmtO(objFn(sp.te, (o) => idxW(o, avgW)))}`);
+    const trs = scored.map((x) => x.tr.r), tes = scored.map((x) => objFn(sp.te, (o) => idxW(o, x.ww)).r).filter((v) => v !== null);
+    const med = (a) => { const q = [...a].sort((u, v) => u - v); return q[Math.floor(q.length / 2)]; };
+    console.log(`Medián přes ${scored.length} vah: trénink ${f2(med(trs))}, test ${f2(med(tes))}; podíl vah s kladným testem: ${(100 * tes.filter((v) => v > 0).length / tes.length).toFixed(0)} %`);
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
