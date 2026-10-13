@@ -149,3 +149,37 @@ export function validateAgenda(scenarios, seeds) {
   }
   return problems;
 }
+
+const NO_CONSENSUS = /bez konsen|konsens(us)? (není|chybí)|nemáme/i;
+
+/**
+ * Složí agendu ze starého uložení a nově napsaných položek, aby se denně nepsala celá znovu.
+ * Pro každou vybranou událost platí: nová položka má přednost; jinak se převezme stará, pokud je
+ * pořád pravdivá (výsledek vyšel ⇔ outcome je vyplněný; konsenzus se objevil ⇒ stará poznámka „bez
+ * konsenzu" už neplatí). Stará položka bez odpovídající události zmizí. Nové položky, které
+ * nesedí na žádnou vybranou událost, se ponechají, aby je validateAgenda odmítla.
+ */
+export function mergeAgenda(prev, provided, seeds) {
+  const key = (title, date) => `${date}|${title}`;
+  const seedKeys = new Set(seeds.map((s) => key(s.title, s.date)));
+  const newItems = Array.isArray(provided) ? provided : [];
+  const newByKey = new Map(newItems.map((s) => [key(s.event, s.date), s]));
+  const oldByKey = new Map((Array.isArray(prev) ? prev : []).map((s) => [key(s.event, s.date), s]));
+  const merged = [];
+  for (const seed of seeds) {
+    const k = key(seed.title, seed.date);
+    const fresh = newByKey.get(k);
+    if (fresh) {
+      merged.push(fresh);
+      continue;
+    }
+    const old = oldByKey.get(k);
+    if (!old) continue;
+    const resolvedOk = seed.actual ? wordCount(old.outcome) >= MIN_OUTCOME_WORDS : old.outcome == null;
+    const hasEstimate = seed.estimate != null && seed.estimate !== "";
+    const consensusOk = !(hasEstimate && NO_CONSENSUS.test(String(old.market_expectation ?? "")));
+    if (resolvedOk && consensusOk) merged.push(old);
+  }
+  for (const s of newItems) if (!seedKeys.has(key(s?.event, s?.date))) merged.push(s);
+  return merged;
+}

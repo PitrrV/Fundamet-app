@@ -21,7 +21,7 @@ import {
   isTooShortForwardFlag,
   forwardFlagCitesFlaggedEvent,
 } from "./generate-narrative.mjs";
-import { validateAgenda } from "./agenda.mjs";
+import { validateAgenda, mergeAgenda } from "./agenda.mjs";
 
 const MODEL_LABEL = "claude-writer-v1";
 const MODE = (process.env.MODE ?? "export").toLowerCase();
@@ -66,7 +66,7 @@ function payloadOf(code, ctx) {
   };
 }
 
-function check(entry, ctx) {
+function check(entry, ctx, agenda) {
   const problems = [];
   const text = { narrative: entry.narrative, forward_flag: entry.forward_flag, conviction_note: entry.conviction_note, thesis_change_note: entry.thesis_change_note };
   if (typeof entry.narrative !== "string" || entry.narrative.trim().length < 200) problems.push("narrative je prázdný nebo příliš krátký (min. 200 znaků)");
@@ -84,7 +84,7 @@ function check(entry, ctx) {
   } else if (entry.forward_flag) problems.push("forward_flag má být null, když nejsou žádné předvybrané eventy");
   if (ctx.scoreChange && !entry.thesis_change_note) problems.push("thesis_change_note chybí, ale appka má dva snímky skóre k porovnání");
   if (!ctx.scoreChange && entry.thesis_change_note) problems.push("thesis_change_note má být null, když nejsou dva snímky skóre");
-  if (entry.scenarios !== undefined) problems.push(...validateAgenda(entry.scenarios, ctx.scenarioSeeds ?? []));
+  if (agenda !== undefined) problems.push(...validateAgenda(agenda, ctx.scenarioSeeds ?? []));
   return problems;
 }
 
@@ -126,7 +126,9 @@ async function main() {
       }
       entry = { currency_code: code, narrative: p0.narrative, forward_flag: p0.forward_flag, conviction_note: p0.conviction_note, thesis_change_note: p0.thesis_change_note, ...rawEntry };
     }
-    const problems = check(entry, ctx);
+    // Agenda: nové položky ze souboru + dosud platné staré; chybějící nebo zastaralé je nutné dopsat.
+    const agenda = entry.scenarios !== undefined ? mergeAgenda(prev?.[0]?.scenarios, entry.scenarios, ctx.scenarioSeeds ?? []) : undefined;
+    const problems = check(entry, ctx, agenda);
     if (problems.length) {
       failed++;
       console.error(`[${code}] NEPROŠLO kontrolou:\n  - ${problems.join("\n  - ")}`);
@@ -139,7 +141,7 @@ async function main() {
       conviction_note: entry.conviction_note.trim(),
       thesis_change_note: ctx.scoreChange ? entry.thesis_change_note : null,
       // Agenda: nová (zkontrolovaná proti výběru událostí), jinak přenesená beze změny.
-      scenarios: entry.scenarios !== undefined ? entry.scenarios : prev?.[0]?.scenarios ?? [],
+      scenarios: agenda !== undefined ? agenda : prev?.[0]?.scenarios ?? [],
       model: MODEL_LABEL,
       input_fingerprint: buildInputFingerprint(ctx),
       score_snapshot: contextScoreSnapshot(ctx),

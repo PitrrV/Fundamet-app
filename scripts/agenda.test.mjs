@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { selectScenarioSeeds, validateAgenda, MAX_AGENDA_ITEMS, MAX_RESOLVED_ITEMS } from "./agenda.mjs";
+import { selectScenarioSeeds, validateAgenda, mergeAgenda, MAX_AGENDA_ITEMS, MAX_RESOLVED_ITEMS } from "./agenda.mjs";
 
 const ev = (date, title, actual = null, extra = {}) => ({ date, title, actual, estimate: "1.0", previous: "0.9", ...extra });
 const TODAY = "2026-10-12";
@@ -96,3 +96,20 @@ test("holý outcome u vyšlé události je chyba", () =>
   assert.ok(validateAgenda([item(), { ...done, outcome: "beat" }], seeds).some((p) => /celá věta/.test(p))));
 test("čísla u události bez konsenzu bez poznámky jsou chyba", () =>
   assert.ok(validateAgenda([item({ market_expectation: "Čeká se 3,1 % z 3,0 %." }), done], seeds).some((p) => /konsenzus v datech není/.test(p))));
+
+test("mergeAgenda: platná stará položka se převezme, zastaralá ne, nová má přednost", () => {
+  const seedsM = [
+    ev("2026-10-14", "CPI y/y", null, { estimate: "3.6%" }),
+    ev("2026-10-10", "Retail Sales m/m", "1.2"),
+    ev("2026-10-15", "GDP m/m", null, { estimate: null }),
+  ];
+  const oldItems = [
+    item({ market_expectation: "Bez konsenzu: předchozí 3,4 %." }), // konsenzus se mezitím objevil → zastaralé
+    { ...done, outcome: null },                                  // výsledek už vyšel → zastaralé
+    item({ event: "GDP m/m", date: "2026-10-15", tier: "druhořadý", market_expectation: "Bez konsenzu: předchozí 0,4 %." }), // platné
+    item({ event: "Dávná událost", date: "2026-09-01" }),         // už není ve výběru → zmizí
+  ];
+  const merged = mergeAgenda(oldItems, [item({ market_expectation: "Čeká se 3,6 %." })], seedsM);
+  assert.deepEqual(merged.map((m) => m.event).sort(), ["CPI y/y", "GDP m/m"]);
+  assert.ok(validateAgenda(merged, seedsM).some((p) => /chybí/.test(p)), "chybí Retail Sales – nutno dopsat");
+});
