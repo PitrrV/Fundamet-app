@@ -149,6 +149,7 @@ function line(label, ev, extra = "") {
 // ---------- hlavní ----------
 async function main() {
   const old = await loadOldCalendar();
+  if (process.env.SCRAPE_ONLY === "1") { console.log(`Kalendář připraven v cache (${old.length} událostí) — SCRAPE_ONLY, konec.`); return; }
   const dbRows = await pageAll("calendar_events", "currency_code,event_title,event_day,event_time,impact,actual,estimate,previous");
   const dbMin = dbRows.reduce((m, r) => (r.event_day < m ? r.event_day : m), "9999");
   const events = [...old.filter((e) => e.event_day < dbMin), ...dbRows].sort((a, b) => (a.event_day < b.event_day ? -1 : 1));
