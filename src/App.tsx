@@ -186,7 +186,7 @@ function confidenceLevelLabel(level: "HIGH" | "MEDIUM" | "LOW"): string {
 // DRIVER_LABELS ve scripts/thesis-engine.mjs — přidání nového driveru tam vyžaduje přidání i
 // sem.
 const DRIVER_KEY_LABELS: Record<string, string> = {
-  fundamental_data: "Fundamentální data",
+  fundamental_data: "Aktivita ekonomiky (práce, růst, spotřeba, PMI)",
   cot_positioning: "COT pozicování",
   cb_policy: "CB politika / real yield",
   risk_regime: "Risk režim",

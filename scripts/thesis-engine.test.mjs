@@ -20,3 +20,14 @@ test("legacy COT/retail/risk drivers get challenged, then removed, never confirm
   assert.equal(second.nextDrivers.length, 0);
   assert.equal(second.ledgerEntries.every((e) => e.classification === "invalidates_driver"), true);
 });
+
+test("směr teze odpovídá pásmům skóre stavu: neutrální pásmo (±1,0) nemá bullish/bearish tezi", async () => {
+  const { directionFromScore } = await import("./thesis-engine.mjs");
+  assert.equal(directionFromScore(-0.4), "neutral"); // AUD
+  assert.equal(directionFromScore(0.8), "neutral"); // CHF
+  assert.equal(directionFromScore(0.4), "neutral"); // EUR
+  assert.equal(directionFromScore(1.0), "bullish");
+  assert.equal(directionFromScore(-1.0), "bearish");
+  assert.equal(directionFromScore(1.9), "bullish");
+  assert.equal(directionFromScore(-1.9), "bearish");
+});

@@ -48,14 +48,17 @@ export const DRIVER_THRESHOLDS = {
 };
 
 const DRIVER_LABELS = {
-  fundamental_data: "Fundamentální data",
+  fundamental_data: "Aktivita ekonomiky (práce, růst, spotřeba, PMI)",
   cb_policy: "CB politika / real yield",
   cot_positioning: "COT pozicování (již není driver)",
   retail_sentiment: "Retail sentiment (již není driver)",
   risk_regime: "Risk režim (již není driver)",
 };
 
-const THESIS_DIRECTION_DEADZONE = 0.3; // |overall_score| pod tímhle = neutrální teze
+// Hranice neutrálního pásma skóre stavu: index ±0,2 × SCORE_SCALE 5 = ±1,0 (BANDS ve fundamental-state.mjs).
+// Dřív tu bylo ±0,3, takže měna v pásmu "Neutrální" (např. AUD -0,4, CHF 0,8) měla otevřenou Bullish/Bearish
+// tezi, která budíku odporovala. Teze má směr jen tehdy, když ho má i skóre stavu.
+export const THESIS_DIRECTION_DEADZONE = 1.0;
 
 // "confirms" se dřív logoval při KAŽDÉM běhu (každých 15 min), i když se hodnota pilíře vůbec
 // nehnula — u retail_sentiment/cot_positioning (mění se jen týdně přes ingest-cot.mjs) to
@@ -77,8 +80,8 @@ function driverEventSuffix(driverKey, eventLabel) {
 }
 
 export function directionFromScore(score) {
-  if (score > THESIS_DIRECTION_DEADZONE) return "bullish";
-  if (score < -THESIS_DIRECTION_DEADZONE) return "bearish";
+  if (score >= THESIS_DIRECTION_DEADZONE - 1e-9) return "bullish";
+  if (score <= -THESIS_DIRECTION_DEADZONE + 1e-9) return "bearish";
   return "neutral";
 }
 
@@ -140,6 +143,7 @@ export function classifyThesisUpdate(previousDrivers, direction, pillarValues, o
 
       nextDrivers.push({
         ...prevDriver,
+        label: DRIVER_LABELS[prevDriver.driver_key] ?? prevDriver.label,
         value: Math.round(currentValue * 100) / 100,
         status: "strong",
         confirmed_at: shouldLog ? now.toISOString() : (prevDriver.confirmed_at ?? now.toISOString()),
