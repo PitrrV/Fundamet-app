@@ -65,3 +65,12 @@ Denní kontrola (návrh): čerstvost kalendáře/cen/COT, shoda textů se skóre
 - **JPY inflace = národní Core CPI** (ne Tokio, ne BOJ Core): `PREFERRED_CPI_TITLE` v `cb-policy.mjs` (schváleno 9. 10. 2026; důvod: Tokio je regionální předstih zkreslený jednorázovými efekty).
 - Slabiny, o kterých uživatel ví: USD trh práce vychází jen z míry nezaměstnanosti (NFP a mzdy zůstávají v překvapení a textu); CHF „Silný" je na hraně pásma.
 - Vypnuté cron workflowy (e-maily o selhání): `generate-narrative` (OpenAI) a `ingest-intraday-retail` (retail sentiment, nikdo ho nečte). Obojí jen ručně; návrat = vrátit `schedule` ve workflow.
+
+## 9. Denní běh správce (2× denně, pracovní dny)
+Cíl: aplikace je ve chvíli, kdy se na ni uživatel podívá, aktuální (swing trading, horizont dnů až týdnů; index je čtení fundamentální situace, ne signál k obchodu).
+1. **Stav**: `Check Narrative Freshness` (hodinový) + čtení `latest_narratives`, `latest_confluence_scores`, `calendar_events` (nové `actual` od posledního běhu). Nic nového ⇒ hodnocení se nemění, jen krátký záznam.
+2. **Nové výsledky / zprávy**: ověř důležité údaje na primárním zdroji (web centrální banky / statistického úřadu). Rozpor ⇒ oprava vstupu zdokumentovaně (`manual-override.mjs`, `data/reference-cpi.json`).
+3. **Skóre**: je výstup vzorce, nepřepisuje se číslem. Mění se jen opravenými vstupy; vždy se zapíše zdroj, důvod a velikost změny.
+4. **Texty a agenda**: `ai-narrative.yml` mode=export → upravit `data/ai-narratives/<datum>.json` → apply `dry_run=1` → `dry_run=0`. Agenda závisí na dni (okno −5 / +21 dní), proto se píše a ukládá TÝŽ den; platné staré položky se převezmou (`mergeAgenda`), dopisují se jen nové, vyšlé (outcome) a ty, kde se objevil konsenzus.
+5. **Záznam změn**: řádek do `data/admin-log/RRRR-MM.jsonl` (ts, typ, měny, skóre před/po, důvod, zdroje, velikost, odkaz). Starší stavy textu a skóre jsou v `narratives` (insert-only) a `score_snapshots`.
+6. Datumy po vydání obnov: `data/reference-cpi.json` (CAD 19. 10., NZD 21./22. 10., JPY národní 23. 10., CHF začátkem listopadu).
