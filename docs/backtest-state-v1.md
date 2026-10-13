@@ -78,3 +78,23 @@ Samotná složka trh práce (IC 4 týdny): W0 0,15 (t 3,2) · W1 0,12 · W2 0,08
 Samotná složka růst (HDP): IC 4 týdny −0,03 (t −0,7), 13 týdnů −0,11 (t −1,3) — v tomto vzorku bez informace (nevýznamně záporná).
 
 **Rozhodnutí:** nic z toho se nenasazuje. Audit tvrdil, že drobné odchylky a chybějící NFP/mzdy zkreslují trh práce; data to nepotvrdila — současná definice (míra nezaměstnanosti proti vlastní normě) je nejlepší ze čtyř variant. NFP a mzdy zůstávají v aplikaci jako překvapení/kontext, ne ve skóre.
+
+## Screening všech ukazatelů a kombinací (2026-10-13, produkce beze změny)
+
+Skript `scripts/research-indicator-screen.mjs` (workflow `Research - Indicator Screen`, read-only). 1576 pozorování měna × týden (leden 2023 → říjen 2026), signály point-in-time. Pooled korelace signálu s relativním pohybem měny za 4 týdny, `t` přepočtené na nepřekrývající se vzorky, v závorce počet let (z 4) s kladnou korelací.
+
+| Ukazatel (signál) | r 4t | t | roky + | Závěr |
+|---|---|---|---|---|
+| **Míra nezaměstnanosti (trend)** = současná složka „trh práce" | **0,13** | **2,5** | **4/4** | jediný konzistentní |
+| Míra nezaměstnanosti (překvapení vs. konsenzus) | 0,08 | 1,5 | 3/4 | slabé |
+| Mzdy (překvapení / trend) | 0,09 / 0,08 | 1,2 / 1,1 | 3/4 | slabé, 2026 záporné |
+| Reálný výnos | 0,06 | 0,9 | 4/4 | slabé, konzistentní znaménko |
+| **Změna zaměstnanosti (NFP, Employment Change) trend / překvapení** | **−0,03 / 0,01** | −0,4 / 0,1 | 2/4 | **žádná informace** (USD: −0,03 / 0,04) |
+| HDP, spotřeba, PMI (výroba), politika CB, důvěra, obchodní bilance, průmysl, inflace (úroveň i trend), sazbový rozdíl (carry), staré skóre z překvapení | −0,08 … 0,01 | |t| < 1,5 | 0–3/4 | žádná informace |
+| Produkce (celý index state-v1) | 0,08 | 1,5 | 3/4 | |
+
+Detail USD (časová řada): míra nezaměstnanosti trend 0,29 a překvapení 0,30; NFP trend −0,03 a překvapení 0,04.
+
+Kombinace (výběr na tréninku 2023–2024, 838 podmnožin; hodnocení na testu 2025–2026): produkce trénink 0,11 → test 0,05; **jen trh práce 0,13 → 0,16 (t 2,1)**; trh práce + reálný výnos 0,13 → 0,15 (rank-IC test 0,17); všechny ukazatele rovné váhy 0,06 → −0,01. Nejlepší tréninková kombinace 0,21 → test 0,11; medián přes všech 838: trénink 0,12 → test 0,05 (typický propad po výběru).
+
+Omezení: čtyři roky, osm měn; při ~25 testovaných ukazatelích je t ≈ 2,5 u nejlepšího jen hraniční po korekci na vícenásobné testování (asi 1 ku 4, že by náhodná sada dala něco takového); signály jsou jedna z mnoha možných definic (trend proti 3 posledním tiskům, znaménko překvapení); horizonty 1/4/13 týdnů — okamžitou reakci ceny na NFP v řádu hodin až dnů to nezachycuje.
