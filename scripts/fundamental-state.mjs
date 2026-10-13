@@ -24,7 +24,7 @@ import {
   CB_INFLATION_TARGET,
 } from "./shadow-fundamental-engine.mjs";
 
-export const STATE_MODEL_VERSION = "state-v1";
+export const STATE_MODEL_VERSION = "state-v2"; // v2 (2026-10-13): nové váhy — trh práce převažuje
 export const WINDOW_MONTHS = 12; // kolik historie index vidí (backtest: 12 m nejlepší, delší horší)
 export const TREND_BASE_PRINTS = 3; // "norma" = průměr předchozích 3 tisků
 export const TREND_THRESHOLD = 0.5; // odchylka posledního tisku od normy v jednotkách směrodatné odchylky řady
@@ -35,8 +35,11 @@ export const PMI_BAND = { low: 49.5, high: 50.5 }; // kolem hranice 50 expanze/k
 // Minimální praktická velikost odchylky (procentní body) pro materialityFloor.
 export const MATERIALITY_FLOOR = { labor: 0.2, growth: 0.2, demand: 0.3 };
 
-// Váhy ve třech úrovních (ne jemné ladění): reálný výnos a trh práce nesly v backtestu největší
-// informaci, HDP (zřídka, se zpožděním) nejmenší.
+// Váhy (od 2026-10-13, state-v2): trh práce 4, reálný výnos 1,5, ostatní 0,5. Důvod: screening 25 ukazatelů a
+// mřížka vah (docs/backtest-state-v1.md) — míra nezaměstnanosti byla jediný ukazatel s konzistentním vztahem
+// k pozdějšímu pohybu měny (4 z 4 let), reálný výnos slabě; ostatní složky (politika, HDP, spotřeba, PMI) žádný
+// prokázaný vztah neměly a zůstávají hlavně pro příběh. Schéma se ověřovalo v obou směrech (trénink→test a
+// obráceně: test r 0,13 / 0,13), váhy se dál NELADÍ. Dřív: 1 / 1,5 / 1,5 / 0,5 / 1 / 1.
 // Opravy dat a vyhlazení spotřeby — přepínače, aby šly otestovat v backtestu (scripts/
 // research-lookback-backtest.mjs) PŘED nasazením. Produkce používá to, co je zapnuté ve
 // STATE_OPTIONS_DEFAULT; výchozí hodnoty se mění až po ověření v backtestu.
@@ -66,12 +69,12 @@ const EXTRA_PMI_TITLES = {
 };
 
 export const COMPONENT_DEFS = [
-  { key: "policy", label: "Politika centrální banky", weight: 1.0 },
+  { key: "policy", label: "Politika centrální banky", weight: 0.5 },
   { key: "realYield", label: "Reálný výnos", weight: 1.5 },
-  { key: "labor", label: "Trh práce", weight: 1.5 },
+  { key: "labor", label: "Trh práce", weight: 4.0 },
   { key: "growth", label: "Růst (HDP)", weight: 0.5 },
-  { key: "demand", label: "Spotřeba (maloobchod)", weight: 1.0 },
-  { key: "pmi", label: "PMI", weight: 1.0 },
+  { key: "demand", label: "Spotřeba (maloobchod)", weight: 0.5 },
+  { key: "pmi", label: "PMI", weight: 0.5 },
 ];
 
 export const BANDS = [

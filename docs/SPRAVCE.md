@@ -19,7 +19,7 @@ Tenhle soubor čte nová session, která přebírá roli správce aplikace. Nic 
 
 ## 3. Jak skóre vzniká (state-v1)
 Modul `scripts/fundamental-state.mjs` (testy `fundamental-state.test.mjs`, `npm test`).
-- 6 složek, každá +1 / 0 / −1 / null: politika centrální banky, reálný výnos (sazba − CPI y/y vůči koši), trh práce (míra nezaměstnanosti proti vlastní normě), růst (HDP), spotřeba (maloobchod; AUD Household Spending), PMI. Váhy 1 / 1,5 / 1,5 / 0,5 / 1 / 1.
+- 6 složek, každá +1 / 0 / −1 / null: politika centrální banky, reálný výnos (sazba − CPI y/y vůči koši), trh práce (míra nezaměstnanosti proti vlastní normě), růst (HDP), spotřeba (maloobchod; AUD Household Spending), PMI. Váhy (state-v2, od 2026-10-13): politika 0,5 / reálný výnos 1,5 / trh práce 4 / HDP 0,5 / spotřeba 0,5 / PMI 0,5 (dřív 1 / 1,5 / 1,5 / 0,5 / 1 / 1); důvod v `docs/backtest-state-v1.md`. Váhy se dál neladí — rozhodnutí o další změně až po 12 týdnech sledování.
 - Okno 12 měsíců kalendáře. Index = vážený průměr dostupných složek (min. 3), skóre = index × 5 (−5…+5) = `confluence_scores.overall_score`. Pásma: Silný ≥ 0,5; Mírně pozitivní ≥ 0,2; Neutrální; Mírně negativní ≤ −0,2; Slabý ≤ −0,5.
 - Překvapení vs. konsenzus (`fundamental_score`) je zvlášť, mimo skóre. Inflace je kontext a do skóre jde jen nepřímo přes reálný výnos.
 - Přepínače oprav `STATE_OPTIONS_DEFAULT`: zapnuto HDP v jedné jednotce, PMI jen úplné měsíce, řady AUD/NZD; vypnuto vyhlazení spotřeby, práh materiality, trh práce se zaměstnaností a mzdami (backtest je zamítl). Výsledky: `docs/backtest-state-v1.md`.

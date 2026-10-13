@@ -67,13 +67,12 @@ test("pod minimem složek index neexistuje (nedostatek dat)", () => {
   assert.equal(s.convictionStars, 0);
 });
 
-test("váhy: reálný výnos (1,5) převáží politiku (1,0)", () => {
-  // policy +1 (w1), realYield −1 (w1.5), PMI 0 (w1) → (1 − 1.5 + 0) / 3.5
-  const s = computeFundamentalState("USD", CODES, pmiBoth([50, 50, 50, 50, 50]), {
-    asOfDay: "2026-09-30",
-    cb: { policyScore: 1, policyLabel: "hiking", realYieldAdj: -0.3 },
-  });
-  assert.equal(s.index, Math.round(((1 - 1.5 + 0) / 3.5) * 1000) / 1000);
+test("váhy: trh práce (4) převáží reálný výnos (1,5) i politiku (0,5)", () => {
+  // policy +1 (0,5), realYield +1 (1,5), labor −1 (4), PMI 0 (0,5) → (0,5 + 1,5 − 4 + 0) / 6,5
+  const events = [...monthly("Unemployment Rate", [4.0, 4.0, 4.0, 4.0, 4.6]), ...monthly("ISM Manufacturing PMI", [50, 50, 50, 50, 50]), ...monthly("ISM Services PMI", [50, 50, 50, 50, 50])];
+  const s = computeFundamentalState("USD", CODES, events, { asOfDay: "2026-09-30", cb: { policyScore: 1, policyLabel: "hiking", realYieldAdj: 0.3 } });
+  assert.equal(s.components.find((c) => c.key === "labor").score, -1);
+  assert.equal(s.index, Math.round(((0.5 + 1.5 - 4 + 0) / 6.5) * 1000) / 1000);
 });
 
 test("okno historie je 12 měsíců — starší tisky se nepočítají", () => {
