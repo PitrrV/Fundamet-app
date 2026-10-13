@@ -1,0 +1,40 @@
+name: Research - Indicator Screen
+
+# Výzkum (jen ruční spuštění, READ-ONLY): screening každého fundamentálního ukazatele zvlášť a výběr kombinací
+# na trénovacích letech s ověřením na testovacích. Nic nezapisuje. Používá cache kalendáře z
+# Research - Lookback Backtest (spusť ho aspoň jednou před tímhle).
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-indicator-screen
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - uses: actions/cache@v4
+        with:
+          path: research-cache
+          key: ff-calendar-research-v1-${{ github.run_id }}
+          restore-keys: ff-calendar-research-v1-
+      # Když cache vypršela (po ~7 dnech), kalendář se znovu stáhne přes relay (~10 min); jinak jen načte cache.
+      - run: node scripts/research-lookback-backtest.mjs
+        env:
+          SCRAPE_ONLY: "1"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      - run: node scripts/research-indicator-screen.mjs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
