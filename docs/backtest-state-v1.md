@@ -98,3 +98,20 @@ Detail USD (časová řada): míra nezaměstnanosti trend 0,29 a překvapení 0,
 Kombinace (výběr na tréninku 2023–2024, 838 podmnožin; hodnocení na testu 2025–2026): produkce trénink 0,11 → test 0,05; **jen trh práce 0,13 → 0,16 (t 2,1)**; trh práce + reálný výnos 0,13 → 0,15 (rank-IC test 0,17); všechny ukazatele rovné váhy 0,06 → −0,01. Nejlepší tréninková kombinace 0,21 → test 0,11; medián přes všech 838: trénink 0,12 → test 0,05 (typický propad po výběru).
 
 Omezení: čtyři roky, osm měn; při ~25 testovaných ukazatelích je t ≈ 2,5 u nejlepšího jen hraniční po korekci na vícenásobné testování (asi 1 ku 4, že by náhodná sada dala něco takového); signály jsou jedna z mnoha možných definic (trend proti 3 posledním tiskům, znaménko překvapení); horizonty 1/4/13 týdnů — okamžitou reakci ceny na NFP v řádu hodin až dnů to nezachycuje.
+
+## Váhy šesti současných složek (2026-10-13, produkce beze změny)
+
+Mřížka vah 0 / 0,5 / 1 / 2 / 4 pro všech 6 složek (15 624 kombinací), vybíráno na tréninku a hodnoceno na testu, v OBOU směrech (2023–24 → 2025–26 a obráceně). Pooled korelace r pro 4 týdny (rank-IC v závorce).
+
+| Váhy (politika / reál. výnos / práce / HDP / spotřeba / PMI) | trénink 23–24 → test 25–26 | trénink 25–26 → test 23–24 |
+|---|---|---|
+| Produkce 1 / 1,5 / 1,5 / 0,5 / 1 / 1 | 0,11 → 0,05 (0,11) | 0,05 → 0,11 (0,12) |
+| Rovné váhy | 0,09 → −0,00 (0,04) | −0,00 → 0,09 (0,12) |
+| Jen trh práce | 0,13 → 0,16 (0,16) | 0,16 → 0,13 (0,15) |
+| Práce 2 + reálný výnos 1 | 0,13 → 0,16 (0,21) | 0,16 → 0,13 (0,16) |
+| **Práce 4, reálný výnos 1,5, ostatní 0,5** | 0,13 → 0,13 (0,16) | 0,13 → 0,13 (0,14) |
+| Práce 4, ostatní 1 | 0,13 → 0,11 (0,16) | 0,11 → 0,13 (0,14) |
+| Nejlepší váhy z mřížky podle tréninku | 0,18 → 0,10 | 0,19 → 0,11 |
+| Medián přes všech 15 624 vah | 0,07 → −0,00 (48 % kladných) | −0,00 → 0,07 (96 % kladných) |
+
+Závěr: schémata s převahou trhu práce jsou stabilní v obou směrech (test 0,11–0,16); optimalizace vah na tréninku (nejlepší z mřížky) nedopadla na testu lépe než prostý trh práce, takže ladění vah nepřidává. Rozdíly mezi schématy s převahou práce jsou v rámci šumu (t ≈ 1,4–2,1).
