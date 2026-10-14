@@ -1,0 +1,114 @@
+[
+  {
+    "currency_code": "USD",
+    "narrative": "USD má mírně pozitivní stav se skóre 2,3 a všech šest složek má data; od 13. října se ve skóre nejvíc počítá trh práce (váha 4), proto skóre kleslo z 3,8, i když se žádný údaj nezměnil. Pro měnu mluví pět složek: politika Fedu (čerstvé zvýšení sazby na 4,00 %), kladný reálný výnos (+0,12 vůči koši při inflaci 3,7 %), růst HDP 2,2 % nad normou 1,63 %, maloobchod 1,2 % nad normou 0,17 % a PMI 54,7. Čerstvá inflace 14. října vyšla nad odhadem: CPI y/y 3,7 % proti čekaným 3,6 % (předtím 3,4 %), jádro m/m 0,3 % proti čekaným 0,2 % a jádro y/y 2,6 % proti čekaným 2,5 %; reálný výnos tím klesl z +0,17, ale zůstává kladný, takže složka se nezměnila. Trh práce je neutrální (nezaměstnanost 4,2 % proti normě 4,13 %) a protože váží nejvíc, drží skóre pod hranicí silného stavu. Slabší zaměstnanost a mzdy (Non-Farm Employment Change 29 tisíc proti čekaným 89 tisícům, mzdy 0,1 % proti čekaným 0,3 %) do skóre nevstupují, jsou jen kontext, který silný obraz relativizuje; týdenní ADP vyšlo 24,8 tisíce po 23,8 tisících. Podle aktuálního skóre koše je tahle měna silnější než AUD, CAD, CHF, EUR, GBP, JPY, NZD. Pozicování velkých spekulantů je neutrální (62. percentil).",
+    "forward_flag": "15. října vyjde PPI m/m (odhad 0,6 % proti předchozím 0,4 %) a Core PPI m/m (odhad 0,3 % proti 0,2 %) a 28. října rozhodnutí o Federal Funds Rate; protože CPI 3,7 % přesáhlo odhad a zmenšilo kladný reálný výnos na +0,12, silné ceny výrobců by podpořily další zvyšování sazeb, ale dál by tlačily reálný výnos dolů, zatímco slabší čísla by cenění dalších zvýšení (2Y výnos 4,80 % nad sazbou 4,00 %) oslabila.",
+    "conviction_note": "Jistota čtení je vysoká: se směrem skóre souhlasí 5 ze 6 složek a jen trh práce je neutrální; ten má ale od 13. října největší váhu, takže skóre 2,3 je citlivé na vývoj míry nezaměstnanosti.",
+    "thesis_change_note": "Skóre kleslo z 3,8 na 2,3 kvůli změně vah, ne kvůli novému údaji: 13. října začal platit model state-v2, ve kterém má trh práce váhu 4 (dřív 1,5), reálný výnos 1,5 a ostatní složky 0,5 (dřív 1). USD má pět kladných složek a jednu neutrální, a protože ta neutrální (trh práce) váží nejvíc, skóre kleslo. Teze USD je ve sledování bez driveru, protože dílčí skóre aktivity ekonomiky už nepřekračuje práh.",
+    "scenarios": [
+      {
+        "event": "ADP Weekly Employment Change",
+        "date": "2026-10-13",
+        "tier": "kontext",
+        "why_it_matters": "Týdenní ADP je rychlý test trhu práce, který je ve skóre USD neutrální; do skóre nevstupuje.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota byla 23,8 tisíce.",
+        "thesis_test": "Výrazně záporné číslo by potvrdilo slabost trhu práce mimo skóre; hodnoty kolem 24 tisíc tezi nehýbou.",
+        "reaction": "omezená",
+        "reaction_note": "Týdenní odhad bez konsenzu a mimo skóre.",
+        "outcome": "ADP týdenní zaměstnanost vyšla 24,8 tisíce proti předchozím 23,8 tisícům, tedy mírně nad minulým týdnem; na neutrální trh práce ve skóre to nic nemění a slabší obraz zaměstnanosti to nezvrací."
+      },
+      {
+        "event": "CPI y/y",
+        "date": "2026-10-14",
+        "tier": "klíčový",
+        "why_it_matters": "Roční inflace je vstup reálného výnosu, jedné ze šesti složek skóre, a skóre stojí na kladném reálném výnosu a utahování Fedu.",
+        "market_expectation": "Čekalo se zrychlení na 3,6 % z 3,4 %; jádro m/m 0,2 % proti 0,3 %.",
+        "thesis_test": "Číslo nad odhadem zmenšilo reálný výnos, ale nechalo ho kladný, takže složka se nezměnila; další zrychlení inflace by ho dál zmenšovalo.",
+        "reaction": "asymetrická",
+        "reaction_note": "Trh už cenil další zvyšování (2Y výnos 4,80 % nad sazbou 4,00 %), takže víc váží překvapení směrem dolů.",
+        "outcome": "Roční inflace vyšla 3,7 % proti čekaným 3,6 % a předchozím 3,4 %, tedy nad odhadem; reálný výnos klesl na +0,12 vůči koši z +0,17, ale zůstal kladný, takže složka se nezměnila. Jádro m/m 0,3 % proti čekaným 0,2 % a jádro y/y 2,6 % proti čekaným 2,5 % podporují další zvyšování sazeb, které trh už cenil."
+      },
+      {
+        "event": "Unemployment Claims",
+        "date": "2026-10-15",
+        "tier": "kontext",
+        "why_it_matters": "Týdenní žádosti jsou rychlý test trhu práce, který je ve skóre USD neutrální; do skóre nevstupují.",
+        "market_expectation": "Čeká se 199 tisíc proti předchozím 197 tisícům, tedy mírné zhoršení.",
+        "thesis_test": "Trvalý růst žádostí by potvrdil slabost trhu práce mimo skóre; hodnoty kolem 200 tisíc tezi nehýbou.",
+        "reaction": "omezená",
+        "reaction_note": "Týdenní číslo trh bere jen jako doplněk k měsíčním reportům.",
+        "outcome": null
+      },
+      {
+        "event": "Core PCE Price Index m/m",
+        "date": "2026-10-29",
+        "tier": "kontext",
+        "why_it_matters": "Jde o inflační ukazatel sledovaný Fedem; do skóre nevstupuje, protože reálný výnos počítá z ročního CPI.",
+        "market_expectation": "Bez konsenzu: předchozí hodnota je 0,2 %.",
+        "thesis_test": "Vyšší číslo by podpořilo další zvyšování sazeb; nižší by cenění dalších hiků oslabilo.",
+        "reaction": "omezená",
+        "reaction_note": "Vychází po rozhodnutí Fedu a do skóre nevstupuje.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "EUR",
+    "scenarios": [
+      {
+        "event": "German Final CPI m/m",
+        "date": "2026-10-13",
+        "tier": "kontext",
+        "why_it_matters": "Německé konečné CPI je dílčí údaj k eurozónové inflaci, na které stojí záporný reálný výnos EUR; do skóre přímo nevstupuje.",
+        "market_expectation": "Čekalo se 0,6 %, shodně s předchozí hodnotou.",
+        "thesis_test": "Odchylka od odhadu by změnila čtení eurozónové inflace před konečným číslem 16. října; shoda s odhadem tezi nemění.",
+        "reaction": "omezená",
+        "reaction_note": "Konečné číslo bývá potvrzením předběžného.",
+        "outcome": "Německé konečné CPI m/m vyšlo 0,6 % shodně s odhadem i předchozí hodnotou, tedy beze překvapení; potvrzuje inflační tlak, na kterém stojí záporný reálný výnos, ale sám o sobě reálný výnos neposouvá, protože skóre bere eurozónovou roční inflaci."
+      }
+    ]
+  },
+  {
+    "currency_code": "CHF",
+    "scenarios": [
+      {
+        "event": "CPI m/m",
+        "date": "2026-11-04",
+        "tier": "druhořadý",
+        "why_it_matters": "Roční inflace CHF v kalendáři chybí, proto reálný výnos používá záložní hodnotu 1,0 %; po vydání správce roční míru ověří a hodnotu obnoví.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Silné m/m číslo by roční míru zvedlo a záporný reálný výnos prohloubilo, slabé by ho zlepšilo; bez konsenzu nelze určit překvapení.",
+        "reaction": "omezená",
+        "reaction_note": "Chybí konsenzus i předchozí hodnota, čtení je jen směrové.",
+        "outcome": null
+      }
+    ]
+  },
+  {
+    "currency_code": "NZD",
+    "scenarios": [
+      {
+        "event": "Employment Change q/q",
+        "date": "2026-11-03",
+        "tier": "kontext",
+        "why_it_matters": "Zaměstnanost nevstupuje do skóre NZD, ale doplňuje míru nezaměstnanosti ze stejného dne.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
+        "thesis_test": "Bez konsenzu nelze určit překvapení; samotná zaměstnanost skóre nezmění.",
+        "reaction": "omezená",
+        "reaction_note": "Do skóre nevstupuje a chybí data k poměření.",
+        "outcome": null
+      },
+      {
+        "event": "Unemployment Rate",
+        "date": "2026-11-03",
+        "tier": "druhořadý",
+        "why_it_matters": "Trh práce je u NZD záporná složka (nezaměstnanost 5,6 % nad normou 5,33 %) a od 13. října váží ve skóre nejvíc, takže tahle míra se skóre hýbe nejvíc.",
+        "market_expectation": "Bez konsenzu i předchozí hodnoty v datech; poslední čtení je 5,6 %.",
+        "thesis_test": "Další růst by záporný trh práce prohloubil a skóre snížil ještě víc; pokles k normě 5,33 % by ho zlepšil.",
+        "reaction": "asymetrická",
+        "reaction_note": "Složka s největší váhou, takže jakýkoli posun se promítne do skóre.",
+        "outcome": null
+      }
+    ]
+  }
+]
