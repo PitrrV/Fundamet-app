@@ -131,7 +131,7 @@
         "market_expectation": "Čeká se zpomalení na 3,8 % z 3,9 %.",
         "thesis_test": "Silnější mzdy by udržely inflační tlak; zpomalení podle odhadu tezi nemění.",
         "reaction": "omezená",
-        "reaction_note": "Do skóre nevstupuje.",
+        "reaction_note": "Do skóre nevstupuje, takže reakce bývá malá.",
         "outcome": null
       },
       {
@@ -257,7 +257,7 @@
         "market_expectation": "Čeká se 2,0 %, shodně s předchozí hodnotou.",
         "thesis_test": "Zrychlení nad 2,0 % by zvýšilo tlak na banku k zachování sazby; zpomalení by ho uvolnilo.",
         "reaction": "omezená",
-        "reaction_note": "Do skóre nevstupuje.",
+        "reaction_note": "Do skóre nevstupuje, takže reakce bývá malá.",
         "outcome": null
       },
       {
@@ -279,7 +279,7 @@
         "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
         "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
         "reaction": "omezená",
-        "reaction_note": "Nevstupuje do skóre.",
+        "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
         "outcome": null
       }
     ]
@@ -321,7 +321,7 @@
         "market_expectation": "Bez konsenzu i předchozí hodnoty v datech.",
         "thesis_test": "Bez konsenzu nelze určit překvapení; tezi nezmění.",
         "reaction": "omezená",
-        "reaction_note": "Nevstupuje do skóre.",
+        "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
         "outcome": null
       }
     ]
