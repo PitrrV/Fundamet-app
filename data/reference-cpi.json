@@ -15,15 +15,15 @@
     },
     {
       "currency": "CAD",
-      "cpi_yoy_pct": 3.0,
+      "cpi_yoy_pct": 3.1,
       "measure": "headline CPI y/y (Statistics Canada)",
-      "reference_period": "2026-08",
-      "release_date": "2026-09-14",
+      "reference_period": "2026-09",
+      "release_date": "2026-10-19",
       "max_age_dni": 50,
       "source": "Statistics Canada, The Daily",
-      "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/260914/dq260914a-eng.htm",
-      "retrieved_at": "2026-10-09",
-      "overeni": "ForexFactory news a Retail Insider citující StatCan; shoda se složením 12 měsíčních změn v kalendáři = 3,03 %"
+      "url": "https://www150.statcan.gc.ca/n1/daily-quotidien/261019/dq261019a-eng.htm",
+      "retrieved_at": "2026-10-19",
+      "overeni": "Statistics Canada, The Daily 19. 10. 2026: roční inflace 3,1 % (srpen 3,0 %), m/m 0,1 %"
     },
     {
       "currency": "NZD",
