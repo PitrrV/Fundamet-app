@@ -86,7 +86,7 @@
    {
     "event": "Official Bank Rate",
     "date": "2026-11-05",
-    "tier": "klíčový",
+    "tier": "druhořadý",
     "why_it_matters": "Rozhodnutí o sazbě určuje politickou složku (dnes neutrální, sazba 3,75 %) a reálný výnos.",
     "market_expectation": "Bez konsenzu v datech; sazba je 3,75 %.",
     "thesis_test": "Změna sazby proti očekávání by posunula politickou složku i reálný výnos; držení sazby ji nechá neutrální.",
