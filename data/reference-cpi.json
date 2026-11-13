@@ -3,15 +3,15 @@
   "entries": [
     {
       "currency": "CHF",
-      "cpi_yoy_pct": 1.0,
+      "cpi_yoy_pct": 1.5,
       "measure": "headline CPI y/y (FSO/BFS)",
-      "reference_period": "2026-09",
-      "release_date": "2026-10-01",
+      "reference_period": "2026-10",
+      "release_date": "2026-11-03",
       "max_age_dni": 50,
       "source": "Swiss Federal Statistical Office (BFS)",
       "url": "https://www.bfs.admin.ch/bfs/en/home/statistics/prices/consumer-price-index.html",
-      "retrieved_at": "2026-10-09",
-      "overeni": "FX.co a Frontaliere Ticino citující FSO; shoda se složením 12 měsíčních změn v kalendáři = 1,00 %"
+      "retrieved_at": "2026-11-13",
+      "overeni": "FSO/BFS vydání 3. 11. 2026 dle Trading Economics a Keystone-SDA (swissinfo, bluewin): říjen 1,5 % y/y (září 1,0 %), odhad 1,3 %, m/m 0,2 %, jádro 0,5 %; přímý text tiskové zprávy FSO jsme neotevřeli"
     },
     {
       "currency": "CAD",
@@ -27,15 +27,15 @@
     },
     {
       "currency": "NZD",
-      "cpi_yoy_pct": 4.1,
+      "cpi_yoy_pct": 3.7,
       "measure": "headline CPI y/y, čtvrtletní (Stats NZ)",
-      "reference_period": "2026-Q2",
-      "release_date": "2026-07-21",
+      "reference_period": "2026-Q3",
+      "release_date": "2026-10-22",
       "max_age_dni": 110,
       "source": "Stats NZ",
-      "url": "https://www.stats.govt.nz/news/annual-inflation-at-4-1-percent-in-june-2026/",
-      "retrieved_at": "2026-10-09",
-      "overeni": "titulek Stats NZ a Westpac IQ; shoda se složením 4 čtvrtletních změn v kalendáři = 4,06 %"
+      "url": "https://www.1news.co.nz/2026/10/22/inflation-eases-to-37-stats-nz/",
+      "retrieved_at": "2026-11-13",
+      "overeni": "Stats NZ 22. 10. 2026 (NZ čas) dle 1News, Interest.co.nz a BabyPips: roční inflace 3,7 % (Q2 4,1 %, odhad 3,8 %), q/q 0,7 % (odhad 0,8 %); shoda s kalendářem q/q 0,7 %"
     }
   ]
 }
