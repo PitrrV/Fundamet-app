@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalkulačka pozice</title>
+<style>
+  :root{
+    --bg:#0f1419; --card:#18202a; --line:#2a3544; --text:#e8edf3; --mut:#8b98a8;
+    --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:16px}
+  h1{font-size:20px;margin:4px 0 12px}
+  h2{font-size:15px;margin:20px 0 8px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .tabs{display:flex;gap:6px;margin-bottom:14px}
+  .tabs button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:8px;font-size:15px;cursor:pointer}
+  .tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
+  input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0f1419;color:var(--text);font-size:16px}
+  input:focus,select:focus{outline:2px solid var(--acc);border-color:transparent}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .row{margin-bottom:12px}
+  .btn{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:15px;cursor:pointer}
+  .btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+  .btn.del{color:var(--bad)}
+  .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:700}
+  .long{background:rgba(34,197,94,.15);color:var(--ok)} .short{background:rgba(239,68,68,.15);color:var(--bad)}
+  .stats{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--mut);font-size:14px;margin-top:10px}
+  .stats b{color:var(--text);font-weight:600}
+  .err{color:var(--bad);font-size:14px;margin-top:8px}
+  .warn{color:var(--warn);font-size:14px;margin-top:6px}
+  .res{display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:center}
+  .res .name{font-weight:700;font-size:17px}
+  .res .sub{color:var(--mut);font-size:13px}
+  .lots{font-size:34px;font-weight:800;text-align:right;cursor:pointer;font-variant-numeric:tabular-nums}
+  .lots small{display:block;font-size:12px;color:var(--mut);font-weight:500}
+  .meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px;color:var(--mut);border-top:1px solid var(--line);padding-top:8px}
+  .meta b{color:var(--text);font-weight:600}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:6px 4px;text-align:left;font-size:13px;color:var(--mut);font-weight:500}
+  td input,td select{padding:8px}
+  .hint{color:var(--mut);font-size:13px;margin:6px 0}
+  .acc-row{display:grid;grid-template-columns:2fr 1.5fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .acc-row:last-child{border:0}
+  @media(max-width:600px){
+    .acc-row{grid-template-columns:1fr 1fr}
+    .acc-row .nm{grid-column:1/-1}
+    .grid{gap:8px}
+  }
+  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ok);color:#06210f;padding:8px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:.2s}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kalkulačka velikosti pozice</h1>
+  <div class="tabs">
+    <button data-tab="calc" class="on">Kalkulačka</button>
+    <button data-tab="acc">Účty</button>
+    <button data-tab="set">Nastavení</button>
+  </div>
+
+  <!-- KALKULAČKA -->
+  <section id="tab-calc">
+    <div class="card">
+      <div class="row">
+        <label for="sym">Instrument</label>
+        <select id="sym"></select>
+      </div>
+      <div class="grid">
+        <div><label for="entry">Entry</label><input id="entry" inputmode="decimal" autocomplete="off" placeholder="1.10000"></div>
+        <div><label for="sl">Stop Loss</label><input id="sl" inputmode="decimal" autocomplete="off" placeholder="1.09500"></div>
+        <div><label for="tp">Take Profit</label><input id="tp" inputmode="decimal" autocomplete="off" placeholder="1.11500"></div>
+      </div>
+      <div id="summary"></div>
+    </div>
+    <div id="results"></div>
+    <p class="hint">Velikost pozice je zaokrouhlená dolů na krok lotu, takže skutečné riziko nikdy nepřekročí nastavené %. Klepnutím na lot ho zkopírujete.</p>
+  </section>
+
+  <!-- ÚČTY -->
+  <section id="tab-acc" hidden>
+    <div class="card">
+      <div id="accounts"></div>
+      <button class="btn pri" id="addAcc">+ Přidat účet</button>
+    </div>
+    <p class="hint">Kapitál = základ, ze kterého se počítá riziko. „Max risk“ je procento kapitálu na jeden obchod.</p>
+  </section>
+
+  <!-- NASTAVENÍ -->
+  <section id="tab-set" hidden>
+    <div class="card">
+      <h2 style="margin-top:0">Kurzy (USD za 1 jednotku měny)</h2>
+      <p class="hint">Slouží k přepočtu rizika, když kvótovací měna páru není měna účtu (např. EURGBP, GBPJPY). U párů s USD se počítá přesně z ceny Entry.</p>
+      <div id="rates"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <button class="btn" id="fetchRates">Načíst aktuální kurzy</button>
+        <span class="hint" id="ratesInfo" style="margin:0"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Specifikace kontraktů</h2>
+      <p class="hint">Velikost kontraktu se u brokerů/propfirem liší (hlavně US100) — zkontrolujte u svého účtu.</p>
+      <table id="specs"></table>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">Záloha dat</h2>
+      <p class="hint">Data jsou uložená jen v tomto prohlížeči. Pro přenos na jiné zařízení použijte export / import.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="exp">Exportovat</button>
+        <button class="btn" id="imp">Importovat</button>
+        <button class="btn del" id="reset">Obnovit výchozí</button>
+        <input type="file" id="file" accept="application/json" hidden>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+const CUR = ['USD','EUR','GBP','JPY','CHF','CAD','AUD','NZD'];
+const PAIRS = ['EURUSD','GBPUSD','AUDUSD','NZDUSD','USDJPY','USDCHF','USDCAD',
+  'EURGBP','EURJPY','EURCHF','EURAUD','EURNZD','EURCAD',
+  'GBPJPY','GBPCHF','GBPAUD','GBPNZD','GBPCAD',
+  'AUDJPY','AUDNZD','AUDCAD','AUDCHF',
+  'NZDJPY','NZDCAD','NZDCHF','CADJPY','CADCHF','CHFJPY'];
+const SYMBOLS = [...PAIRS, 'XAUUSD', 'US100'];
+
+function kind(sym){ return sym==='XAUUSD' ? 'gold' : sym==='US100' ? 'index' : 'fx'; }
+
+const DEFAULTS = () => ({
+  accounts: [
+    {id:1, name:'Fortraders', capital:6000, currency:'USD', risk:1},
+    {id:2, name:'FundingPips', capital:10000, currency:'USD', risk:1}
+  ],
+  nextId: 3,
+  // USD za 1 jednotku měny (orientační, dá se přepsat nebo načíst)
+  rates: {USD:1, EUR:1.16, GBP:1.31, JPY:0.0064, CHF:1.25, CAD:0.72, AUD:0.65, NZD:0.58},
+  ratesDate: null,
+  specs: {
+    fx:    {contract:100000, step:0.01, min:0.01},
+    gold:  {contract:100,    step:0.01, min:0.01},
+    index: {contract:1,      step:0.01, min:0.01}
+  },
+  last: {sym:'EURUSD', entry:'', sl:'', tp:''}
+});
+
+const KEY = 'riskcalc.v1';
+let S;
+function load(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw){ const d = DEFAULTS(), p = JSON.parse(raw);
+      return {...d, ...p, rates:{...d.rates,...p.rates}, specs:{...d.specs,...p.specs}, last:{...d.last,...p.last}};
+    }
+  }catch(e){}
+  return DEFAULTS();
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { const n = parseFloat(String(v).trim().replace(/\s/g,'').replace(',','.')); return isFinite(n) ? n : NaN; };
+const fmt = (n, d=2) => n.toLocaleString('cs-CZ',{minimumFractionDigits:d, maximumFractionDigits:d});
+function decimals(step){ const s = String(step); return s.includes('.') ? s.split('.')[1].length : 0; }
+
+/* ---------- jádro výpočtu ---------- */
+function usdPerUnit(cur, sym, entry){
+  if(cur==='USD') return 1;
+  // páry s USD jako základem: kvóta v USD = 1 / cena
+  if(kind(sym)==='fx' && sym.startsWith('USD') && sym.slice(3)===cur) return 1/entry;
+  return S.rates[cur];
+}
+function calc(sym, entry, sl, tp, acc){
+  const sp = S.specs[kind(sym)];
+  const quote = kind(sym)==='fx' ? sym.slice(3) : 'USD';
+  const toAcc = usdPerUnit(quote, sym, entry) / S.rates[acc.currency];
+  const dist = Math.abs(entry - sl);
+  const lossPerLot = dist * sp.contract * toAcc;
+  const riskAmt = acc.capital * acc.risk / 100;
+  const raw = riskAmt / lossPerLot;
+  const lots = Math.floor(raw / sp.step + 1e-9) * sp.step;
+  const lotsR = +lots.toFixed(decimals(sp.step));
+  const under = lotsR < sp.min;
+  const used = under ? 0 : lotsR;
+  const realRisk = used * lossPerLot;
+  const profit = isFinite(tp) ? used * Math.abs(tp - entry) * sp.contract * toAcc : NaN;
+  return {sp, riskAmt, lossPerLot, lots: used, under, realRisk, realPct: realRisk/acc.capital*100, profit,
+          minLotRisk: sp.min * lossPerLot};
+}
+
+/* ---------- vykreslení kalkulačky ---------- */
+function pipInfo(sym, dist){
+  const k = kind(sym);
+  if(k==='fx'){ const pip = sym.endsWith('JPY') ? 0.01 : 0.0001; return fmt(dist/pip,1)+' pips'; }
+  return fmt(dist,2)+' b.';
+}
+function renderCalc(){
+  const sym = $('sym').value;
+  S.last = {sym, entry:$('entry').value, sl:$('sl').value, tp:$('tp').value}; save();
+  const e = num($('entry').value), sl = num($('sl').value), tp = num($('tp').value);
+  const sum = $('summary'), res = $('results');
+  res.innerHTML = ''; sum.innerHTML = '';
+  if(isNaN(e) || isNaN(sl)) return;
+  if(e<=0 || sl<=0){ sum.innerHTML = '<div class="err">Ceny musí být kladné.</div>'; return; }
+  if(e===sl){ sum.innerHTML = '<div class="err">Entry a SL se nesmí rovnat.</div>'; return; }
+  const long = sl < e;
+  const dist = Math.abs(e-sl);
+  let html = `<div style="margin-top:12px"><span class="badge ${long?'long':'short'}">${long?'LONG':'SHORT'}</span></div>`;
+  html += `<div class="stats"><span>SL: <b>${pipInfo(sym,dist)}</b></span>`;
+  let warn = '';
+  if(!isNaN(tp)){
+    const okSide = long ? tp>e : tp<e;
+    if(okSide){
+      html += `<span>TP: <b>${pipInfo(sym,Math.abs(tp-e))}</b></span><span>RR: <b>1 : ${fmt(Math.abs(tp-e)/dist,2)}</b></span>`;
+    } else warn = '<div class="err">TP je na špatné straně od Entry pro tento směr.</div>';
+  }
+  html += '</div>' + warn;
+  sum.innerHTML = html;
+  const tpOk = !isNaN(tp) && (long ? tp>e : tp<e) ? tp : NaN;
+
+  if(!S.accounts.length){ res.innerHTML = '<div class="card hint">Nemáte žádný účet — přidejte ho v záložce Účty.</div>'; return; }
+  for(const a of S.accounts){
+    if(!(a.capital>0) || !(a.risk>0)){ res.innerHTML += `<div class="card"><b>${esc(a.name)}</b><div class="err">Vyplňte kapitál a max risk.</div></div>`; continue; }
+    const r = calc(sym, e, sl, tpOk, a);
+    const d = decimals(r.sp.step);
+    const cur = a.currency;
+    res.innerHTML += `
+      <div class="card"><div class="res">
+        <div><div class="name">${esc(a.name)}</div>
+          <div class="sub">${fmt(a.capital,0)} ${cur} · risk ${fmt(a.risk,2)} % = ${fmt(r.riskAmt)} ${cur}</div></div>
+        <div class="lots" data-copy="${r.lots.toFixed(d)}">${r.lots.toFixed(d)}<small>lotů</small></div>
+        <div class="meta">
+          <span>Skutečné riziko: <b>${fmt(r.realRisk)} ${cur} (${fmt(r.realPct,2)} %)</b></span>
+          ${isNaN(r.profit)?'':`<span>Zisk na TP: <b>${fmt(r.profit)} ${cur}</b></span>`}
+        </div>
+        ${r.under?`<div class="warn" style="grid-column:1/-1">Riziko je příliš malé na minimální lot (${r.sp.min}). Min. lot by riskoval ${fmt(r.minLotRisk)} ${cur}.</div>`:''}
+      </div></div>`;
+  }
+}
+
+/* ---------- účty ---------- */
+function renderAccounts(){
+  const box = $('accounts');
+  box.innerHTML = S.accounts.map(a => `
+    <div class="acc-row" data-id="${a.id}">
+      <div class="nm"><label>Název účtu</label><input data-f="name" value="${esc(a.name)}"></div>
+      <div><label>Kapitál</label><input data-f="capital" inputmode="decimal" value="${a.capital}"></div>
+      <div><label>Měna</label><select data-f="currency">${CUR.map(c=>`<option ${c===a.currency?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>Max risk %</label><input data-f="risk" inputmode="decimal" value="${a.risk}"></div>
+      <div><button class="btn del" data-del="${a.id}" title="Smazat účet">✕</button></div>
+    </div>`).join('') || '<p class="hint">Žádné účty.</p>';
+}
+$('accounts').addEventListener('input', ev => {
+  const f = ev.target.dataset.f; if(!f) return;
+  const a = S.accounts.find(x => x.id == ev.target.closest('.acc-row').dataset.id);
+  if(f==='name') a.name = ev.target.value;
+  else if(f==='currency') a.currency = ev.target.value;
+  else { const n = num(ev.target.value); a[f] = isNaN(n) ? 0 : n; }
+  save();
+});
+$('accounts').addEventListener('click', ev => {
+  const id = ev.target.dataset.del; if(!id) return;
+  const a = S.accounts.find(x => x.id == id);
+  if(confirm(`Smazat účet „${a.name}“?`)){ S.accounts = S.accounts.filter(x => x.id != id); save(); renderAccounts(); }
+});
+$('addAcc').onclick = () => {
+  S.accounts.push({id:S.nextId++, name:'Nový účet', capital:10000, currency:'USD', risk:1}); save(); renderAccounts();
+};
+
+/* ---------- nastavení ---------- */
+function renderSettings(){
+  $('rates').innerHTML = '<div class="grid" style="grid-template-columns:repeat(4,1fr)">' +
+    CUR.filter(c=>c!=='USD').map(c => `<div><label>${c}</label><input data-rate="${c}" inputmode="decimal" value="${S.rates[c]}"></div>`).join('') + '</div>';
+  $('ratesInfo').textContent = S.ratesDate ? 'Naposledy načteno: ' + S.ratesDate : 'Zatím orientační výchozí hodnoty — načtěte aktuální kurzy.';
+  const names = {fx:'Forex (28 párů)', gold:'Zlato (XAUUSD)', index:'US100'};
+  $('specs').innerHTML = '<tr><th></th><th>Velikost kontraktu</th><th>Krok lotu</th><th>Min. lot</th></tr>' +
+    ['fx','gold','index'].map(k => `<tr><td>${names[k]}</td>
+      <td><input data-spec="${k}.contract" inputmode="decimal" value="${S.specs[k].contract}"></td>
+      <td><input data-spec="${k}.step" inputmode="decimal" value="${S.specs[k].step}"></td>
+      <td><input data-spec="${k}.min" inputmode="decimal" value="${S.specs[k].min}"></td></tr>`).join('');
+}
+$('rates').addEventListener('input', ev => {
+  const c = ev.target.dataset.rate; if(!c) return;
+  const n = num(ev.target.value); if(n>0){ S.rates[c] = n; save(); }
+});
+$('specs').addEventListener('input', ev => {
+  const p = ev.target.dataset.spec; if(!p) return;
+  const [k,f] = p.split('.'); const n = num(ev.target.value); if(n>0){ S.specs[k][f] = n; save(); }
+});
+async function fetchRates(silent){
+  try{
+    const r = await fetch('https://open.er-api.com/v6/latest/USD');
+    const j = await r.json();
+    if(j.result!=='success') throw 0;
+    for(const c of CUR) if(c!=='USD' && j.rates[c]) S.rates[c] = +(1/j.rates[c]).toPrecision(6);
+    S.ratesDate = new Date().toLocaleString('cs-CZ'); save();
+    if($('tab-set').hidden===false) renderSettings();
+    renderCalc(); if(!silent) toast('Kurzy načteny');
+  }catch(e){ if(!silent) alert('Kurzy se nepodařilo načíst. Zadejte je ručně.'); }
+}
+$('fetchRates').onclick = () => fetchRates(false);
+$('exp').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));
+  a.download = 'riskcalc-zaloha.json'; a.click();
+};
+$('imp').onclick = () => $('file').click();
+$('file').onchange = async ev => {
+  try{ const p = JSON.parse(await ev.target.files[0].text()); if(!Array.isArray(p.accounts)) throw 0;
+    const d = DEFAULTS(); S = {...d, ...p, rates:{...d.rates,...p.rates}, specs:{...d.specs,...p.specs}, last:{...d.last,...p.last}};
+    save(); init(); toast('Importováno');
+  }catch(e){ alert('Neplatný soubor.'); }
+  ev.target.value = '';
+};
+$('reset').onclick = () => { if(confirm('Smazat všechna data a vrátit výchozí nastavení?')){ S = DEFAULTS(); save(); init(); } };
+
+/* ---------- společné ---------- */
+function toast(t){ const el = $('toast'); el.textContent = t; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1400); }
+document.addEventListener('click', ev => {
+  const c = ev.target.closest('[data-copy]'); if(!c) return;
+  navigator.clipboard?.writeText(c.dataset.copy).then(()=>toast('Zkopírováno: '+c.dataset.copy), ()=>{});
+});
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x===b));
+  for(const t of ['calc','acc','set']) $('tab-'+t).hidden = t !== b.dataset.tab;
+  if(b.dataset.tab==='calc') renderCalc();
+  if(b.dataset.tab==='acc') renderAccounts();
+  if(b.dataset.tab==='set') renderSettings();
+});
+['sym','entry','sl','tp'].forEach(id => $(id).addEventListener('input', renderCalc));
+
+function init(){
+  $('sym').innerHTML = `<optgroup label="Forex">${PAIRS.map(p=>`<option>${p}</option>`).join('')}</optgroup>
+    <optgroup label="Ostatní"><option value="XAUUSD">XAUUSD (Zlato)</option><option value="US100">US100</option></optgroup>`;
+  $('sym').value = S.last.sym; $('entry').value = S.last.entry; $('sl').value = S.last.sl; $('tp').value = S.last.tp;
+  renderAccounts(); renderSettings(); renderCalc();
+}
+S = load(); init();
+fetchRates(true); // tichá aktualizace kurzů při startu
+</script>
+</body>
+</html>
