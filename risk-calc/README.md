@@ -1,5 +1,5 @@
 # Kalkulačka velikosti pozice
 
-Jeden soubor `index.html`, bez instalace — otevřete ho v prohlížeči (funguje i na mobilu).
-Zadáte instrument, Entry, SL, TP a dostanete lot pro každý uložený účet podle jeho kapitálu a max risku %.
-Data se ukládají v prohlížeči (záloha: Nastavení → Exportovat).
+Samostatná stránka v `public/risk-calc/index.html` (bez buildu a instalace).
+Po nasazení na GitHub Pages je na `/Fundamet-app/risk-calc/`.
+Data se ukládají v prohlížeči (záloha: Nastavení → Zobrazit zálohu).

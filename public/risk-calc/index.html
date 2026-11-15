@@ -2,16 +2,26 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Kalkulačka pozice</title>
 <style>
   :root{
-    --bg:#0f1419; --card:#18202a; --line:#2a3544; --text:#e8edf3; --mut:#8b98a8;
-    --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    --bg:#f3f5f8; --card:#ffffff; --line:#d9e0e8; --text:#14202e; --mut:#5d6b7c; --inp:#f3f5f8;
+    --acc:#2563eb; --ok:#15803d; --bad:#dc2626; --warn:#b45309;
+    --okbg:rgba(21,128,61,.12); --badbg:rgba(220,38,38,.12); --toast-fg:#fff;
   }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --bg:#0f1419; --card:#18202a; --line:#2a3544; --text:#e8edf3; --mut:#8b98a8; --inp:#0f1419;
+    --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    --okbg:rgba(34,197,94,.15); --badbg:rgba(239,68,68,.15); --toast-fg:#06210f; color-scheme:dark; } }
+  :root[data-theme="dark"]{
+    --bg:#0f1419; --card:#18202a; --line:#2a3544; --text:#e8edf3; --mut:#8b98a8; --inp:#0f1419;
+    --acc:#3b82f6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    --okbg:rgba(34,197,94,.15); --badbg:rgba(239,68,68,.15); --toast-fg:#06210f; color-scheme:dark; }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  .wrap{max-width:860px;margin:0 auto;padding:16px}
+  h1,h2{text-wrap:balance}
+  .wrap{max-width:860px;margin:0 auto;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
   h1{font-size:20px;margin:4px 0 12px}
   h2{font-size:15px;margin:20px 0 8px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
   .tabs{display:flex;gap:6px;margin-bottom:14px}
@@ -19,7 +29,7 @@
   .tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
   label{display:block;font-size:13px;color:var(--mut);margin-bottom:4px}
-  input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:#0f1419;color:var(--text);font-size:16px}
+  input,select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--inp);color:var(--text);font-size:16px}
   input:focus,select:focus{outline:2px solid var(--acc);border-color:transparent}
   .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
   .row{margin-bottom:12px}
@@ -27,7 +37,7 @@
   .btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}
   .btn.del{color:var(--bad)}
   .badge{display:inline-block;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:700}
-  .long{background:rgba(34,197,94,.15);color:var(--ok)} .short{background:rgba(239,68,68,.15);color:var(--bad)}
+  .long{background:var(--okbg);color:var(--ok)} .short{background:var(--badbg);color:var(--bad)}
   .stats{display:flex;flex-wrap:wrap;gap:6px 18px;color:var(--mut);font-size:14px;margin-top:10px}
   .stats b{color:var(--text);font-weight:600}
   .err{color:var(--bad);font-size:14px;margin-top:8px}
@@ -39,7 +49,8 @@
   .lots small{display:block;font-size:12px;color:var(--mut);font-weight:500}
   .meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:14px;color:var(--mut);border-top:1px solid var(--line);padding-top:8px}
   .meta b{color:var(--text);font-weight:600}
-  table{width:100%;border-collapse:collapse}
+  .tw{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;min-width:420px}
   td,th{padding:6px 4px;text-align:left;font-size:13px;color:var(--mut);font-weight:500}
   td input,td select{padding:8px}
   .hint{color:var(--mut);font-size:13px;margin:6px 0}
@@ -50,7 +61,8 @@
     .acc-row .nm{grid-column:1/-1}
     .grid{gap:8px}
   }
-  .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ok);color:#06210f;padding:8px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:.2s}
+  textarea{width:100%;min-height:90px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--inp);color:var(--text);font:13px ui-monospace,monospace;margin-top:8px}
+  .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ok);color:var(--toast-fg);padding:8px 16px;border-radius:8px;font-weight:600;opacity:0;pointer-events:none;transition:.2s}
   .toast.show{opacity:1}
 </style>
 </head>
@@ -94,9 +106,9 @@
   <section id="tab-set" hidden>
     <div class="card">
       <h2 style="margin-top:0">Kurzy (USD za 1 jednotku měny)</h2>
-      <p class="hint">Slouží k přepočtu rizika, když kvótovací měna páru není měna účtu (např. EURGBP, GBPJPY). U párů s USD se počítá přesně z ceny Entry.</p>
+      <p class="hint">Slouží k přepočtu rizika, když kvótovací měna páru není měna účtu (např. EURGBP, GBPJPY). Při otevření se načtou aktuální kurzy z internetu; když se to nepodaří, platí poslední uložené (výchozí jsou jen orientační), které můžete přepsat ručně. U párů s USD se počítá přesně z ceny Entry.</p>
       <div id="rates"></div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <button class="btn" id="fetchRates">Načíst aktuální kurzy</button>
         <span class="hint" id="ratesInfo" style="margin:0"></span>
       </div>
@@ -104,17 +116,18 @@
     <div class="card">
       <h2 style="margin-top:0">Specifikace kontraktů</h2>
       <p class="hint">Velikost kontraktu se u brokerů/propfirem liší (hlavně US100) — zkontrolujte u svého účtu.</p>
-      <table id="specs"></table>
+      <div class="tw"><table id="specs"></table></div>
     </div>
     <div class="card">
       <h2 style="margin-top:0">Záloha dat</h2>
-      <p class="hint">Data jsou uložená jen v tomto prohlížeči. Pro přenos na jiné zařízení použijte export / import.</p>
+      <p class="hint">Data jsou uložená jen v tomto prohlížeči. Pro přenos na jiné zařízení zobrazte zálohu, zkopírujte ji a na druhém zařízení ji vložte a načtěte.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" id="exp">Exportovat</button>
-        <button class="btn" id="imp">Importovat</button>
+        <button class="btn" id="exp">Zobrazit zálohu</button>
+        <button class="btn" id="cpy">Kopírovat</button>
+        <button class="btn" id="imp">Načíst ze zálohy</button>
         <button class="btn del" id="reset">Obnovit výchozí</button>
-        <input type="file" id="file" accept="application/json" hidden>
       </div>
+      <textarea id="backup" placeholder="Sem vložte zálohu a klepněte na Načíst ze zálohy" spellcheck="false"></textarea>
     </div>
   </section>
 </div>
@@ -146,7 +159,7 @@ const DEFAULTS = () => ({
     gold:  {contract:100,    step:0.01, min:0.01},
     index: {contract:1,      step:0.01, min:0.01}
   },
-  last: {sym:'EURUSD', entry:'', sl:'', tp:''}
+  last: {sym:'EURUSD', entry:'1.10000', sl:'1.09500', tp:'1.11500'}
 });
 
 const KEY = 'riskcalc.v1';
@@ -266,8 +279,16 @@ $('accounts').addEventListener('input', ev => {
 $('accounts').addEventListener('click', ev => {
   const id = ev.target.dataset.del; if(!id) return;
   const a = S.accounts.find(x => x.id == id);
-  if(confirm(`Smazat účet „${a.name}“?`)){ S.accounts = S.accounts.filter(x => x.id != id); save(); renderAccounts(); }
+  if(!armed(ev.target, 'Opravdu smazat?')) return;
+  S.accounts = S.accounts.filter(x => x.id != id); save(); renderAccounts();
 });
+// první klepnutí jen vyžádá potvrzení, druhé do 3 s akci provede
+function armed(btn, label){
+  if(btn.dataset.armed){ return true; }
+  const old = btn.textContent; btn.dataset.armed = '1'; btn.textContent = label;
+  setTimeout(() => { delete btn.dataset.armed; btn.textContent = old; }, 3000);
+  return false;
+}
 $('addAcc').onclick = () => {
   S.accounts.push({id:S.nextId++, name:'Nový účet', capital:10000, currency:'USD', risk:1}); save(); renderAccounts();
 };
@@ -276,7 +297,7 @@ $('addAcc').onclick = () => {
 function renderSettings(){
   $('rates').innerHTML = '<div class="grid" style="grid-template-columns:repeat(4,1fr)">' +
     CUR.filter(c=>c!=='USD').map(c => `<div><label>${c}</label><input data-rate="${c}" inputmode="decimal" value="${S.rates[c]}"></div>`).join('') + '</div>';
-  $('ratesInfo').textContent = S.ratesDate ? 'Naposledy načteno: ' + S.ratesDate : 'Zatím orientační výchozí hodnoty — načtěte aktuální kurzy.';
+  $('ratesInfo').textContent = S.ratesDate ? 'Naposledy aktualizováno: ' + S.ratesDate : 'Zatím orientační výchozí hodnoty, zkontrolujte je.';
   const names = {fx:'Forex (28 párů)', gold:'Zlato (XAUUSD)', index:'US100'};
   $('specs').innerHTML = '<tr><th></th><th>Velikost kontraktu</th><th>Krok lotu</th><th>Min. lot</th></tr>' +
     ['fx','gold','index'].map(k => `<tr><td>${names[k]}</td>
@@ -286,7 +307,7 @@ function renderSettings(){
 }
 $('rates').addEventListener('input', ev => {
   const c = ev.target.dataset.rate; if(!c) return;
-  const n = num(ev.target.value); if(n>0){ S.rates[c] = n; save(); }
+  const n = num(ev.target.value); if(n>0){ S.rates[c] = n; S.ratesDate = new Date().toLocaleDateString('cs-CZ'); save(); $('ratesInfo').textContent = 'Naposledy aktualizováno: ' + S.ratesDate; }
 });
 $('specs').addEventListener('input', ev => {
   const p = ev.target.dataset.spec; if(!p) return;
@@ -294,30 +315,27 @@ $('specs').addEventListener('input', ev => {
 });
 async function fetchRates(silent){
   try{
-    const r = await fetch('https://open.er-api.com/v6/latest/USD');
-    const j = await r.json();
+    const j = await (await fetch('https://open.er-api.com/v6/latest/USD')).json();
     if(j.result!=='success') throw 0;
     for(const c of CUR) if(c!=='USD' && j.rates[c]) S.rates[c] = +(1/j.rates[c]).toPrecision(6);
     S.ratesDate = new Date().toLocaleString('cs-CZ'); save();
-    if($('tab-set').hidden===false) renderSettings();
-    renderCalc(); if(!silent) toast('Kurzy načteny');
-  }catch(e){ if(!silent) alert('Kurzy se nepodařilo načíst. Zadejte je ručně.'); }
+    renderSettings(); renderCalc(); if(!silent) toast('Kurzy načteny');
+  }catch(e){ if(!silent) toast('Kurzy se nepodařilo načíst, zadejte je ručně'); }
 }
 $('fetchRates').onclick = () => fetchRates(false);
-$('exp').onclick = () => {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}));
-  a.download = 'riskcalc-zaloha.json'; a.click();
+$('exp').onclick = () => { $('backup').value = JSON.stringify(S, null, 2); };
+$('cpy').onclick = () => {
+  $('backup').value = JSON.stringify(S, null, 2); $('backup').select();
+  navigator.clipboard?.writeText($('backup').value).then(() => toast('Zkopírováno'), () => toast('Označeno, zkopírujte ručně'));
 };
-$('imp').onclick = () => $('file').click();
-$('file').onchange = async ev => {
-  try{ const p = JSON.parse(await ev.target.files[0].text()); if(!Array.isArray(p.accounts)) throw 0;
+$('imp').onclick = () => {
+  try{
+    const p = JSON.parse($('backup').value); if(!Array.isArray(p.accounts)) throw 0;
     const d = DEFAULTS(); S = {...d, ...p, rates:{...d.rates,...p.rates}, specs:{...d.specs,...p.specs}, last:{...d.last,...p.last}};
-    save(); init(); toast('Importováno');
-  }catch(e){ alert('Neplatný soubor.'); }
-  ev.target.value = '';
+    save(); init(); toast('Načteno');
+  }catch(e){ toast('Neplatná záloha'); }
 };
-$('reset').onclick = () => { if(confirm('Smazat všechna data a vrátit výchozí nastavení?')){ S = DEFAULTS(); save(); init(); } };
+$('reset').onclick = ev => { if(!armed(ev.target, 'Opravdu smazat vše?')) return; S = DEFAULTS(); save(); init(); };
 
 /* ---------- společné ---------- */
 function toast(t){ const el = $('toast'); el.textContent = t; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),1400); }
@@ -340,8 +358,8 @@ function init(){
   $('sym').value = S.last.sym; $('entry').value = S.last.entry; $('sl').value = S.last.sl; $('tp').value = S.last.tp;
   renderAccounts(); renderSettings(); renderCalc();
 }
-S = load(); init();
-fetchRates(true); // tichá aktualizace kurzů při startu
+S = load(); init(); fetchRates(true);
 </script>
+
 </body>
 </html>
