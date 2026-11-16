@@ -1,0 +1,99 @@
+[
+ {
+  "currency_code": "JPY",
+  "conviction_note": "Jistota čtení je střední: se směrem skóre souhlasí 3 ze 6 složek (politika, trh práce, PMI), jedna je neutrální (spotřeba) a dvě záporné (reálný výnos, růst); největší váhu má kladný trh práce.",
+  "thesis_change_note": "Skóre kleslo z 2,7 na 2,0 (16. listopadu), v den, kdy vyšlo předběžné HDP q/q 0,0 % proti čekaným 0,1 % (předtím 0,3 %); růst je dnes záporná složka (0 % pod normou 0,4 %). Býčí teze JPY zůstává aktivní, hodnota aktivity ekonomiky klesla z 4,5 na 3,6, ale je pořád nad prahem.",
+  "narrative": "JPY má mírně pozitivní stav se skóre 2,0 a všech šest složek má data. Pro měnu mluví politika Bank of Japan (sazba 1,25 %, 30. října ponechána podle konsensu, cyklus zvyšování s růstem o 0,50 % za rok), trh práce (nezaměstnanost 2,4 % pod normou 2,47 %) a PMI 53,3. Spotřeba je neutrální (maloobchod 2,3 % těsně pod normou 2,4 %). Proti měně mluví reálný výnos (-0,06 vůči koši při inflaci 2,1 %, národní jádrové CPI 23. října vyšlo podle čekání, předtím 1,7 %) a od 16. listopadu také růst: předběžné HDP q/q vyšlo 0,0 % proti čekaným 0,1 % (předtím 0,3 %) a složka růstu se tím z kladné stala zápornou, proto skóre kleslo z 2,7. Další údaje 16. listopadu: deflátor HDP y/y 2,4 % proti čekaným 2,6 %, upravená průmyslová výroba 2,0 % proti čekaným 2,2 %. Dřívější data: ceny výrobců PPI y/y 7,1 % proti čekaným 6,5 %, průměrné mzdy 4,6 % proti čekaným 3,8 %; slabší jsou spotřeba domácností -6,8 % proti čekaným -3,1 % a nálada obchodníků 46,1 proti čekaným 47,1, ty do skóre nevstupují. Podle aktuálního skóre koše je tahle měna silnější než AUD, CAD, CHF, EUR, NZD a zároveň slabší než GBP, USD. Pozicování velkých spekulantů je bez extrému (77. percentil).",
+  "forward_flag": "20. listopadu vyjde National Core CPI y/y (odhad 2,3 % proti předchozím 2,1 %), 24. listopadu BOJ Core CPI y/y a 25. listopadu SPPI y/y; protože reálný výnos je záporný, zrychlení jádrové inflace nad odhad by ho prohloubilo, zatímco potvrzení 2,3 % ho zlepší jen mírně, a po slabém růstu přidává inflace argument pro další zvyšování sazby.",
+  "scenarios": [
+   {
+    "event": "PPI y/y",
+    "date": "2026-11-12",
+    "tier": "druhořadý",
+    "why_it_matters": "Ceny výrobců ukazují inflační tlak, který podporuje další zvyšování sazby Bank of Japan; do skóre nevstupují.",
+    "market_expectation": "Čekalo se 6,5 % po předchozích 6,8 %.",
+    "thesis_test": "Vysoké hodnoty podporují cenění dalšího zvyšování sazby, ke změně složky by musela vzrůst spotřebitelská inflace.",
+    "reaction": "asymetrická",
+    "reaction_note": "Odhad počítal se zpomalením, takže překvapení nahoru váží víc.",
+    "outcome": "PPI y/y vyšlo 7,1 % proti čekaným 6,5 % (předtím 6,8 %), tedy nad odhadem; inflační tlak výrobců sílí, do skóre to ale nevstupuje."
+   },
+   {
+    "event": "Prelim GDP Price Index y/y",
+    "date": "2026-11-16",
+    "tier": "kontext",
+    "why_it_matters": "Cenový deflátor HDP je jen kontext k inflaci a do skóre nevstupuje.",
+    "market_expectation": "Čekalo se 2,6 % po předchozích 2,6 %.",
+    "thesis_test": "Hodnota pod odhadem snižuje cenový tlak v ekonomice; tezi ani skóre sama nezmění.",
+    "reaction": "omezená",
+    "reaction_note": "Do skóre nevstupuje, takže reakce bývá malá.",
+    "outcome": "Deflátor HDP y/y vyšel 2,4 % proti čekaným 2,6 %, tedy pod odhadem; cenový tlak v ekonomice mírně slábne, do skóre to ale nevstupuje."
+   },
+   {
+    "event": "Trade Balance",
+    "date": "2026-11-18",
+    "tier": "kontext",
+    "why_it_matters": "Obchodní bilance do skóre JPY nevstupuje a je jen kontextem.",
+    "market_expectation": "Čeká se -0,88 bilionu po předchozích -0,70 bilionu.",
+    "thesis_test": "Prohloubení schodku nad odhad by potvrdilo slabší vnější obraz; tezi samo nezmění.",
+    "reaction": "omezená",
+    "reaction_note": "Nevstupuje do skóre, takže reakce bývá malá.",
+    "outcome": null
+   },
+   {
+    "event": "National Core CPI y/y",
+    "date": "2026-11-20",
+    "tier": "klíčový",
+    "why_it_matters": "Jádrová roční inflace je vstup reálného výnosu JPY, který je záporný (-0,06 vůči koši).",
+    "market_expectation": "Čeká se zrychlení na 2,3 % z 2,1 %.",
+    "thesis_test": "Hodnota nad 2,3 % by záporný reálný výnos prohloubila, zpomalení pod 2,1 % by ho zlepšilo až k neutrálu.",
+    "reaction": "silná",
+    "reaction_note": "Odhad už počítá se zrychlením, takže překvapení v obou směrech hýbe reálným výnosem.",
+    "outcome": null
+   },
+   {
+    "event": "Flash Manufacturing PMI",
+    "date": "2026-11-24",
+    "tier": "druhořadý",
+    "why_it_matters": "PMI je kladná složka skóre JPY (53,3 nad hranicí expanze 50).",
+    "market_expectation": "Bez konsenzu a bez předchozí hodnoty v datech.",
+    "thesis_test": "Pokles pod 50 by složku PMI otočil; hodnoty nad 50 ji drží kladnou.",
+    "reaction": "omezená",
+    "reaction_note": "PMI má ve skóre malou váhu, takže reakce bývá malá.",
+    "outcome": null
+   },
+   {
+    "event": "Retail Sales y/y",
+    "date": "2026-11-30",
+    "tier": "druhořadý",
+    "why_it_matters": "Spotřeba je neutrální složka skóre JPY (2,3 % těsně pod normou 2,4 %).",
+    "market_expectation": "Bez konsenzu a bez předchozí hodnoty v datech.",
+    "thesis_test": "Hodnota nad normou 2,4 % by složku otočila do kladné; výrazný pokles do záporné.",
+    "reaction": "asymetrická",
+    "reaction_note": "Složka leží těsně u normy, takže malé překvapení může změnit stav.",
+    "outcome": null
+   },
+   {
+    "event": "Unemployment Rate",
+    "date": "2026-12-01",
+    "tier": "druhořadý",
+    "why_it_matters": "Trh práce je kladná složka skóre JPY a váží nejvíc (2,4 % pod normou 2,47 %).",
+    "market_expectation": "Bez konsenzu v datech; poslední hodnota je 2,4 %.",
+    "thesis_test": "Růst nad normu 2,47 % by složku vrátil do neutrálu a skóre výrazně snížil.",
+    "reaction": "silná",
+    "reaction_note": "Je to složka s největší váhou ve skóre.",
+    "outcome": null
+   },
+   {
+    "event": "Consumer Confidence",
+    "date": "2026-12-02",
+    "tier": "kontext",
+    "why_it_matters": "Důvěra spotřebitelů je jen kontext ke spotřebě a do skóre nevstupuje.",
+    "market_expectation": "Bez konsenzu a bez předchozí hodnoty v datech.",
+    "thesis_test": "Pokles by potvrdil slabou spotřebu domácností; tezi samo nezmění.",
+    "reaction": "omezená",
+    "reaction_note": "Do skóre nevstupuje, takže reakce bývá malá.",
+    "outcome": null
+   }
+  ]
+ }
+]
