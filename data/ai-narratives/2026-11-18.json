@@ -274,7 +274,7 @@
     "market_expectation": "Bez konsenzu a bez předchozí hodnoty v datech.",
     "thesis_test": "Velká revize od předběžné hodnoty by změnila čtení; drobná ne.",
     "reaction": "omezená",
-    "reaction_note": "Revize bývá malá.",
+    "reaction_note": "Konečná revize bývá malá a údaj nic nemění.",
     "outcome": null
    },
    {
@@ -285,7 +285,7 @@
     "market_expectation": "Bez konsenzu a bez předchozí hodnoty v datech.",
     "thesis_test": "Velká revize od předběžné hodnoty by změnila čtení; drobná ne.",
     "reaction": "omezená",
-    "reaction_note": "Revize bývá malá.",
+    "reaction_note": "Konečná revize bývá malá a údaj nic nemění.",
     "outcome": null
    }
   ]
