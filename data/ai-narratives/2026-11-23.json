@@ -295,7 +295,7 @@
   "conviction_note": "Jistota čtení je střední: se směrem skóre souhlasí 3 ze 6 složek (politika, trh práce, PMI), jedna je neutrální (spotřeba) a dvě záporné (reálný výnos, růst); největší váhu má kladný trh práce.",
   "thesis_change_note": "Skóre zůstává 2,0 jako při předchozím textu. Národní jádrové CPI vyšlo 20. listopadu 2,2 % proti čekaným 2,3 %, reálný výnos se tím mírně prohloubil na -0,08 vůči koši, stav složky se ale nezměnil. Býčí teze JPY zůstává aktivní a opírá se o aktivitu ekonomiky (práce, růst, spotřeba, PMI).",
   "narrative": "JPY má mírně pozitivní stav se skóre 2,0 a všech šest složek má data. Pro měnu mluví politika Bank of Japan (sazba 1,25 %, 30. října ponechána podle konsensu, cyklus zvyšování s růstem o 0,50 % za rok), trh práce (nezaměstnanost 2,4 % pod normou 2,47 %) a PMI 53,3. Spotřeba je neutrální (maloobchod 2,3 % těsně pod normou 2,4 %). Proti měně mluví reálný výnos (-0,08 vůči koši při inflaci 2,2 %; národní jádrové CPI 20. listopadu vyšlo 2,2 % proti čekaným 2,3 %, předtím 2,1 %) a od 16. listopadu také růst: předběžné HDP q/q vyšlo 0,0 % proti čekaným 0,1 % (předtím 0,3 %) a složka růstu se tím z kladné stala zápornou, proto skóre kleslo z 2,7. Další údaje 16. listopadu: deflátor HDP y/y 2,4 % proti čekaným 2,6 %, upravená průmyslová výroba 2,0 % proti čekaným 2,2 %. Dřívější data: ceny výrobců PPI y/y 7,1 % proti čekaným 6,5 %, průměrné mzdy 4,6 % proti čekaným 3,8 %; slabší jsou spotřeba domácností -6,8 % proti čekaným -3,1 % a nálada obchodníků 46,1 proti čekaným 47,1, ty do skóre nevstupují. Obchodní bilance 18. listopadu vyšla -0,77 bilionu proti čekaným -0,90 bilionu a aktivita ve službách 17. listopadu -0,5 % proti čekaným 0,1 %; do skóre nevstupují. Podle aktuálního skóre koše je tahle měna silnější než AUD, CAD, CHF, EUR, NZD, slabší než GBP a se skóre 2,0 je na stejné úrovni jako USD. Pozicování velkých spekulantů je bez extrému (77. percentil).",
-  "forward_flag": "24. listopadu vyjde BOJ Core CPI y/y (odhad 2,5 % proti předchozím 2,4 %) a 25. listopadu SPPI y/y (odhad 3,6 % proti předchozím 3,7 %); protože reálný výnos je záporný (-0,08 vůči koši), zrychlení jádrové inflace nad odhad by ho zlepšilo až k neutrálu, zatímco zpomalení by ho prohloubilo.",
+  "forward_flag": "24. listopadu vyjde BOJ Core CPI y/y (předchozí hodnota 2,4 %) a 25. listopadu SPPI y/y (odhad 3,6 % proti předchozím 3,7 %); protože reálný výnos je záporný (-0,08 vůči koši), zrychlení jádrové inflace nad odhad by ho zlepšilo až k neutrálu, zatímco zpomalení by ho prohloubilo.",
   "scenarios": [
    {
     "event": "National Core CPI y/y",
@@ -313,7 +313,7 @@
     "date": "2026-11-24",
     "tier": "druhořadý",
     "why_it_matters": "Jádrová inflace podle Bank of Japan je doplněk ke spotřebitelské inflaci, která vstupuje do reálného výnosu.",
-    "market_expectation": "Čeká se 2,5 % po předchozích 2,4 %.",
+    "market_expectation": "Bez konsenzu v datech; předchozí hodnota je 2,4 %.",
     "thesis_test": "Zrychlení nad odhad by podpořilo další zvyšování sazby; zpomalení by tlak zmírnilo.",
     "reaction": "omezená",
     "reaction_note": "Do skóre nevstupuje, takže reakce bývá malá.",
