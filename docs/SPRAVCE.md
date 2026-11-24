@@ -66,6 +66,8 @@ Denní kontrola (návrh): čerstvost kalendáře/cen/COT, shoda textů se skóre
 - Slabiny, o kterých uživatel ví: USD trh práce vychází jen z míry nezaměstnanosti (NFP a mzdy zůstávají v překvapení a textu); CHF „Silný" je na hraně pásma.
 - Vypnuté cron workflowy (e-maily o selhání): `generate-narrative` (OpenAI) a `ingest-intraday-retail` (retail sentiment, nikdo ho nečte). Obojí jen ručně; návrat = vrátit `schedule` ve workflow.
 
+> **PLATÍ OD 24. 11. 2026 (pokyn uživatele): automatické kontroly jsou ZASTAVENÉ.** Plánovaná úloha „Správce Fundament – kontrola 2× denně“ je vypnutá. Denní kontrola se dělá JEN když uživatel napíše „Udělej denní kontrolu“. Bez tohoto příkazu se kontrola ani aktualizace textů sama nespouští, ani když přijde připomínka nebo upozornění.
+
 ## 9. Denní běh správce (2× denně, pracovní dny)
 Cíl: aplikace je ve chvíli, kdy se na ni uživatel podívá, aktuální (swing trading, horizont dnů až týdnů; index je čtení fundamentální situace, ne signál k obchodu).
 1. **Stav**: `Check Narrative Freshness` (hodinový) + čtení `latest_narratives`, `latest_confluence_scores`, `calendar_events` (nové `actual` od posledního běhu). Nic nového ⇒ hodnocení se nemění, jen krátký záznam.
